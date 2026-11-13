@@ -1,0 +1,68 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.applicationmap.map.processor;
+
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.applicationmap.map.AcceptApplication;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+
+public class AcceptApplicationLocalCacheTest {
+
+    AcceptApplication localhost = new AcceptApplication("localhost:8080", new Application("LOCALHOST", ServiceType.STAND_ALONE));
+
+    @Test
+    public void testFind() {
+        AcceptApplicationLocalCache cache = new AcceptApplicationLocalCache();
+
+        Application tomcat = new Application("Tomcat", ServiceType.STAND_ALONE);
+        RpcApplication localHostRpc = new RpcApplication("localhost:8080", tomcat);
+        // find the application that accept the rpc request of calling to localhost:8080 at tomcat itself
+
+        AcceptApplicationSet findSet =  createAcceptApplication(localhost);
+
+        cache.put(localHostRpc, findSet);
+
+        // found
+        AcceptApplicationSet acceptApplications = cache.get(localHostRpc);
+        assertEquals(1, acceptApplications.size());
+        Assertions.assertEquals(acceptApplications.firstElement(), localhost);
+
+        // not found
+        AcceptApplicationSet unknown = cache.get(new RpcApplication("unknown:8080", tomcat));
+        assertThat(unknown).isNull();
+    }
+
+
+    private AcceptApplicationSet createAcceptApplication(AcceptApplication acceptApplication) {
+        AcceptApplication naver = new AcceptApplication("www.naver.com", new Application("Naver", ServiceType.STAND_ALONE));
+        AcceptApplication daum = new AcceptApplication("www.daum.com", new Application("Daum", ServiceType.STAND_ALONE));
+        AcceptApplication nate = new AcceptApplication("www.nate.com", new Application("Nate", ServiceType.STAND_ALONE));
+
+        AcceptApplicationSet set = new AcceptApplicationSet();
+        set.add(naver);
+        set.add(daum);
+        set.add(nate);
+        set.add(acceptApplication);
+        return set;
+    }
+}

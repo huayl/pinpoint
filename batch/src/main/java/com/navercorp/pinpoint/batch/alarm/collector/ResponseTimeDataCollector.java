@@ -16,15 +16,16 @@
 
 package com.navercorp.pinpoint.batch.alarm.collector;
 
-import com.navercorp.pinpoint.batch.alarm.DataCollectorFactory.DataCollectorCategory;
-import com.navercorp.pinpoint.web.applicationmap.histogram.TimeHistogram;
-import com.navercorp.pinpoint.web.dao.MapResponseDao;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
-import com.navercorp.pinpoint.web.vo.ResponseTime;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.web.alarm.DataCollectorCategory;
+import com.navercorp.pinpoint.applicationmap.dao.ApplicationResponse;
+import com.navercorp.pinpoint.applicationmap.dao.MapResponseDao;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import com.navercorp.pinpoint.common.server.bo.Application;
 
 import java.util.Collection;
-import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -38,16 +39,21 @@ public class ResponseTimeDataCollector extends DataCollector {
     private final long slotInterval;
     private final AtomicBoolean init =new AtomicBoolean(false); // need to consider a race condition when checkers start simultaneously.
 
+    private long fastCount = 0;
+    private long normalCount = 0;
     private long slowCount = 0;
     private long errorCount = 0;
     private long totalCount = 0;
     private long slowRate = 0;
     private long errorRate = 0;
 
-    public ResponseTimeDataCollector(DataCollectorCategory category, Application application, MapResponseDao responseDAO, long timeSlotEndTime, long slotInterval) {
+    public ResponseTimeDataCollector(DataCollectorCategory category,
+                                     Application application,
+                                     MapResponseDao responseDao,
+                                     long timeSlotEndTime, long slotInterval) {
         super(category);
-        this.application = application;
-        this.responseDao = responseDAO;
+        this.application = Objects.requireNonNull(application, "application");
+        this.responseDao = Objects.requireNonNull(responseDao, "responseDao");
         this.timeSlotEndTime = timeSlotEndTime;
         this.slotInterval = slotInterval;
     }
@@ -58,12 +64,12 @@ public class ResponseTimeDataCollector extends DataCollector {
             return;
         }
 
-        Range range = Range.newUncheckedRange(timeSlotEndTime - slotInterval, timeSlotEndTime);
-        List<ResponseTime> responseTimes = responseDao.selectResponseTime(application, range);
+        Range range = Range.between(timeSlotEndTime - slotInterval, timeSlotEndTime);
+        TimeWindow timeWindow = new TimeWindow(range);
 
-        for (ResponseTime responseTime : responseTimes) {
-            sum(responseTime.getAgentResponseHistogramList());
-        }
+        ApplicationResponse applicationResponse = responseDao.selectApplicationResponse(application, timeWindow);
+        sum(applicationResponse.getApplicationHistograms());
+
 
         setSlowRate();
         setErrorRate();
@@ -89,11 +95,21 @@ public class ResponseTimeDataCollector extends DataCollector {
 
     private void sum(Collection<TimeHistogram> timeHistograms) {
         for (TimeHistogram timeHistogram : timeHistograms) {
+            fastCount += timeHistogram.getFastCount();
+            normalCount += timeHistogram.getNormalCount();
             slowCount += timeHistogram.getSlowCount();
             slowCount += timeHistogram.getVerySlowCount();
             errorCount += timeHistogram.getTotalErrorCount();
             totalCount += timeHistogram.getTotalCount();
         }
+    }
+
+    public long getFastCount() {
+        return fastCount;
+    }
+
+    public long getNormalCount() {
+        return normalCount;
     }
 
     public long getSlowCount() {

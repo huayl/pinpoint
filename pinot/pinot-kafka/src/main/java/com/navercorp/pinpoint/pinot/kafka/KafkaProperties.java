@@ -1,0 +1,112 @@
+package com.navercorp.pinpoint.pinot.kafka;
+
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
+
+public class KafkaProperties {
+    private String bootstrapServers;
+    private String keySerializer = StringSerializer.class.getName();
+    private String byteArrayKeySerializer = ByteArraySerializer.class.getName();
+    private String valueSerializer = JacksonJsonSerializer.class.getName();
+    private String partitionerClass;
+    private String acks = "1";
+    private String compressionType = "zstd";
+    private Long maxBlockMs = 60 * 1000L;
+    // null: use the kafka client default (32MB)
+    private Long bufferMemory;
+    // null: use the kafka client default (0)
+    private Long lingerMs;
+
+    public String getBootstrapServers() {
+        return bootstrapServers;
+    }
+
+    public void setBootstrapServers(String bootstrapServers) {
+        this.bootstrapServers = bootstrapServers;
+    }
+
+    public String getKeySerializer() {
+        return keySerializer;
+    }
+
+    public void setKeySerializer(String keySerializer) {
+        this.keySerializer = keySerializer;
+    }
+
+    public String getByteArrayKeySerializer() {
+        return byteArrayKeySerializer;
+    }
+
+    public String getValueSerializer() {
+        return valueSerializer;
+    }
+
+    public void setValueSerializer(String valueSerializer) {
+        this.valueSerializer = valueSerializer;
+    }
+
+    public String getPartitionerClass() {
+        return partitionerClass;
+    }
+
+    public void setPartitionerClass(String partitionerClass) {
+        this.partitionerClass = partitionerClass;
+    }
+
+    public String getAcks() {
+        return acks;
+    }
+
+    public void setAcks(String acks) {
+        this.acks = acks;
+    }
+
+    public String getCompressionType() {
+        return compressionType;
+    }
+
+    public void setCompressionType(String compressionType) {
+        this.compressionType = compressionType;
+    }
+
+    public Long getMaxBlockMs() {
+        return maxBlockMs;
+    }
+
+    public void setMaxBlockMs(Long maxBlockMs) {
+        this.maxBlockMs = maxBlockMs;
+    }
+
+    public Long getBufferMemory() {
+        return bufferMemory;
+    }
+
+    public void setBufferMemory(Long bufferMemory) {
+        this.bufferMemory = bufferMemory;
+    }
+
+    public Long getLingerMs() {
+        return lingerMs;
+    }
+
+    public void setLingerMs(Long lingerMs) {
+        this.lingerMs = lingerMs;
+    }
+
+    @Override
+    public String toString() {
+        return "KafkaProperties{" +
+                "bootstrapServers='" + bootstrapServers + '\'' +
+                ", keySerializer='" + keySerializer + '\'' +
+                ", byteArrayKeySerializer='" + byteArrayKeySerializer + '\'' +
+                ", valueSerializer='" + valueSerializer + '\'' +
+                ", partitionerClass='" + partitionerClass + '\'' +
+                ", acks='" + acks + '\'' +
+                ", compressionType='" + compressionType + '\'' +
+                ", maxBlockMs=" + maxBlockMs +
+                ", bufferMemory=" + bufferMemory +
+                ", lingerMs=" + lingerMs +
+                '}';
+    }
+}

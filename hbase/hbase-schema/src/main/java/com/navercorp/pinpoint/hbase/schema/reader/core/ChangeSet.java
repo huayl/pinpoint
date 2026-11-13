@@ -16,7 +16,7 @@
 
 package com.navercorp.pinpoint.hbase.schema.reader.core;
 
-import com.navercorp.pinpoint.common.util.StringUtils;
+import org.springframework.util.Assert;
 
 import java.util.Collections;
 import java.util.List;
@@ -32,9 +32,7 @@ public class ChangeSet {
     private final List<TableChange> tableChanges;
 
     public ChangeSet(String id, String value, List<TableChange> tableChanges) {
-        if (StringUtils.isEmpty(id)) {
-            throw new IllegalArgumentException("id must not be empty");
-        }
+        Assert.hasLength(id, "id must not be empty");
         this.id = id;
         this.value = Objects.requireNonNull(value, "value");
         this.tableChanges = Objects.requireNonNull(tableChanges, "tableChanges");
@@ -69,11 +67,10 @@ public class ChangeSet {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("ChangeSet{");
-        sb.append("id='").append(id).append('\'');
-        sb.append(", value='").append(value).append('\'');
-        sb.append(", tableChanges=").append(tableChanges);
-        sb.append('}');
-        return sb.toString();
+        return "ChangeSet{" +
+                "id='" + id + '\'' +
+                ", value='" + value + '\'' +
+                ", tableChanges=" + tableChanges +
+                '}';
     }
 }

@@ -1,0 +1,18 @@
+serviceTypes:
+  - code: 1160
+    name: 'KTOR'
+    property:
+      recordStatistics: true
+  - code: 1161
+    name: 'KTOR_INTERNAL'
+    desc: 'KTOR'
+  - code: 9068
+    name: 'KTOR_CLIENT'
+    property:
+      recordStatistics: true
+  - code: 9069
+    name: 'KTOR_CLIENT_INTERNAL'
+    desc: 'KTOR_CLIENT'
+    matcher:
+      type: 'exact'
+      code: 46

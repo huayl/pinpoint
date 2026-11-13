@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,18 +17,18 @@
 package com.navercorp.pinpoint.common.hbase.parallel;
 
 import com.navercorp.pinpoint.common.hbase.HbaseAccessor;
-import com.sematext.hbase.wd.AbstractRowKeyDistributor;
-
+import com.navercorp.pinpoint.common.hbase.util.CellUtils;
+import com.navercorp.pinpoint.common.hbase.wd.DistributedScan;
+import com.navercorp.pinpoint.common.hbase.wd.LocalScanner;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.metrics.ScanMetrics;
-import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -38,60 +38,67 @@ import java.util.concurrent.ExecutorService;
  */
 public class ParallelResultScanner implements ResultScanner {
 
-    private final AbstractRowKeyDistributor keyDistributor;
-    private final List<ScanTask> scanTasks;
-    private final Result[] nextResults;
+    private final int saltKeySize;
+    private final ScanTask[] scanTasks;
+
     private Result next = null;
 
-    public ParallelResultScanner(TableName tableName, HbaseAccessor hbaseAccessor, ExecutorService executor, Scan originalScan, AbstractRowKeyDistributor keyDistributor, int numParallelThreads) throws IOException {
+    public ParallelResultScanner(TableName tableName, HbaseAccessor hbaseAccessor, ExecutorService executor, Scan originalScan,
+                                 RowKeyDistributor keyDistributor, int numParallelThreads) throws IOException {
         Objects.requireNonNull(hbaseAccessor, "hbaseAccessor");
         Objects.requireNonNull(executor, "executor");
         Objects.requireNonNull(originalScan, "originalScan");
 
-        this.keyDistributor = Objects.requireNonNull(keyDistributor, "keyDistributor");
+        Objects.requireNonNull(keyDistributor, "keyDistributor");
+        this.saltKeySize = keyDistributor.getSaltKeySize();
 
-        final ScanTaskConfig scanTaskConfig = new ScanTaskConfig(tableName, hbaseAccessor, keyDistributor, originalScan.getCaching());
-        final Scan[] splitScans = splitScans(originalScan);
+        final DistributedScan dScan = keyDistributor.getDistributedScans(originalScan);
+        final ScanTaskConfig scanTaskConfig = ScanTaskConfig.of(tableName, hbaseAccessor.getTableFactory(), saltKeySize,
+                originalScan.getCaching(), hbaseAccessor.getConfiguration(), dScan.isEnableScanMetrics());
 
-        this.scanTasks = createScanTasks(scanTaskConfig, splitScans, numParallelThreads);
-        this.nextResults = new Result[scanTasks.size()];
+        this.scanTasks = createScanTasks(scanTaskConfig, dScan, numParallelThreads);
         for (ScanTask scanTask : scanTasks) {
             executor.execute(scanTask);
         }
     }
 
-    private Scan[] splitScans(Scan originalScan) throws IOException {
-        Scan[] scans = this.keyDistributor.getDistributedScans(originalScan);
-        for (int i = 0; i < scans.length; i++) {
-            Scan scan = scans[i];
-            scan.setId(originalScan.getId() + "-" + i);
-        }
-        return scans;
-    }
 
-    private List<ScanTask> createScanTasks(ScanTaskConfig scanTaskConfig, Scan[] splitScans, int numParallelThreads) {
+    private ScanTask[] createScanTasks(ScanTaskConfig scanTaskConfig, DistributedScan distributedScan, int numParallelThreads) {
+        Scan[] splitScans = distributedScan.getScans();
         if (splitScans.length <= numParallelThreads) {
-            List<ScanTask> scanTasks = new ArrayList<>(splitScans.length);
-            for (Scan scan : splitScans) {
-                scanTasks.add(new ScanTask(scanTaskConfig, scan));
+            ScanTask[] scanTasks = new ScanTask[splitScans.length];
+            for (int i = 0; i < splitScans.length; i++) {
+                Scan scan = splitScans[i];
+                scanTasks[i] = new ScanTask(scanTaskConfig, scan);
             }
             return scanTasks;
         } else {
-            int maxIndividualScans = (splitScans.length + (numParallelThreads - 1)) / numParallelThreads;
-            List<List<Scan>> scanDistributions = new ArrayList<>(numParallelThreads);
-            for (int i = 0; i < numParallelThreads; i++) {
-                scanDistributions.add(new ArrayList<Scan>(maxIndividualScans));
-            }
-            for (int i = 0; i < splitScans.length; i++) {
-                scanDistributions.get(i % numParallelThreads).add(splitScans[i]);
-            }
-            List<ScanTask> scanTasks = new ArrayList<>(numParallelThreads);
-            for (List<Scan> scanDistribution : scanDistributions) {
+            List<List<Scan>> scanDistributions = scanDistributions(splitScans, numParallelThreads);
+
+            ScanTask[] scanTasks = new ScanTask[scanDistributions.size()];
+            for (int i = 0; i < scanDistributions.size(); i++) {
+                List<Scan> scanDistribution = scanDistributions.get(i);
                 Scan[] scansForSingleTask = scanDistribution.toArray(new Scan[0]);
-                scanTasks.add(new ScanTask(scanTaskConfig, scansForSingleTask));
+                scanTasks[i] = new ScanTask(scanTaskConfig, scansForSingleTask);
             }
             return scanTasks;
         }
+    }
+
+    private List<List<Scan>> scanDistributions(Scan[] scans, int numParallelThreads) {
+        int numDistributions = Math.min(scans.length, numParallelThreads);
+        int initialCapacity = (scans.length + numDistributions - 1) / numDistributions;
+
+        List<List<Scan>> distributions = new ArrayList<>(numDistributions);
+        for (int i = 0; i < numDistributions; i++) {
+            distributions.add(new ArrayList<>(initialCapacity));
+        }
+
+        for (int i = 0; i < scans.length; i++) {
+            int bucketIndex = i % numDistributions;
+            distributions.get(bucketIndex).add(scans[i]);
+        }
+        return distributions;
     }
 
     private boolean hasNext() throws IOException {
@@ -114,30 +121,26 @@ public class ParallelResultScanner implements ResultScanner {
 
     private Result nextInternal() throws IOException {
         Result result = null;
-        int indexOfResultToUse = -1;
-        for (int i = 0; i < this.scanTasks.size(); i++) {
-            ScanTask scanTask = this.scanTasks.get(i);
+        LocalScanner fetchedScanner = null;
+        for (ScanTask localScanner : this.scanTasks) {
             // fail fast in case of errors
-            checkTask(scanTask);
-            if (nextResults[i] == null) {
-                try {
-                    nextResults[i] = scanTask.getResult();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return null;
-                }
-                if (nextResults[i] == null) {
-                    continue;
-                }
+            checkTask(localScanner);
+            if (localScanner.isExhausted()) {
+                continue;
             }
-            if (result == null || Bytes.compareTo(keyDistributor.getOriginalKey(nextResults[i].getRow()),
-                    keyDistributor.getOriginalKey(result.getRow())) < 0) {
-                result = nextResults[i];
-                indexOfResultToUse = i;
+            Result localResult = localScanner.next();
+            if (localResult == null) {
+                continue;
+            }
+
+            if (result == null || CellUtils.compareFirstRow(localResult, result, saltKeySize) < 0) {
+                result = localResult;
+                fetchedScanner = localScanner;
             }
         }
-        if (indexOfResultToUse >= 0) {
-            nextResults[indexOfResultToUse] = null;
+
+        if (fetchedScanner != null) {
+            fetchedScanner.consume();
         }
         return result;
     }
@@ -147,22 +150,6 @@ public class ParallelResultScanner implements ResultScanner {
         if (th != null) {
             throw new ScanTaskException(th);
         }
-    }
-
-    @Override
-    public Result[] next(int nbRows) throws IOException {
-        // Identical to HTable.ClientScanner implementation
-        // Collect values to be returned here
-        ArrayList<Result> resultSets = new ArrayList<>(nbRows);
-        for (int i = 0; i < nbRows; i++) {
-            Result next = next();
-            if (next != null) {
-                resultSets.add(next);
-            } else {
-                break;
-            }
-        }
-        return resultSets.toArray(new Result[0]);
     }
 
     @Override
@@ -178,51 +165,5 @@ public class ParallelResultScanner implements ResultScanner {
 
     public ScanMetrics getScanMetrics() {
         return null;
-    }
-
-    @Override
-    public Iterator<Result> iterator() {
-        // Identical to HTable.ClientScanner implementation
-        return new Iterator<Result>() {
-            // The next RowResult, possibly pre-read
-            Result next = null;
-
-            // return true if there is another item pending, false if there isn't.
-            // this method is where the actual advancing takes place, but you need
-            // to call next() to consume it. hasNext() will only advance if there
-            // isn't a pending next().
-            public boolean hasNext() {
-                if (next == null) {
-                    try {
-                        next = ParallelResultScanner.this.next();
-                        return next != null;
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-                return true;
-            }
-
-            // get the pending next item and advance the iterator. returns null if
-            // there is no next item.
-            public Result next() {
-                // since hasNext() does the real advancing, we call this to determine
-                // if there is a next before proceeding.
-                if (!hasNext()) {
-                    return null;
-                }
-
-                // if we get to here, then hasNext() has given us an item to return.
-                // we want to return the item and then null out the next pointer, so
-                // we use a temporary variable.
-                Result temp = next;
-                next = null;
-                return temp;
-            }
-
-            public void remove() {
-                throw new UnsupportedOperationException();
-            }
-        };
     }
 }

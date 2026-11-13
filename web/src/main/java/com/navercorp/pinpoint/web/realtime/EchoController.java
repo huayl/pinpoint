@@ -1,0 +1,66 @@
+/*
+ * Copyright 2014 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.realtime;
+
+import com.navercorp.pinpoint.common.server.cluster.ClusterKey;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
+import com.navercorp.pinpoint.web.service.AgentService;
+import com.navercorp.pinpoint.web.service.EchoService;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Objects;
+
+@RestController
+@RequestMapping("/api/command")
+@Validated
+public class EchoController {
+
+    private final AgentService agentService;
+    private final EchoService echoService;
+
+    public EchoController(AgentService agentService, EchoService echoService) {
+        this.agentService = Objects.requireNonNull(agentService, "agentService");
+        this.echoService = Objects.requireNonNull(echoService, "echoService");
+    }
+
+    @GetMapping(value = "/echo")
+    public String echo(
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam("agentId") @NotBlank String agentId,
+            @RequestParam("startTimeStamp") Timestamp startTimeStamp,
+            @RequestParam("message") @NotBlank String message
+    ) {
+        final ClusterKey clusterKey = agentService.getClusterKey(applicationName, agentId, startTimeStamp.getEpochMillis(), true);
+        if (clusterKey == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    String.format("Can't find suitable PinpointServer(%s/%s/%d).",
+                            applicationName, agentId, startTimeStamp.getEpochMillis())
+            );
+        }
+
+        return this.echoService.echo(clusterKey, message);
+    }
+
+}

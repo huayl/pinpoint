@@ -1,0 +1,57 @@
+package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.config;
+
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanChunkSerializerV2;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanDecoderV0;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanEncoder;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanEncoderV0;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanHeaderFactory;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanSerializerV2;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.TraceRowKeyDecoderV2;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.TraceRowKeyEncoderV2;
+import com.navercorp.pinpoint.common.server.uid.ServiceHeaderEnabled;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class SpanSerializeConfiguration {
+    @Bean
+    public SpanChunkSerializerV2 spanChunkSerializerV2(SpanEncoder spanEncoder) {
+        return new SpanChunkSerializerV2(spanEncoder);
+    }
+
+    @Bean
+    public SpanSerializerV2 spanSerializerV2(SpanEncoder spanEncoder) {
+        return new SpanSerializerV2(spanEncoder);
+    }
+
+    @Bean
+    public SpanDecoderV0 spanDecoderV0() {
+        return new SpanDecoderV0();
+    }
+
+    @Bean
+    public SpanHeaderFactory spanHeaderFactory(ServiceHeaderEnabled serviceHeaderEnabled) {
+        return new SpanHeaderFactory(serviceHeaderEnabled.isEnabled());
+    }
+
+    @Bean
+    public SpanEncoderV0 spanEncoderV0(SpanHeaderFactory spanHeaderFactory) {
+        return new SpanEncoderV0(spanHeaderFactory);
+    }
+
+
+    @Bean
+    public TraceRowKeyDecoderV2 traceRowKeyDecoderV2() {
+        return new TraceRowKeyDecoderV2();
+    }
+
+    @Bean
+    public TraceRowKeyEncoderV2 traceRowKeyEncoderV2(@Qualifier("traceV2Distributor") RowKeyDistributor rowKeyDistributor,
+                                                     @Qualifier("traceV2OtelDistributor") RowKeyDistributor otelRowKeyDistributor) {
+        return new TraceRowKeyEncoderV2(rowKeyDistributor, otelRowKeyDistributor);
+    }
+
+
+}

@@ -15,11 +15,10 @@
  */
 package com.navercorp.pinpoint.web.dao;
 
-import java.util.List;
-
-import com.navercorp.pinpoint.web.alarm.vo.CheckerResult;
 import com.navercorp.pinpoint.web.alarm.vo.Rule;
-import com.navercorp.pinpoint.web.vo.UserGroup;
+import com.navercorp.pinpoint.user.vo.UserGroup;
+
+import java.util.List;
 
 /**
  * @author minwoo.jung
@@ -33,21 +32,18 @@ public interface AlarmDao {
 
     void deleteRule(Rule rule);
 
-    void deleteRuleByUserGroupId(String userGroupId);
-
     List<Rule> selectRuleByUserGroupId(String userGroupId);
     
-    List<Rule> selectRuleByApplicationId(String applicationId);
+    List<Rule> selectRuleByApplicationName(String applicationName);
+
+    List<String> selectApplicationName();
 
     void updateRule(Rule rule);
     
     void updateRuleExceptWebhookSend(Rule rule);
 
-    List<CheckerResult> selectBeforeCheckerResultList(String applicationId);
 
     void deleteCheckerResult(String ruleId);
-
-    void insertCheckerResult(CheckerResult checkerResult);
 
     void updateUserGroupIdOfRule(UserGroup userGroup);
 }

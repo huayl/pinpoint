@@ -16,43 +16,63 @@
 
 package com.navercorp.pinpoint.collector.receiver.grpc.service;
 
+import com.navercorp.pinpoint.common.server.io.DefaultServerRequest;
+import com.navercorp.pinpoint.common.server.io.MessageType;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
 import com.navercorp.pinpoint.grpc.Header;
 import com.navercorp.pinpoint.grpc.server.ServerContext;
 import com.navercorp.pinpoint.grpc.server.TransportMetadata;
-import com.navercorp.pinpoint.io.request.DefaultServerRequest;
-import com.navercorp.pinpoint.io.request.Message;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-
+import com.navercorp.pinpoint.io.request.GrpcHeaderFactory;
+import com.navercorp.pinpoint.io.request.ServiceUidSuppliers;
+import com.navercorp.pinpoint.io.request.UidFetcher;
+import com.navercorp.pinpoint.io.request.UidFetcherService;
+import com.navercorp.pinpoint.io.request.UidFetchers;
 import io.grpc.Context;
-import io.grpc.Status;
-import io.grpc.StatusException;
 
-import java.net.InetSocketAddress;
+import java.util.Objects;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public class DefaultServerRequestFactory implements ServerRequestFactory {
+    private final GrpcHeaderFactory headerFactory;
+    private final UidFetcherService uidFetcherService;
 
     public DefaultServerRequestFactory() {
+        this(new GrpcHeaderFactory(), UidFetchers::defaultUidFetcher);
+    }
+
+    public DefaultServerRequestFactory(GrpcHeaderFactory headerFactory) {
+        this(headerFactory, UidFetchers::defaultUidFetcher);
+    }
+
+    public DefaultServerRequestFactory(UidFetcherService uidFetcherService) {
+        this(new GrpcHeaderFactory(), uidFetcherService);
+    }
+
+    public DefaultServerRequestFactory(GrpcHeaderFactory headerFactory, UidFetcherService uidFetcherService) {
+        this.headerFactory = Objects.requireNonNull(headerFactory, "headerFactory");
+        this.uidFetcherService = Objects.requireNonNull(uidFetcherService, "uidFetcherService");
     }
 
     @Override
-    public <T> ServerRequest<T> newServerRequest(Message<T> message) throws StatusException {
-        final Context current = Context.current();
-        final Header header = ServerContext.getAgentInfo(current);
-        if (header == null) {
-            throw Status.INTERNAL.withDescription("Not found request header").asException();
-        }
+    public <T> ServerRequest<T> newServerRequest(Context context, MessageType messageType, T data) {
+        return newServerRequest(context, uidFetcherService.newUidFetcher(), messageType, data);
+    }
 
-        final TransportMetadata transportMetadata = ServerContext.getTransportMetadata(current);
+    @Override
+    public <T> ServerRequest<T> newServerRequest(Context context, UidFetcher uidFetcher, MessageType messageType, T data) {
+        final Header header = ServerContext.getAgentInfo(context);
+        final TransportMetadata transportMetadata = ServerContext.getTransportMetadata(context);
         if (transportMetadata == null) {
-            throw Status.INTERNAL.withDescription("Not found transportMetadata").asException();
+            throw new IllegalStateException("transportMetadata is null");
         }
+        long requestTime = System.currentTimeMillis();
+        ServerHeader serverHeader = headerFactory.serverHeader(header,
+                ServiceUidSuppliers.newSupplier(header.getServiceName(), uidFetcher));
 
-        InetSocketAddress inetSocketAddress = transportMetadata.getRemoteAddress();
-        ServerRequest<T> request = new DefaultServerRequest<>(message, inetSocketAddress.getHostString(), inetSocketAddress.getPort());
-        return request;
+        return new DefaultServerRequest<>(serverHeader, transportMetadata, requestTime, messageType, data);
     }
 
 }

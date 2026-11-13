@@ -16,27 +16,31 @@
 
 package com.navercorp.pinpoint.grpc.server;
 
+import com.google.common.util.concurrent.MoreExecutors;
 import com.navercorp.pinpoint.common.profiler.concurrent.PinpointThreadFactory;
 import com.navercorp.pinpoint.common.util.CpuUtils;
-import com.navercorp.pinpoint.grpc.ExecutorUtils;
 import com.navercorp.pinpoint.grpc.channelz.ChannelzRegistry;
-import io.grpc.BindableService;
 import io.grpc.InternalWithLogId;
 import io.grpc.Server;
+import io.grpc.ServerCallExecutorSupplier;
 import io.grpc.ServerInterceptor;
 import io.grpc.ServerServiceDefinition;
 import io.grpc.ServerTransportFilter;
-import io.grpc.netty.LogIdServerListenerDelegator;
-import io.grpc.netty.PinpointNettyServerBuilder;
+import io.grpc.netty.NettyServerBuilder;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.ServerChannel;
 import io.netty.channel.WriteBufferWaterMark;
+import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.Future;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import javax.net.ssl.SSLException;
+import java.io.Closeable;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -49,12 +53,12 @@ import java.util.concurrent.TimeUnit;
 /**
  * @author Woonduk Kang(emeroad)
  */
-public class ServerFactory {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+public class ServerFactory implements Closeable {
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final String name;
 
-    private String hostname;
+    private final String hostname;
     private final int port;
 
     private final Class<? extends ServerChannel> channelType;
@@ -65,18 +69,36 @@ public class ServerFactory {
     private final EventLoopGroup workerEventLoopGroup;
 
     private final Executor serverExecutor;
+    private final ServerCallExecutorSupplier callExecutor;
 
-    private final List<Object> bindableServices = new ArrayList<Object>();
-    private final List<ServerTransportFilter> serverTransportFilters = new ArrayList<ServerTransportFilter>();
-    private final List<ServerInterceptor> serverInterceptors = new ArrayList<ServerInterceptor>();
+    private final List<ServerServiceDefinition> bindableServices = new ArrayList<>();
+    private final List<ServerTransportFilter> serverTransportFilters = new ArrayList<>();
+    private final List<ServerInterceptor> serverInterceptors = new ArrayList<>();
 
-    private ServerOption serverOption;
+    private final ServerOption serverOption;
+    private final ByteBufAllocator byteBufAllocator;
+    private final SslContext sslContext;
     private ChannelzRegistry channelzRegistry;
 
-    public ServerFactory(String name, String hostname, int port, Executor serverExecutor, ServerOption serverOption) {
+    public ServerFactory(String name, String hostname, int port,
+                         Executor serverExecutor,
+                         ServerCallExecutorSupplier callExecutor,
+                         ServerOption serverOption,
+                         ByteBufAllocator byteBufAllocator) {
+        this(name, hostname, port, serverExecutor, callExecutor, serverOption, byteBufAllocator, null);
+    }
+
+    public ServerFactory(String name, String hostname, int port,
+                         Executor serverExecutor,
+                         ServerCallExecutorSupplier callExecutor,
+                         ServerOption serverOption,
+                         ByteBufAllocator byteBufAllocator,
+                         SslContext sslContext) {
         this.name = Objects.requireNonNull(name, "name");
         this.hostname = Objects.requireNonNull(hostname, "hostname");
         this.serverOption = Objects.requireNonNull(serverOption, "serverOption");
+        this.byteBufAllocator = Objects.requireNonNull(byteBufAllocator, "byteBufAllocator");
+
         this.port = port;
 
         final ServerChannelType serverChannelType = getChannelType();
@@ -87,7 +109,10 @@ public class ServerFactory {
         this.workerExecutor = newExecutor(name + "-Channel-Worker");
         this.workerEventLoopGroup = serverChannelType.newEventLoopGroup(CpuUtils.cpuCount(), workerExecutor);
 
-        this.serverExecutor = Objects.requireNonNull(serverExecutor, "executor");
+        this.serverExecutor = Objects.requireNonNull(serverExecutor, "serverExecutor");
+        this.callExecutor = callExecutor;
+
+        this.sslContext = sslContext;
     }
 
     private ServerChannelType getChannelType() {
@@ -105,11 +130,6 @@ public class ServerFactory {
         this.channelzRegistry = Objects.requireNonNull(channelzRegistry, "channelzRegistry");
     }
 
-    public void addService(BindableService bindableService) {
-        Objects.requireNonNull(bindableService, "bindableService");
-        this.bindableServices.add(bindableService.bindService());
-    }
-
     public void addService(ServerServiceDefinition serverServiceDefinition) {
         Objects.requireNonNull(serverServiceDefinition, "serverServiceDefinition");
         this.bindableServices.add(serverServiceDefinition);
@@ -125,40 +145,42 @@ public class ServerFactory {
         this.serverInterceptors.add(serverInterceptor);
     }
 
-    public Server build() {
+    public Server build() throws SSLException, NoSuchFieldException, IllegalAccessException {
         InetSocketAddress bindAddress = new InetSocketAddress(this.hostname, this.port);
-        PinpointNettyServerBuilder serverBuilder = PinpointNettyServerBuilder.forAddress(bindAddress);
-        serverBuilder.serverListenerDelegator(new LogIdServerListenerDelegator());
+        NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(bindAddress);
 
         logger.info("ChannelType:{}", channelType.getSimpleName());
         serverBuilder.channelType(channelType);
         serverBuilder.bossEventLoopGroup(bossEventLoopGroup);
         serverBuilder.workerEventLoopGroup(workerEventLoopGroup);
 
-        setupInternal(serverBuilder);
+        NettyStatsOptions.disableStats(serverBuilder);
 
-        for (Object service : this.bindableServices) {
-
-            if (service instanceof BindableService) {
-                logger.info("Add BindableService={}, server={}", service, name);
-                serverBuilder.addService((BindableService) service);
-            } else if (service instanceof ServerServiceDefinition) {
-                final ServerServiceDefinition definition = (ServerServiceDefinition) service;
-                logger.info("Add ServerServiceDefinition={}, server={}", definition.getServiceDescriptor(), name);
-                serverBuilder.addService(definition);
-            }
+        for (ServerServiceDefinition service : this.bindableServices) {
+            logger.info("Add ServerServiceDefinition={}, server={}", service.getServiceDescriptor(), name);
+            serverBuilder.addService(service);
         }
+
         for (ServerTransportFilter transportFilter : this.serverTransportFilters) {
-            logger.info("Add transportFilter={}, server={}", transportFilter, name);
+            logger.info("Add ServerTransportFilter={}, server={}", transportFilter, name);
             serverBuilder.addTransportFilter(transportFilter);
         }
         for (ServerInterceptor serverInterceptor : this.serverInterceptors) {
-            logger.info("Add intercept={}, server={}", serverInterceptor, name);
+            logger.info("Add ServerInterceptor={}, server={}", serverInterceptor, name);
             serverBuilder.intercept(serverInterceptor);
         }
 
-        serverBuilder.executor(serverExecutor);
+        serverBuilder.executor(this.serverExecutor);
+
+        if (this.callExecutor != null) {
+            serverBuilder.callExecutor(this.callExecutor);
+        }
+
         setupServerOption(serverBuilder);
+
+        if (sslContext != null) {
+            serverBuilder.sslContext(sslContext);
+        }
 
         Server server = serverBuilder.build();
         if (server instanceof InternalWithLogId) {
@@ -166,30 +188,21 @@ public class ServerFactory {
             final long serverLogId = logId.getLogId().getId();
             logger.info("{} serverLogId:{}", name, serverLogId);
             if (channelzRegistry != null) {
-                channelzRegistry.addServer(serverLogId, name);
+                channelzRegistry.register(serverLogId, name);
             }
         }
         return server;
     }
 
 
-    private void setupInternal(PinpointNettyServerBuilder serverBuilder) {
-
-        serverBuilder.setTracingEnabled(false);
-
-        serverBuilder.setStatsEnabled(false);
-        serverBuilder.setStatsRecordRealTimeMetrics(false);
-        serverBuilder.setStatsRecordStartedRpcs(false);
-
-    }
-
-    private void setupServerOption(final PinpointNettyServerBuilder builder) {
+    private void setupServerOption(NettyServerBuilder builder) {
         // TODO @see PinpointServerAcceptor
         builder.withChildOption(ChannelOption.TCP_NODELAY, true);
         builder.withChildOption(ChannelOption.SO_REUSEADDR, true);
         builder.withChildOption(ChannelOption.SO_RCVBUF, this.serverOption.getReceiveBufferSize());
         final WriteBufferWaterMark disabledWriteBufferWaterMark = new WriteBufferWaterMark(0, Integer.MAX_VALUE);
         builder.withChildOption(ChannelOption.WRITE_BUFFER_WATER_MARK, disabledWriteBufferWaterMark);
+        builder.withChildOption(ChannelOption.ALLOCATOR, this.byteBufAllocator);
 
         builder.handshakeTimeout(this.serverOption.getHandshakeTimeout(), TimeUnit.MILLISECONDS);
         builder.flowControlWindow(this.serverOption.getFlowControlWindow());
@@ -211,14 +224,19 @@ public class ServerFactory {
         }
     }
 
+    @Override
     public void close() {
         final Future<?> workerShutdown = this.workerEventLoopGroup.shutdownGracefully();
         workerShutdown.awaitUninterruptibly();
-        ExecutorUtils.shutdownExecutorService(name + "-Channel-Worker", workerExecutor);
+        if (!MoreExecutors.shutdownAndAwaitTermination(workerExecutor, Duration.ofSeconds(3))) {
+            logger.warn("{}-Channel-Worker shutdown failed", name);
+        }
 
         final Future<?> bossShutdown = this.bossEventLoopGroup.shutdownGracefully();
         bossShutdown.awaitUninterruptibly();
-        ExecutorUtils.shutdownExecutorService(name + "-Channel-Boss", bossExecutor);
+        if (!MoreExecutors.shutdownAndAwaitTermination(bossExecutor, Duration.ofSeconds(3))) {
+            logger.warn("{}-Channel-Boss shutdown failed", name);
+        }
     }
 
     @Override

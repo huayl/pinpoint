@@ -1,11 +1,11 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,23 +16,26 @@
 
 package com.navercorp.pinpoint.collector.handler.grpc;
 
-import com.google.protobuf.GeneratedMessageV3;
-import com.navercorp.pinpoint.collector.handler.SimpleAndRequestResponseHandler;
+import com.navercorp.pinpoint.collector.handler.RequestResponseHandler;
 import com.navercorp.pinpoint.collector.mapper.grpc.GrpcAgentInfoBoMapper;
 import com.navercorp.pinpoint.collector.service.AgentInfoService;
+import com.navercorp.pinpoint.collector.service.AgentInfoStatisticsService;
+import com.navercorp.pinpoint.collector.service.ApplicationIndexV2Service;
+import com.navercorp.pinpoint.common.profiler.logging.ThrottledLogger;
 import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
-import com.navercorp.pinpoint.grpc.Header;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
+import com.navercorp.pinpoint.common.server.io.ServerResponse;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
 import com.navercorp.pinpoint.grpc.MessageFormatUtils;
-import com.navercorp.pinpoint.grpc.server.ServerContext;
 import com.navercorp.pinpoint.grpc.trace.PAgentInfo;
 import com.navercorp.pinpoint.grpc.trace.PResult;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-import com.navercorp.pinpoint.io.request.ServerResponse;
-import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.navercorp.pinpoint.io.request.UidNotFoundException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Objects;
 
 /**
@@ -40,57 +43,60 @@ import java.util.Objects;
  * @author koo.taejin
  */
 @Service
-public class GrpcAgentInfoHandler implements SimpleAndRequestResponseHandler<GeneratedMessageV3, GeneratedMessageV3> {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass().getName());
+public class GrpcAgentInfoHandler implements RequestResponseHandler<PAgentInfo, PResult> {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    private final ThrottledLogger uidLogger = ThrottledLogger.getUncountedIntervalLogger(logger, Duration.ofMinutes(5));
     private final boolean isDebug = logger.isDebugEnabled();
 
     private final AgentInfoService agentInfoService;
+    private final ApplicationIndexV2Service applicationIndexV2Service;
+    private final AgentInfoStatisticsService agentInfoStatisticsService;
 
     private final GrpcAgentInfoBoMapper agentInfoBoMapper;
 
-    public GrpcAgentInfoHandler(AgentInfoService agentInfoService, GrpcAgentInfoBoMapper agentInfoBoMapper) {
+    public GrpcAgentInfoHandler(
+            AgentInfoService agentInfoService,
+            ApplicationIndexV2Service applicationIndexV2Service,
+            AgentInfoStatisticsService agentInfoStatisticsService,
+            GrpcAgentInfoBoMapper agentInfoBoMapper
+    ) {
         this.agentInfoService = Objects.requireNonNull(agentInfoService, "agentInfoService");
+        this.applicationIndexV2Service = Objects.requireNonNull(applicationIndexV2Service, "applicationIndexV2Service");
+        this.agentInfoStatisticsService = Objects.requireNonNull(agentInfoStatisticsService, "agentInfoStatisticsService");
         this.agentInfoBoMapper = Objects.requireNonNull(agentInfoBoMapper, "agentInfoBoMapper");
     }
 
     @Override
-    public void handleSimple(ServerRequest<GeneratedMessageV3> serverRequest) {
-        final GeneratedMessageV3 data = serverRequest.getData();
-        if (data instanceof PAgentInfo) {
-            handleAgentInfo((PAgentInfo) data);
-        } else {
-            logger.warn("Invalid request type. serverRequest={}", serverRequest);
-            throw Status.INTERNAL.withDescription("Bad Request(invalid request type)").asRuntimeException();
-        }
+    public void handleRequest(ServerRequest<PAgentInfo> serverRequest, ServerResponse<PResult> serverResponse) {
+        final PAgentInfo agentInfo = serverRequest.getData();
+        final ServerHeader header = serverRequest.getHeader();
+
+        final PResult result = handleAgentInfo(header, agentInfo);
+        serverResponse.write(result);
+
     }
 
-    @Override
-    public void handleRequest(ServerRequest<GeneratedMessageV3> serverRequest, ServerResponse<GeneratedMessageV3> serverResponse) {
-        final GeneratedMessageV3 data = serverRequest.getData();
-        if (data instanceof PAgentInfo) {
-            final PResult result = handleAgentInfo((PAgentInfo) data);
-            serverResponse.write(result);
-        } else {
-            logger.warn("Invalid request type. serverRequest={}", serverRequest);
-            throw Status.INTERNAL.withDescription("Bad Request(invalid request type)").asRuntimeException();
-        }
-    }
-
-    private PResult handleAgentInfo(PAgentInfo agentInfo) {
+    private PResult handleAgentInfo(ServerHeader header, PAgentInfo agentInfo) {
         if (isDebug) {
             logger.debug("Handle PAgentInfo={}", MessageFormatUtils.debugLog(agentInfo));
         }
 
         try {
-            // agent info
-            final Header header = ServerContext.getAgentInfo();
             final AgentInfoBo agentInfoBo = this.agentInfoBoMapper.map(agentInfo, header);
+            final ServiceUid serviceUid = agentInfoBo.getServiceUid();
+
             this.agentInfoService.insert(agentInfoBo);
-            return PResult.newBuilder().setSuccess(true).build();
+            this.applicationIndexV2Service.insert(serviceUid, header.getServiceType(), agentInfoBo);
+            this.agentInfoStatisticsService.insert(serviceUid, header.getApplicationName(), agentInfoBo);
+            return PResults.SUCCESS;
+        } catch (UidNotFoundException e) {
+            uidLogger.warn("Service not found. serviceName={}, applicationName={}, agentId={}",
+                    header.getServiceName(), header.getApplicationName(), header.getAgentId());
+            return PResults.serviceNotFound(header.getServiceName());
         } catch (Exception e) {
             logger.warn("Failed to handle. agentInfo={}", MessageFormatUtils.debugLog(agentInfo), e);
             // Avoid detailed error messages.
-            return PResult.newBuilder().setSuccess(false).setMessage("Internal Server Error").build();
+            return PResults.INTERNAL_SERVER_ERROR;
         }
     }
 }

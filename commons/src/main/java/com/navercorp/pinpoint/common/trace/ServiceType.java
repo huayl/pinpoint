@@ -17,7 +17,9 @@
 package com.navercorp.pinpoint.common.trace;
 
 import static com.navercorp.pinpoint.common.trace.ServiceTypeFactory.of;
-import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
+import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.INCLUDE_DESTINATION_ID;
+import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.RECORD_STATISTICS;
+import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.TERMINAL;
 
 /**
  * 
@@ -32,6 +34,8 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>5</td><td>TEST</td></tr>
  * <tr><td>7</td><td>COLLECTOR</td></tr>
  * <tr><td>100</td><td>ASYNC</td></tr>
+ * <tr><td>500</td><td>SDK</td></tr>
+ * <tr><td>510</td><td>SDK_ASYNC</td></tr>
  * </table>
  *
  * 
@@ -39,6 +43,7 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * 
  * <table>
  * <tr><td>1000</td><td>STAND_ALONE</td></tr>
+ * <tr><td>1001</td><td>JAVA</td></tr>
  * <tr><td>1005</td><td>TEST_STAND_ALONE</td></tr>
  * <tr><td>1010</td><td>TOMCAT</td></tr>
  * <tr><td>1011</td><td>TOMCAT_METHOD</td></tr>
@@ -67,15 +72,26 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>1130</td><td>GRPC_SERVER</td></tr>
  * <tr><td>1140</td><td>REACTOR_NETTY</td></tr>
  * <tr><td>1141</td><td>REACTOR_NETTY_INTERNAL</td></tr>
+ * <tr><td>1150</td><td>ARMERIA</td></tr>
+ * <tr><td>1151</td><td>ARMERIA_INTERNAL</td></tr>
+ * <tr><td>1160</td><td>KSTOR</td></tr>
+ * <tr><td>1161</td><td>KSTOR_INTERNAL</td></tr>
+ *
+ * <tr><td>1200</td><td>RESIN @Deprecated Since 3.1.0</td></tr>
+ * <tr><td>1201</td><td>RESIN_METHOD @Deprecated Since 3.1.0</td></tr>
  *
  * <tr><td>1300</td><td>C_CPP</td></tr>
  * <tr><td>1301</td><td>C_CPP_METHOD</td></tr>
+ *
+ * <tr><td>1310</td><td>AKKA_HTTP_SERVER</td></tr>
+ * <tr><td>1311</td><td>AKKA_HTTP_SERVER_INTERNAL</td></tr>
  *
  * <tr><td>1400</td><td>NODE</td></tr>
  * <tr><td>1401</td><td>NODE_METHOD</td></tr>
  * <tr><td>1500</td><td>PHP</td></tr>
  * <tr><td>1501</td><td>PHP_METHOD</td></tr>
  * <tr><td>1550</td><td>ENVOY</td></tr>
+ * <tr><td>1551</td><td>ENVOY_OPERATION</td></tr>
  * <tr><td>1620</td><td>OPENWHISK_INTERNAL</td></tr>
  * <tr><td>1621</td><td>OPENWHISK_CONTROLLER</td></tr>
  * <tr><td>1622</td><td>OPENWHISK_INVOKER</td></tr>
@@ -97,14 +113,26 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>2051</td><td>UNKNOWN_DB_EXECUTE_QUERY</td></tr>
  * <tr><td>2100</td><td>MYSQL</td></tr>
  * <tr><td>2101</td><td>MYSQL_EXECUTE_QUERY</td></tr>
+ * <tr><td>2102</td><td>R2DBC_MYSQL</td></tr>
+ * <tr><td>2103</td><td>R2DBC_MYSQL_EXECUTE_QUERY</td></tr>
  * <tr><td>2150</td><td>MARIADB</td></tr>
  * <tr><td>2151</td><td>MARIADB_EXECUTE_QUERY</td></tr>
+ * <tr><td>2152</td><td>R2DBC_MARIADB</td></tr>
+ * <tr><td>2153</td><td>R2DBC_MARIADB_EXECUTE_QUERY</td></tr>
+ * <tr><td>2160</td><td>DB2</td></tr>
+ * <tr><td>2161</td><td>DB2_EXECUTE_QUERY</td></tr>
  * <tr><td>2200</td><td>MSSQL</td></tr>
  * <tr><td>2201</td><td>MSSQL_EXECUTE_QUERY</td></tr>
  * <tr><td>2250</td><td>MSSQL_JDBC</td></tr>
- * <tr><td>2251</td><td>MSSQL_JDBC_QUERY</td></tr> *
+ * <tr><td>2251</td><td>MSSQL_JDBC_QUERY</td></tr>
+ * <tr><td>2252</td><td>R2DBC_MSSQL_JDBC</td></tr>
+ * <tr><td>2253</td><td>R2DBC_MSSQL_JDBC_QUERY</td></tr>
  * <tr><td>2300</td><td>ORACLE</td></tr>
  * <tr><td>2301</td><td>ORACLE_EXECUTE_QUERY</td></tr>
+ * <tr><td>2302</td><td>R2DBC_ORACLE</td></tr>
+ * <tr><td>2303</td><td>R2DBC_ORACLE_EXECUTE_QUERY</td></tr>
+ * <tr><td>2340</td><td>DAMENG</td></tr>
+ * <tr><td>2341</td><td>DAMENG_EXECUTE_QUERY</td></tr>
  * <tr><td>2400</td><td>CUBRID</td></tr>
  * <tr><td>2401</td><td>CUBRID_EXECUTE_QUERY</td></tr>
  * <tr><td>2410</td><td>NBASET</td></tr>
@@ -114,13 +142,25 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>2451</td><td>INFORMIX_EXECUTE_QUERY</td></tr>
  * <tr><td>2500</td><td>POSTGRESQL</td></tr>
  * <tr><td>2501</td><td>POSTGRESQL_EXECUTE_QUERY</td></tr>
+ * <tr><td>2502</td><td>R2DBC_POSTGRESQL</td></tr>
+ * <tr><td>2503</td><td>R2DBC_POSTGRESQL_EXECUTE_QUERY</td></tr>
  * <tr><td>2600</td><td>CASSANDRA</td></tr>
  * <tr><td>2601</td><td>CASSANDRA_EXECUTE_QUERY</td></tr>
+ * <tr><td>2602</td><td>CASSANDRA4</td></tr>
+ * <tr><td>2603</td><td>CASSANDRA4_EXECUTE_QUERY</td></tr>
  * <tr><td>2650</td><td>MONGO</td></tr>
  * <tr><td>2651</td><td>MONGO_EXECUTE_QUERY</td></tr>
  * <tr><td>2652</td><td>MONGO_REACTIVE</td></tr>
  * <tr><td>2700</td><td>COUCHDB</td></tr>
  * <tr><td>2701</td><td>COUCHDB_EXECUTE_QUERY</td></tr>
+ * <tr><td>2750</td><td>H2</td></tr>
+ * <tr><td>2751</td><td>H2_EXECUTE_QUERY</td></tr>
+ * <tr><td>2752</td><td>R2DBC_H2</td></tr>
+ * <tr><td>2753</td><td>R2DBC_H2_EXECUTE_QUERY</td></tr>
+ * <tr><td>2800</td><td>CLICK_HOUSE</td></tr>
+ * <tr><td>2801</td><td>CLICK_HOUSE_EXECUTE_QUERY</td></tr>
+ * <tr><td>2810</td><td>AWS_SDK_S3</td></tr>
+ * <tr><td>2811</td><td>AWS_SDK_S3_INTERNAL</td></tr>
  * </table>
  *
  * <h3>Database Sandbox (2900 ~ 2999)</h3>
@@ -142,6 +182,8 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>5051</td><td>SPRING_MVC</td></tr>
  * <tr><td>5052</td><td>SPRING_ASYNC</td></tr>
  * <tr><td>5053</td><td>SPRING_WEBFLUX</td></tr>
+ * <tr><td>5054</td><td>SPRING_TX</td></tr>
+ * <tr><td>5055</td><td>SPRING_CLOUD_SLEUTH</td></tr>
  * <tr><td>5061</td><td><i>RESERVED</i></td></tr>
  * <tr><td>5071</td><td>SPRING_BEAN</td></tr>
  * <tr><td>5500</td><td>IBATIS</td></tr>
@@ -155,16 +197,18 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>6062</td><td>DRUID</td></tr>
  * <tr><td>6500</td><td>RXJAVA</td></tr>
  * <tr><td>6510</td><td>REACTOR</td></tr>
+ * <tr><td>6520</td><td>RESILIENCE4J</td></tr>
  * <tr><td>6600</td><td>EXPRESS</td></tr>
  * <tr><td>6610</td><td>KOA</td></tr>
  * <tr><td>6620</td><td>HAPI</td></tr>
  * <tr><td>6630</td><td>RESTIFY</td></tr>
+ * <tr><td>6640</td><td>SPRING_DATA_R2DBC</td></tr>
  * <tr><td>7010</td><td>USER_INCLUDE</td></tr>
  * </table>
  *
  * <h3>Library Sandbox (7500 ~ 7999)</h3>
  *
- * <h3>Cache & File Library (8000 ~ 8899) Fast Histogram</h3>
+ * <h3>Cache & File Library (8000 ~ 8299) Fast Histogram</h3>
  * <table>
  * <tr><td>8050</td><td>MEMCACHED</td></tr>
  * <tr><td>8051</td><td>MEMCACHED_FUTURE_GET</td></tr>
@@ -177,14 +221,28 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>8202</td><td>IOREDIS</td></tr>
  * <tr><td>8203</td><td>REDIS_REDISSON</td></tr>
  * <tr><td>8204</td><td>REDIS_REDISSON_INTERNAL</td></tr>
+ * <tr><td>8205</td><td>REDIS_REDISSON_REACTIVE</td></tr>
+ * <tr><td>8206</td><td>REDIS_LETTUCE_INTERNAL</td></tr>
  * <tr><td>8250</td><td><i>RESERVED</i></td></tr>
  * <tr><td>8251</td><td><i>RESERVED</i></td></tr>
  * <tr><td>8260</td><td><i>RESERVED</i></td></tr>
+ * <tr><td>8280</td><td><i>ETCD</i></td></tr>
+ * </table>
+ *
+ * <h3>Message Broker Library (8300 ~ 8799)</h3>
+ * <table>
  * <tr><td>8300</td><td>RABBITMQ</td></tr>
  * <tr><td>8310</td><td><i>ACTIVEMQ_CLIENT</i></td></tr>
  * <tr><td>8311</td><td><i>ACTIVEMQ_CLIENT_INTERNAL</i></td></tr>
  * <tr><td>8660</td><td><i>KAFKA_CLIENT</i></td></tr>
  * <tr><td>8661</td><td><i>KAFKA_CLIENT_INTERNAL</i></td></tr>
+ * <tr><td>8662</td><td><i>KAFKA_STREAMS</i></td></tr>
+ * <tr><td>8670</td><td>PULSAR_CLIENT</td></tr>
+ * <tr><td>8671</td><td>PULSAR_CLIENT_INTERNAL</td></tr>
+ * </table>
+ *
+ * <h3>HBase Library (8800 ~ 8899)</h3>
+ * <table>
  * <tr><td>8800</td><td>HBASE_CLIENT</td></tr>
  * <tr><td>8801</td><td><i>HBASE_CLIENT_ADMIN</i></td></tr>
  * <tr><td>8802</td><td><i>HBASE_CLIENT_TABLE</i></td></tr>
@@ -206,6 +264,13 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>9058</td><td>OK_HTTP_CLIENT</td></tr>
  * <tr><td>9059</td><td>OK_HTTP_CLIENT_INTERNAL</td></tr>
  * <tr><td>9060</td><td><i>RESERVED</i></td></tr>
+ * <tr><td>9062</td><td><i>HTTP_CLIENT_5</i></td></tr>
+ * <tr><td>9063</td><td><i>HTTP_CLIENT_5_INTERNAL</i></td></tr>
+ * <tr><td>9065</td><td><i>JDK_HTTP_CLIENT</i></td></tr>
+ * <tr><td>9066</td><td><i>JDK_HTTP_CLIENT_INTERNAL</i></td></tr>
+ * <tr><td>9067</td><td>JDK_HTTPURLCONNECTOR_INTERNAL</td></tr>
+ * <tr><td>9068</td><td><i>KTOR_CLIENT</i></td></tr>
+ * <tr><td>9069</td><td><i>KTOR_CLIENT_INTERNAL</i></td></tr>
  * <tr><td>9070</td><td><i>RESERVED</i></td></tr>
  * <tr><td><s>9080</s></td><td><s>APACHE_CXF_CLIENT</s></td></tr>
  * <tr><td>9081</td><td>APACHE_CXF_SERVICE_INVOKER</td></tr>
@@ -225,11 +290,17 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * <tr><td>9153</td><td>SPRING_WEBFLUX_CLIENT</td></tr>
  * <tr><td>9154</td><td>REACTOR_NETTY_CLIENT</td></tr>
  * <tr><td>9155</td><td>REACTOR_NETTY_CLIENT_INTERNAL</td></tr>
+ * <tr><td>9156</td><td>ARMERIA_CLIENT</td></tr>
+ * <tr><td>9157</td><td>ARMERIA_CLIENT_INTERNAL</td></tr>
  * <tr><td>9160</td><td>GRPC</td></tr>
  * <tr><td>9161</td><td>GRPC_INTERNAL</td></tr>
  * <tr><td>9162</td><td>GRPC_SERVER_INTERNAL</td></tr>
- * <tr><td>9201</td><td>ElasticsearchBBoss</td></tr>
- * <tr><td>9202</td><td>ElasticsearchBBossExecutor</td></tr>
+ * <tr><td>9201</td><td>ElasticsearchBBoss @Deprecated</td></tr>
+ * <tr><td>9202</td><td>ElasticsearchBBossExecutor @Deprecated </td></tr>
+ * <tr><td>9203</td><td>ELASTICSEARCH</td></tr>
+ * <tr><td>9204</td><td>ELASTICSEARCH_HIGHLEVEL_CLIENT</td></tr>
+ * <tr><td>9205</td><td>ELASTICSEARCH8</td></tr>
+ * <tr><td>9206</td><td>ELASTICSEARCH8_CLIENT</td></tr>
  * <tr><td>9301</td><td>ENVOY_INGRESS</td></tr>
  * <tr><td>9302</td><td>ENVOY_EGRESS</td></tr>
  * <tr><td>9401</td><td>GO_HTTP_CLIENT</td></tr>
@@ -240,10 +311,10 @@ import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.*;
  * </table>
  * 
  * <h3>RPC Sandbox (9900 ~ 9999)</h3>
- *
+ * <tr><td>9998</td><td>AKKA_HTTP_SERVER_INTERNAL_LEGACY</td></tr>
  * 
  * <tr><td></td><td></td></tr>
- * 
+ *
  * @author emeroad
  * @author netspider
  * @author Jongho Moon
@@ -263,7 +334,7 @@ public interface ServiceType {
 
     boolean isRpcClient();
 
-    // FIXME record statistics of only rpc call currently. so is it all right to chane into isRecordRpc()
+    // FIXME record statistics of only rpc call currently. so is it all right to change into isRecordRpc()
     boolean isRecordStatistics();
 
     boolean isUnknown();
@@ -304,11 +375,13 @@ public interface ServiceType {
     ServiceType TEST = of(5, "TEST");
 
     ServiceType COLLECTOR = of(7, "COLLECTOR");
-    
+
     ServiceType ASYNC = of(100, "ASYNC");
-    
+
     // Java applications, WAS
     ServiceType STAND_ALONE = of(1000, "STAND_ALONE", RECORD_STATISTICS);
+    ServiceType JAVA = of(1001, "JAVA", RECORD_STATISTICS);
+
     ServiceType TEST_STAND_ALONE = of(1005, "TEST_STAND_ALONE", RECORD_STATISTICS);
     ServiceType UNAUTHORIZED = of(1007, "UNAUTHORIZED", RECORD_STATISTICS);
 
@@ -318,7 +391,6 @@ public interface ServiceType {
     // Added for php agent.
     //@Deprecated
     //ServiceType PHP_METHOD = ServiceTypeFactory.of(1501, "PHP_METHOD");
-
 
     /**
      * Database shown only as xxx_EXECUTE_QUERY at the statistics info section in the server map
@@ -340,4 +412,13 @@ public interface ServiceType {
     ServiceType SPRING_ORM_IBATIS = of(5061, "SPRING_ORM_IBATIS", "SPRING");
     // FIXME need to define how to handle spring related codes
 //    ServiceType SPRING_BEAN = of(5071, "SPRING_BEAN", "SPRING_BEAN", NORMAL_SCHEMA);
+
+    ServiceType OPENTELEMETRY_SERVER = of(1220, "OPENTELEMETRY_SERVER", "OPENTELEMETRY_SERVER", RECORD_STATISTICS);
+    ServiceType OPENTELEMETRY_INTERNAL = of(1221, "OPENTELEMETRY_INTERNAL", "OPENTELEMETRY_INTERNAL");
+    ServiceType OPENTELEMETRY_DB = of(2060, "OPENTELEMETRY_DB", "OPENTELEMETRY_DB", RECORD_STATISTICS);
+    ServiceType OPENTELEMETRY_DB_EXECUTE_QUERY = of(2061, "OPENTELEMETRY_DB_EXECUTE_QUERY", "OPENTELEMETRY_DB_EXECUTE_QUERY", TERMINAL, RECORD_STATISTICS, INCLUDE_DESTINATION_ID);
+    ServiceType OPENTELEMETRY_CLIENT = of(9310, "OPENTELEMETRY_CLIENT", "OPENTELEMETRY_CLIENT", RECORD_STATISTICS);
+    // HTTP client span (http.request.method / http.method / url.full / http.url present, no rpc.system).
+    // Separate from the generic CLIENT so the HTTP_URL display argument applies only to HTTP calls.
+    ServiceType OPENTELEMETRY_HTTP_CLIENT = of(9311, "OPENTELEMETRY_HTTP_CLIENT", "OPENTELEMETRY_HTTP_CLIENT", RECORD_STATISTICS);
 }

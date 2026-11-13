@@ -1,0 +1,100 @@
+import js from '@eslint/js';
+import typescript from '@typescript-eslint/eslint-plugin';
+import typescriptParser from '@typescript-eslint/parser';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import reactHooks from 'eslint-plugin-react-hooks';
+import prettier from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
+import storybook from 'eslint-plugin-storybook';
+import globals from 'globals';
+
+export default [
+  // 기본 JavaScript 권장 규칙
+  js.configs.recommended,
+  // 메인 설정
+  {
+    files: ['**/*.{js,jsx,ts,tsx}'],
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: './tsconfig.json',
+      },
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.es2021,
+        ...globals.node,
+        ...globals.jest,
+        JSX: 'readonly',
+        NodeJS: 'readonly',
+        React: 'readonly',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': typescript,
+      'react-refresh': reactRefresh,
+      'react-hooks': reactHooks,
+      prettier: prettier,
+      storybook: storybook,
+    },
+
+    rules: {
+      // TypeScript 권장 규칙
+      ...typescript.configs.recommended.rules,
+
+      // eslint-plugin-react-hooks 6 부터 recommended 에 React Compiler 규칙이 함께 들어온다.
+      // 한 번에 켜면 수백 건이고 대부분 의도한 패턴이라, 여기서는 기존 두 규칙만 유지한다.
+      // (규칙별로 따로 켜는 것은 별도 작업)
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+
+      // Prettier 통합
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+
+      // Storybook 권장 규칙
+      ...storybook.configs.recommended.rules,
+
+      // 커스텀 규칙 (기존과 동일)
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // API 응답 타입은 `namespace GetServerMap { ... }` 패턴을 규약으로 쓴다.
+      '@typescript-eslint/no-namespace': 'off',
+      'no-useless-catch': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-extra-boolean-cast': 'off',
+      // `interface XxxProps extends XxxFetcherProps {}` 는 컴포넌트 props 규약이라 허용하고,
+      // `{}` 를 타입으로 직접 쓰는 것만 잡는다.
+      '@typescript-eslint/no-empty-object-type': [
+        'warn',
+        { allowInterfaces: 'with-single-extends' },
+      ],
+    },
+  },
+  // 배럴 파일은 재수출만 하므로 Fast Refresh 규칙을 만족시킬 방법이 없다.
+  {
+    files: ['**/index.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  // jest.mock 팩토리와 jest.isolateModules 안에서는 정적 import 를 쓸 수 없어 require 가 필수다.
+  {
+    files: ['**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  // tsconfig 의 include('src') 밖에 있는 파일은 타입 정보 기반 파싱을 쓸 수 없다.
+  // 그대로 두면 파싱 단계에서 멈춰 파일 전체가 검사되지 않는다(에디터에만 보이던 에러 —
+  // lint 스크립트는 `eslint ./src` 로 경로를 지정해 이 파일들을 아예 지나친다).
+  {
+    files: ['*.{js,cjs,ts}', 'e2e/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: null,
+      },
+    },
+  },
+];

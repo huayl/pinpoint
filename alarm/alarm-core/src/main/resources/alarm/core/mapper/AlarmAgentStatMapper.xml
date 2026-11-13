@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.navercorp.pinpoint.alarm.core.agentstat.dao.pinot.PinotAgentStatAlarmDao">
+
+    <resultMap id="tagInfoMap" type="TagInformation">
+        <constructor>
+            <arg column="applicationName" javaType="string"/>
+            <arg column="agentId" javaType="string"/>
+            <arg column="metricName" javaType="string"/>
+            <arg column="fieldName" javaType="string"/>
+            <arg column="tags" javaType="list" typeHandler="MultiValueTagTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <!--
+        Pinot applies its own LIMIT of 10 when a query does not say otherwise, and these group
+        by agent: without a limit an application would be read as its first ten agents and a
+        rule on the eleventh could never fire. The cap is set far above any real agent count
+        rather than tuned, since it exists to replace the default and not to page.
+    -->
+    <select id="selectAgentIds" parameterType="AgentStatQueryParameter" resultType="string">
+        SELECT DISTINCT(agentId)
+        FROM ${tableName}
+        WHERE
+            applicationName = #{applicationName}
+            AND metricName = #{metricName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+        LIMIT 100000
+    </select>
+
+    <select id="selectSumGroupByField" parameterType="AgentStatQueryParameter" resultType="AgentFieldUsage">
+        SELECT agentId, fieldName, SUM(fieldValue) AS sumValue
+        FROM ${tableName}
+        WHERE
+            applicationName = #{applicationName}
+            AND metricName = #{metricName}
+            AND fieldName IN
+                <foreach collection="fieldList" item="fieldName" separator="," open="(" close=")">
+                    #{fieldName}
+                </foreach>
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+        GROUP BY agentId, fieldName
+        LIMIT 100000
+    </select>
+
+
+    <select id="selectAvgGroupByField" parameterType="AgentStatQueryParameter" resultType="AgentFieldUsage">
+        SELECT 'agentId', fieldName, AVG(fieldValue) AS sumValue
+        FROM ${tableName}
+        WHERE
+        sortKey = #{sortKey}
+        AND fieldName IN
+        <foreach collection="fieldList" item="fieldName" separator="," open="(" close=")">
+            #{fieldName}
+        </foreach>
+        AND eventTime BETWEEN #{range.from} AND #{range.to}
+        <foreach collection="tagList" item="tag" separator=" ">
+            AND tags = #{tag}
+        </foreach>
+        GROUP BY fieldName
+    </select>
+
+
+    <select id="selectSumCount" parameterType="AgentStatQueryParameter" resultType="AgentUsageCount">
+        SELECT agentId, SUM(fieldValue) AS sumValue, COUNT(*) AS countValue
+        FROM ${tableName}
+        WHERE
+            applicationName = #{applicationName}
+            AND metricName = #{metricName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+        GROUP BY agentId
+        LIMIT 100000
+    </select>
+
+    <select id="selectAvg" parameterType="AgentStatQueryParameter" resultType="AgentUsage">
+        SELECT agentId, AVG(fieldValue) AS avgValue
+        FROM ${tableName}
+        WHERE
+            applicationName = #{applicationName}
+          AND metricName = #{metricName}
+          AND fieldName = #{fieldName}
+          AND eventTime BETWEEN #{range.from} AND #{range.to}
+        GROUP BY agentId
+        LIMIT 100000
+    </select>
+
+    <select id="selectTagInfo" parameterType="AgentStatQueryParameter" resultType="Tag">
+        SELECT DISTINCT(tags)
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+        LIMIT 100000
+    </select>
+
+    <select id="selectTagInfoContainedSpecificTag" parameterType="AgentStatQueryParameter" resultMap="tagInfoMap">
+        SELECT applicationName, agentId, metricName, fieldName, tags
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        LIMIT 1
+    </select>
+</mapper>

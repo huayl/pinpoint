@@ -1,0 +1,191 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.service;
+
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
+import com.navercorp.pinpoint.web.scatter.DragAreaQuery;
+import com.navercorp.pinpoint.web.scatter.dao.TraceIndexDao;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
+import com.navercorp.pinpoint.web.scatter.vo.DotMetaData;
+import com.navercorp.pinpoint.web.trace.dao.TraceDao;
+import com.navercorp.pinpoint.web.trace.service.SpanService;
+import com.navercorp.pinpoint.web.vo.GetTraceInfo;
+import com.navercorp.pinpoint.web.vo.LimitedScanResult;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.web.vo.SpanHint;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jspecify.annotations.NonNull;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Predicate;
+
+@org.springframework.stereotype.Service
+public class HeatMapServiceImpl implements HeatMapService {
+
+    private static final int LEGACY_TX_ID_LOG_LIMIT = 10;
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private static final Predicate<DotMetaData> legacyTablePredicate = new Predicate<>() {
+        @Override
+        public boolean test(DotMetaData dotMetaData) {
+            return dotMetaData.getStartTime() == 0;
+        }
+    };
+
+    private final TraceIndexDao traceIndexDao;
+
+    private final TraceDao traceDao;
+    private final SpanService spanService;
+
+    public HeatMapServiceImpl(TraceIndexDao traceIndexDao,
+                              SpanService spanService,
+                              TraceDao traceDao) {
+        this.traceIndexDao = Objects.requireNonNull(traceIndexDao, "traceIndexDao");
+        this.spanService = Objects.requireNonNull(spanService, "spanService");
+        this.traceDao = Objects.requireNonNull(traceDao, "traceDao");
+    }
+
+
+    @Override
+    public LimitedScanResult<List<DotMetaData>> dragTraceIndex(Service service, String applicationName, int serviceTypeCode, DragAreaQuery dragAreaQuery, int limit) {
+        Objects.requireNonNull(service, "service");
+        Objects.requireNonNull(applicationName, "applicationName");
+        Objects.requireNonNull(dragAreaQuery, "dragAreaQuery");
+
+        LimitedScanResult<List<DotMetaData>> scanResult = traceIndexDao.scanScatterDataV2(service, applicationName, serviceTypeCode, dragAreaQuery, null, limit);
+        List<DotMetaData> scanData = scanResult.scanData();
+        logger.debug("dragScatterArea applicationName:{} dots:{}", applicationName, scanResult);
+
+        if (hasOldVersion(scanData)) {
+            return filterCompatibility(applicationName, serviceTypeCode, scanResult);
+        }
+        return scanResult;
+    }
+
+    private boolean hasOldVersion(List<DotMetaData> scanData) {
+        Optional<DotMetaData> oldVersion = scanData.stream()
+                .filter(legacyTablePredicate)
+                .findAny();
+        return oldVersion.isPresent();
+    }
+
+    private LimitedScanResult<List<DotMetaData>> filterCompatibility(String applicationName, int serviceTypeCode, LimitedScanResult<List<DotMetaData>> scanResult) {
+        List<DotMetaData> scanData = scanResult.scanData();
+
+        List<Dot> dots = filterLegacyTablePredicate(scanData, legacyTablePredicate);
+
+        if (logger.isWarnEnabled()) {
+            List<ServerTraceId> legacyTxIds = dots.stream()
+                    .map(Dot::getTransactionId)
+                    .limit(LEGACY_TX_ID_LOG_LIMIT)
+                    .toList();
+            logger.warn("Legacy trace-index rows detected (startTime==0); running compatibility backfill. " +
+                            "applicationName:{} serviceTypeCode:{} dots:{} legacyTxIds:{}",
+                    applicationName, serviceTypeCode, dots.size(), legacyTxIds);
+        }
+
+        List<GetTraceInfo> query = buildQuery(applicationName, dots);
+        final List<List<SpanBo>> selectedSpans = traceDao.selectSpans(query);
+
+        List<SpanBo> spanList = pickFirst(selectedSpans);
+        spanService.populateAgentName(spanList);
+
+        if (dots.size() != spanList.size()) {
+            throw new IllegalStateException("Legacy compatibility error, dots=" + dots.size() + " spanList:" + spanList);
+        }
+
+        Iterator<SpanBo> spanIter = spanList.iterator();
+
+        List<DotMetaData> result = new ArrayList<>(scanData.size());
+        for (DotMetaData dotMetaData : scanData) {
+            if (legacyTablePredicate.test(dotMetaData)) {
+                if (!spanIter.hasNext()) {
+                    throw new IllegalStateException("Legacy compatibility error");
+                }
+                SpanBo span = spanIter.next();
+                DotMetaData.Builder builder = new DotMetaData.Builder();
+                builder.setDot(dotMetaData.getDot());
+                builder.setAgentName(span.getAgentName());
+                builder.setEndpoint(span.getEndPoint());
+                builder.setRemoteAddr(span.getRemoteAddr());
+                builder.setStartTime(span.getStartTimeMillis());
+                builder.setSpanId(span.getSpanId());
+                builder.setRpc(span.getRpc());
+                result.add(builder.build());
+            } else {
+                result.add(dotMetaData);
+            }
+        }
+        return new LimitedScanResult<>(scanResult.limitedTime(), result);
+    }
+
+    private @NonNull List<Dot> filterLegacyTablePredicate(List<DotMetaData> scanData, Predicate<DotMetaData> legacyTablePredicate) {
+        List<Dot> dots = new ArrayList<>(scanData.size());
+        for (DotMetaData scanDatum : scanData) {
+            if (legacyTablePredicate.test(scanDatum)) {
+                Dot dot = scanDatum.getDot();
+                dots.add(dot);
+            }
+        }
+        return dots;
+    }
+
+    private List<GetTraceInfo> buildQuery(String applicationName, List<Dot> dots) {
+        if (CollectionUtils.isEmpty(dots)) {
+            return Collections.emptyList();
+        }
+        List<GetTraceInfo> list = new ArrayList<>(dots.size());
+        for (Dot dot : dots) {
+            GetTraceInfo getTraceInfo = dotToGetTraceInfo(applicationName, dot);
+            list.add(getTraceInfo);
+        }
+        return list;
+    }
+
+    private GetTraceInfo dotToGetTraceInfo(String applicationName, Dot dot) {
+        ServerTraceId transactionId = dot.getTransactionId();
+
+        SpanHint spanHint = new SpanHint(dot.getAcceptedTime(),
+                dot.getElapsedTime(), applicationName, dot.getAgentId());
+
+        return new GetTraceInfo(transactionId, spanHint);
+    }
+
+    private List<SpanBo> pickFirst(List<List<SpanBo>> spanLists) {
+        List<SpanBo> result = new ArrayList<>(spanLists.size());
+        for (List<SpanBo> candidates : spanLists) {
+            final SpanBo first = org.springframework.util.CollectionUtils.firstElement(candidates);
+            if (first != null) {
+                result.add(first);
+
+                if (candidates.size() > 1 && logger.isDebugEnabled()) {
+                    logger.debug("heuristically avoid Legacy compatibility error, spanCandidate:{}", candidates);
+                }
+            }
+        }
+        return result;
+    }
+}

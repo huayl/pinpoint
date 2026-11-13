@@ -16,17 +16,16 @@
 
 package com.navercorp.pinpoint.common.server.util;
 
-import com.navercorp.pinpoint.thrift.dto.TDeadlock;
-import com.navercorp.pinpoint.thrift.dto.command.TCommandThreadDumpResponse;
-import org.apache.commons.lang3.ArrayUtils;
+import com.navercorp.pinpoint.common.server.bo.event.DeadlockBo;
 
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.navercorp.pinpoint.common.server.util.AgentEventTypeCategory.*;
+import static com.navercorp.pinpoint.common.server.util.AgentEventTypeCategory.AGENT_LIFECYCLE;
+import static com.navercorp.pinpoint.common.server.util.AgentEventTypeCategory.DURATIONAL;
+import static com.navercorp.pinpoint.common.server.util.AgentEventTypeCategory.THREAD_DUMP;
+import static com.navercorp.pinpoint.common.server.util.AgentEventTypeCategory.USER_REQUEST;
 
 /**
  * @author HyunGil Jeong
@@ -38,8 +37,8 @@ public enum AgentEventType {
     AGENT_UNEXPECTED_SHUTDOWN(10201, "Agent unexpected shutdown", Void.class, DURATIONAL, AGENT_LIFECYCLE),
     AGENT_CLOSED_BY_SERVER(10300, "Agent connection closed by server", Void.class, DURATIONAL, AGENT_LIFECYCLE),
     AGENT_UNEXPECTED_CLOSE_BY_SERVER(10301, "Agent connection unexpectedly closed by server", Void.class, DURATIONAL, AGENT_LIFECYCLE),
-    AGENT_DEADLOCK_DETECTED(10401, "Agent deadlock detected", TDeadlock.class, AGENT_LIFECYCLE),
-    USER_THREAD_DUMP(20100, "Thread dump by user", TCommandThreadDumpResponse.class, USER_REQUEST, THREAD_DUMP),
+    AGENT_DEADLOCK_DETECTED(10401, "Agent deadlock detected", DeadlockBo.class, AGENT_LIFECYCLE),
+    USER_THREAD_DUMP(20100, "Thread dump by user", Void.class, USER_REQUEST, THREAD_DUMP),
     OTHER(-1, "Other event", String.class, AgentEventTypeCategory.OTHER);
     
     private final int code;
@@ -47,20 +46,13 @@ public enum AgentEventType {
     private final Class<?> messageType;
     private final Set<AgentEventTypeCategory> category;
 
-    private static final Set<AgentEventType> AGENT_EVENT_TYPE = EnumSet.allOf(AgentEventType.class);
+    private static final AgentEventType[] AGENT_EVENT_TYPE = AgentEventType.values();
 
     AgentEventType(int code, String desc, Class<?> messageType, AgentEventTypeCategory... category) {
         this.code = code;
         this.desc = desc;
         this.messageType = messageType;
-        this.category = asSet(category);
-    }
-
-    private Set<AgentEventTypeCategory> asSet(AgentEventTypeCategory[] category) {
-        if (ArrayUtils.isEmpty(category)) {
-           return Collections.emptySet();
-       }
-       return EnumSet.copyOf(Arrays.asList(category));
+        this.category = Set.of(category);
     }
 
     public int getCode() {
@@ -97,17 +89,8 @@ public enum AgentEventType {
         return null;
     }
 
-    /**
-     * typo API
-     * @deprecated Since 1.7.0. Use {@link #getTypesByCategory}
-     */
-    @Deprecated
-    public static Set<AgentEventType> getTypesByCatgory(AgentEventTypeCategory category) {
-        return getTypesByCategory(category);
-    }
-
     public static Set<AgentEventType> getTypesByCategory(AgentEventTypeCategory category) {
-        final Set<AgentEventType> eventTypes = new HashSet<AgentEventType>();
+        final Set<AgentEventType> eventTypes = new HashSet<>();
         for (AgentEventType eventType : AGENT_EVENT_TYPE) {
             if (eventType.category.contains(category)) {
                 eventTypes.add(eventType);

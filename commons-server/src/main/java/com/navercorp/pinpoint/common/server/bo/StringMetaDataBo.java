@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,85 +16,57 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
-import com.navercorp.pinpoint.common.PinpointConstants;
-import com.navercorp.pinpoint.common.util.BytesUtils;
-import com.navercorp.pinpoint.common.server.util.RowKeyUtils;
-import com.navercorp.pinpoint.common.util.TimeUtils;
-
-import java.util.Objects;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.MetaDataRowKey;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.server.util.NumberPrecondition;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import org.jspecify.annotations.NonNull;
 
 /**
  * @author emeroad
  */
-public class StringMetaDataBo {
-    private String agentId;
-    private long startTime;
+public class StringMetaDataBo implements MetaDataRowKey {
+    private final ServiceUid serviceUid;
 
-    private int stringId;
+    @NonNull
+    private final String agentId;
+    private final long startTime;
 
-    private String stringValue;
+    private final int stringId;
+    private final String stringValue;
 
-    public StringMetaDataBo() {
-    }
-
-
-    public StringMetaDataBo(String agentId, long startTime, int stringId) {
-        this.agentId = Objects.requireNonNull(agentId, "agentId");
+    public StringMetaDataBo(ServiceUid serviceUid, String agentId, long startTime, int stringId, String stringValue) {
+        this.serviceUid = java.util.Objects.requireNonNull(serviceUid, "serviceUid");
+        this.agentId = StringPrecondition.requireHasLength(agentId, "agentId");
         this.stringId = stringId;
-        this.startTime = startTime;
+        this.startTime = NumberPrecondition.requirePositiveOrZero(startTime, "startTime");
+        this.stringValue = stringValue;
     }
 
+    @Override
+    public ServiceUid getServiceUid() {
+        return serviceUid;
+    }
+
+    @Override
     public String getAgentId() {
         return agentId;
     }
 
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-
-    public int getStringId() {
-        return stringId;
-    }
-
-    public void setStringId(int stringId) {
-        this.stringId = stringId;
-    }
-
-    public long getStartTime() {
+    @Override
+    public long getAgentStartTime() {
         return startTime;
     }
 
-    public void setStartTime(long startTime) {
-        this.startTime = startTime;
+    @Override
+    public int getId() {
+        return stringId;
     }
 
     public String getStringValue() {
         return stringValue;
     }
 
-    public void setStringValue(String stringValue) {
-        this.stringValue = stringValue;
-    }
-
-    public void readRowKey(byte[] rowKey) {
-        this.agentId = BytesUtils.safeTrim(BytesUtils.toString(rowKey, 0, PinpointConstants.AGENT_ID_MAX_LEN));
-        this.startTime = TimeUtils.recoveryTimeMillis(readTime(rowKey));
-        this.stringId = readKeyCode(rowKey);
-    }
-
-
-    private static long readTime(byte[] rowKey) {
-        return BytesUtils.bytesToLong(rowKey, PinpointConstants.AGENT_ID_MAX_LEN);
-    }
-
-    private static int readKeyCode(byte[] rowKey) {
-        return BytesUtils.bytesToInt(rowKey, PinpointConstants.AGENT_ID_MAX_LEN + BytesUtils.LONG_BYTE_LENGTH);
-    }
-
-    public byte[] toRowKey() {
-        return RowKeyUtils.getMetaInfoRowKey(this.agentId, this.startTime, this.stringId);
-    }
 
     @Override
     public String toString() {

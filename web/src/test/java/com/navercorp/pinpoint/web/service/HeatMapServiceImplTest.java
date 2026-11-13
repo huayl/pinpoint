@@ -1,0 +1,165 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.service;
+
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.web.scatter.DragAreaQuery;
+import com.navercorp.pinpoint.web.scatter.dao.TraceIndexDao;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
+import com.navercorp.pinpoint.web.scatter.vo.DotMetaData;
+import com.navercorp.pinpoint.web.trace.dao.TraceDao;
+import com.navercorp.pinpoint.web.trace.service.SpanService;
+import com.navercorp.pinpoint.web.vo.LimitedScanResult;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+public class HeatMapServiceImplTest {
+
+    @Mock
+    SpanService spanService;
+    @Mock
+    DragAreaQuery dragAreaQuery;
+
+    private static final Service SERVICE = Service.DEFAULT;
+    private static final String APPLICATION_NAME = "applicationName";
+    private static final int SERVICE_TYPE_CODE = ServiceType.TEST.getCode();
+    private static final int LIMIT = 50;
+    private static final ServerTraceId TRANSACTION_ID_1 = new PinpointServerTraceId("txAgent1", 10, 100);
+    private static final ServerTraceId TRANSACTION_ID_2 = new PinpointServerTraceId("txAgent2", 20, 200);
+
+    @Test
+    public void legacyCompatibilityCheckPassTest() {
+        TraceIndexDao traceIndexDao = mock(TraceIndexDao.class);
+        TraceDao traceDao = mock(TraceDao.class);
+
+        LimitedScanResult<List<DotMetaData>> scanResult = new LimitedScanResult<>(1, dotMataData());
+        when(traceIndexDao.scanScatterDataV2(eq(SERVICE), eq(APPLICATION_NAME), eq(SERVICE_TYPE_CODE), eq(dragAreaQuery), isNull(), eq(LIMIT)))
+                .thenReturn(scanResult);
+
+        HeatMapService heatMapService = new HeatMapServiceImpl(traceIndexDao, spanService, traceDao);
+        Assertions.assertSame(scanResult, heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT));
+    }
+
+    @Test
+    public void legacyCompatibilityCheckTest() {
+        TraceIndexDao traceIndexDao = mock(TraceIndexDao.class);
+        TraceDao traceDao = mock(TraceDao.class);
+
+        LimitedScanResult<List<DotMetaData>> scanResult = new LimitedScanResult<>(1, legacyDotMataData());
+        when(traceIndexDao.scanScatterDataV2(eq(SERVICE), eq(APPLICATION_NAME), eq(SERVICE_TYPE_CODE), eq(dragAreaQuery), isNull(), eq(LIMIT)))
+                .thenReturn(scanResult);
+        when(traceDao.selectSpans(any())).thenReturn(matchingSpanData());
+
+        HeatMapService heatMapService = new HeatMapServiceImpl(traceIndexDao, spanService, traceDao);
+        heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT);
+        Assertions.assertNotSame(scanResult, heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT));
+    }
+
+    @Test
+    public void legacyCompatibilityCheckMoreSpanTest() {
+        TraceIndexDao traceIndexDao = mock(TraceIndexDao.class);
+        TraceDao traceDao = mock(TraceDao.class);
+
+        LimitedScanResult<List<DotMetaData>> scanResult = new LimitedScanResult<>(1, legacyDotMataData());
+        when(traceIndexDao.scanScatterDataV2(eq(SERVICE), eq(APPLICATION_NAME), eq(SERVICE_TYPE_CODE), eq(dragAreaQuery), isNull(), eq(LIMIT)))
+                .thenReturn(scanResult);
+        when(traceDao.selectSpans(any())).thenReturn(moreSpanData());
+
+        HeatMapService heatMapService = new HeatMapServiceImpl(traceIndexDao, spanService, traceDao);
+        heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT);
+        Assertions.assertNotSame(scanResult, heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT));
+    }
+
+    @Test
+    public void legacyCompatibilityCheckErrorTest() {
+        TraceIndexDao traceIndexDao = mock(TraceIndexDao.class);
+        TraceDao traceDao = mock(TraceDao.class);
+
+        LimitedScanResult<List<DotMetaData>> scanResult = new LimitedScanResult<>(1, legacyDotMataData());
+        when(traceIndexDao.scanScatterDataV2(eq(SERVICE), eq(APPLICATION_NAME), eq(SERVICE_TYPE_CODE), eq(dragAreaQuery), isNull(), eq(LIMIT)))
+                .thenReturn(scanResult);
+        when(traceDao.selectSpans(any())).thenReturn(lessSpanData());
+
+        HeatMapService heatMapService = new HeatMapServiceImpl(traceIndexDao, spanService, traceDao);
+        Assertions.assertThrows(IllegalStateException.class, () -> heatMapService.dragTraceIndex(SERVICE, APPLICATION_NAME, SERVICE_TYPE_CODE, dragAreaQuery, LIMIT));
+    }
+
+    private List<DotMetaData> dotMataData() {
+        Dot dot1 = new Dot(TRANSACTION_ID_1, 1, 2, 0, "dotAgentId1");
+        Dot dot2 = new Dot(TRANSACTION_ID_2, 3, 4, 0, "dotAgentId2");
+
+        return List.of(
+                new DotMetaData(dot1, null, null, null, null, 1000, 1),
+                new DotMetaData(dot2, null, null, null, null, 2000, 1)
+        );
+    }
+
+    private List<DotMetaData> legacyDotMataData() {
+        Dot dot1 = new Dot(TRANSACTION_ID_1, 1, 2, 0, "dotAgentId1");
+        Dot dot2 = new Dot(TRANSACTION_ID_2, 3, 4, 0, "dotAgentId2");
+
+        //startTime == 0  true
+        return List.of(
+                new DotMetaData(dot1, null, null, null, null, 1000, 0),
+                new DotMetaData(dot2, null, null, null, null, 2000, 0)
+        );
+    }
+
+    private List<List<SpanBo>> matchingSpanData() {
+        List<SpanBo> spanList1 = List.of(createSpan(TRANSACTION_ID_1));
+        List<SpanBo> spanList2 = List.of(createSpan(TRANSACTION_ID_2));
+
+        return List.of(spanList1, spanList2);
+    }
+
+    private List<List<SpanBo>> moreSpanData() {
+        List<SpanBo> spanList1 = List.of(
+                createSpan(TRANSACTION_ID_1),
+                createSpan(TRANSACTION_ID_1));
+        List<SpanBo> spanList2 = List.of(
+                createSpan(TRANSACTION_ID_2),
+                createSpan(TRANSACTION_ID_2));
+
+        return List.of(spanList1, spanList2);
+    }
+
+    private List<List<SpanBo>> lessSpanData() {
+        return List.of(List.of(), List.of());
+    }
+
+    private SpanBo createSpan(ServerTraceId transactionId) {
+        SpanBo newSpan = new SpanBo();
+        newSpan.setTransactionId(transactionId);
+        return newSpan;
+    }
+}

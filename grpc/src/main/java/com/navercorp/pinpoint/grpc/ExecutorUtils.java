@@ -16,20 +16,23 @@
 
 package com.navercorp.pinpoint.grpc;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
+ * @deprecated Use {@link com.google.common.util.concurrent.MoreExecutors#shutdownAndAwaitTermination(ExecutorService, Duration)} instead.
  * @author Woonduk Kang(emeroad)
  */
+@Deprecated
 public final class ExecutorUtils {
 
     public static final long DEFAULT_SHUTDOWN_TIMEOUT = 3000;
 
-    private static final Logger logger = LoggerFactory.getLogger(ExecutorUtils.class.getName());
+    private static final Logger logger = LogManager.getLogger(ExecutorUtils.class);
 
     private ExecutorUtils() {
     }

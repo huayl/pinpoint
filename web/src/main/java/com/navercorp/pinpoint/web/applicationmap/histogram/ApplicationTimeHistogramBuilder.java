@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,43 +16,53 @@
 
 package com.navercorp.pinpoint.web.applicationmap.histogram;
 
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkCallData;
-import com.navercorp.pinpoint.web.util.TimeWindow;
-import com.navercorp.pinpoint.web.util.TimeWindowDownSampler;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
-import com.navercorp.pinpoint.web.vo.ResponseTime;
+import com.navercorp.pinpoint.applicationmap.histogram.Histogram;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import com.google.common.collect.Ordering;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindowDownSampler;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkCallData;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.applicationmap.vo.ResponseTime;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.collections.api.factory.primitive.LongObjectMaps;
+import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * @author emeroad
  */
 public class ApplicationTimeHistogramBuilder {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private static final Ordering<TimeHistogram> histogramOrdering = Ordering.from(TimeHistogram.TIME_STAMP_ASC_COMPARATOR);
 
     private final Application application;
-    private final Range range;
     private final TimeWindow window;
-
 
 
     public ApplicationTimeHistogramBuilder(Application application, Range range) {
         this.application = Objects.requireNonNull(application, "application");
-        this.range = Objects.requireNonNull(range, "range");
         this.window = new TimeWindow(range, TimeWindowDownSampler.SAMPLER);
+    }
+
+    public ApplicationTimeHistogramBuilder(Application application, TimeWindow window) {
+        this.application = Objects.requireNonNull(application, "application");
+        this.window = Objects.requireNonNull(window, "window");
     }
 
     public ApplicationTimeHistogram build(List<ResponseTime> responseHistogramList) {
         Objects.requireNonNull(responseHistogramList, "responseHistogramList");
 
-        Map<Long, TimeHistogram> applicationLevelHistogram = new HashMap<>();
+        MutableLongObjectMap<TimeHistogram> applicationLevelHistogram = LongObjectMaps.mutable.of();
 
         for (ResponseTime responseTime : responseHistogramList) {
-            final Long timeStamp = responseTime.getTimeStamp();
+            final long timeStamp = responseTime.getTimeStamp();
             TimeHistogram timeHistogram = applicationLevelHistogram.get(timeStamp);
             if (timeHistogram == null) {
                 timeHistogram = new TimeHistogram(application.getServiceType(), timeStamp);
@@ -63,23 +73,26 @@ public class ApplicationTimeHistogramBuilder {
             timeHistogram.add(applicationResponseHistogram);
         }
 
+        return buildFromTimeHistogram(applicationLevelHistogram.values());
+    }
 
-//        Collections.sort(histogramList, TimeHistogram.TIME_STAMP_ASC_COMPARATOR);
-        List<TimeHistogram> histogramList = interpolation(applicationLevelHistogram.values());
+    public ApplicationTimeHistogram buildFromTimeHistogram(Collection<TimeHistogram> applicationHistograms) {
+        Objects.requireNonNull(applicationHistograms, "applicationHistograms");
+
+        List<TimeHistogram> histogramList = interpolation(applicationHistograms);
         if (logger.isTraceEnabled()) {
             for (TimeHistogram histogram : histogramList) {
                 logger.trace("applicationLevel histogram:{}", histogram);
             }
         }
-        ApplicationTimeHistogram applicationTimeHistogram = new ApplicationTimeHistogram(application, range, histogramList);
-        return applicationTimeHistogram;
+        return new ApplicationTimeHistogram(application, histogramList);
     }
 
     public ApplicationTimeHistogram build(Collection<LinkCallData> linkCallDataMapList) {
-        Map<Long, TimeHistogram> applicationLevelHistogram = new HashMap<>();
+        MutableLongObjectMap<TimeHistogram> applicationLevelHistogram = LongObjectMaps.mutable.of();
         for (LinkCallData linkCallData : linkCallDataMapList) {
             for (TimeHistogram timeHistogram : linkCallData.getTimeHistogram()) {
-                Long timeStamp = timeHistogram.getTimeStamp();
+                long timeStamp = timeHistogram.getTimeStamp();
                 TimeHistogram histogram = applicationLevelHistogram.get(timeStamp);
                 if (histogram == null) {
                     histogram = new TimeHistogram(timeHistogram.getHistogramSchema(), timeStamp);
@@ -89,37 +102,25 @@ public class ApplicationTimeHistogramBuilder {
             }
         }
 
-        List<TimeHistogram> histogramList = interpolation(applicationLevelHistogram.values());
-        if (logger.isTraceEnabled()) {
-            for (TimeHistogram histogram : histogramList) {
-                logger.trace("applicationLevel histogram:{}", histogram);
-            }
-        }
-        ApplicationTimeHistogram applicationTimeHistogram = new ApplicationTimeHistogram(application, range, histogramList);
-        return applicationTimeHistogram;
-
+        return buildFromTimeHistogram(applicationLevelHistogram.values());
     }
 
     private List<TimeHistogram> interpolation(Collection<TimeHistogram> histogramList) {
         // upon individual span query, "window time" alone may not be enough
         //
-        Map<Long, TimeHistogram> resultMap = new HashMap<>();
+        MutableLongObjectMap<TimeHistogram> resultMap = LongObjectMaps.mutable.of();
         for (Long time : window) {
             resultMap.put(time, new TimeHistogram(application.getServiceType(), time));
         }
 
-
         for (TimeHistogram timeHistogram : histogramList) {
             long time = window.refineTimestamp(timeHistogram.getTimeStamp());
 
-            TimeHistogram windowHistogram = resultMap.computeIfAbsent(time, t -> new TimeHistogram(application.getServiceType(), t));
+            TimeHistogram windowHistogram = resultMap.getIfAbsentPutWithKey(time, t -> new TimeHistogram(application.getServiceType(), t));
             windowHistogram.add(timeHistogram);
         }
 
-
-        List<TimeHistogram> resultList = new ArrayList<>(resultMap.values());
-        resultList.sort(TimeHistogram.TIME_STAMP_ASC_COMPARATOR);
-        return resultList;
+        return histogramOrdering.sortedCopy(resultMap.values());
     }
 
 }

@@ -16,10 +16,12 @@
 
 package com.navercorp.pinpoint.web.dao;
 
-import com.navercorp.pinpoint.web.vo.AgentInfo;
-import com.navercorp.pinpoint.web.vo.AgentStatus;
+import com.navercorp.pinpoint.common.server.bo.SimpleAgentKey;
+import com.navercorp.pinpoint.common.server.bo.AgentStatus;
+import com.navercorp.pinpoint.web.vo.agent.AgentStatusQuery;
 
-import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * @author HyunGil Jeong
@@ -28,8 +30,9 @@ public interface AgentLifeCycleDao {
 
     AgentStatus getAgentStatus(String agentId, long timestamp);
 
-    void populateAgentStatus(AgentInfo agentInfo, long timestamp);
+    AgentStatus getAgentStatus(String agentId, long agentStartTimestamp, long timestamp);
 
-    void populateAgentStatuses(Collection<AgentInfo> agentInfos, long timestamp);
+    List<Optional<AgentStatus>> getAgentStatus(AgentStatusQuery agentStatusQuery);
 
+    List<Optional<AgentStatus>> getCurrentAgentStatus(List<SimpleAgentKey> agentKeyList);
 }

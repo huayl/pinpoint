@@ -16,16 +16,11 @@
 
 package com.navercorp.pinpoint.collector.receiver.grpc.service;
 
+import com.navercorp.pinpoint.collector.grpc.lifecycle.LifecycleListener;
+import com.navercorp.pinpoint.collector.grpc.lifecycle.PingSession;
 import com.navercorp.pinpoint.collector.receiver.grpc.ShutdownEventListener;
-import com.navercorp.pinpoint.collector.service.AgentInfoService;
-import com.navercorp.pinpoint.collector.util.ManagedAgentLifeCycle;
-import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
-import com.navercorp.pinpoint.grpc.Header;
-import com.navercorp.pinpoint.grpc.server.lifecycle.PingSession;
-import com.navercorp.pinpoint.grpc.server.lifecycle.LifecycleListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 
@@ -34,32 +29,20 @@ import java.util.Objects;
  * @author jaehong.kim
  */
 public class AgentLifecycleListener implements LifecycleListener {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
     private final boolean isDebug = logger.isDebugEnabled();
 
     private final KeepAliveService lifecycleService;
-    private final AgentInfoService agentInfoService;
     private final ShutdownEventListener shutdownEventListener;
 
-    @Autowired
-    public AgentLifecycleListener(KeepAliveService lifecycleService, AgentInfoService agentInfoService, ShutdownEventListener shutdownEventListener) {
+    public AgentLifecycleListener(KeepAliveService lifecycleService, ShutdownEventListener shutdownEventListener) {
         this.lifecycleService = Objects.requireNonNull(lifecycleService, "lifecycleService");
-        this.agentInfoService = Objects.requireNonNull(agentInfoService, "agentInfoService");
         this.shutdownEventListener = Objects.requireNonNull(shutdownEventListener, "shutdownEventListener");
     }
 
     @Override
     public void connect(PingSession lifecycle) {
         logger.info("connect:{}", lifecycle);
-        final Header header = lifecycle.getHeader();
-        try {
-            final AgentInfoBo agentInfoBo = agentInfoService.getAgentInfo(header.getAgentId(), header.getAgentStartTime());
-            if (null != agentInfoBo) {
-                lifecycle.setServiceType(agentInfoBo.getServiceTypeCode());
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to handle. ping session={}", lifecycle, e);
-        }
         lifecycleService.updateState(lifecycle, ManagedAgentLifeCycle.RUNNING);
     }
 

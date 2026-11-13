@@ -24,6 +24,11 @@ import java.util.List;
  * @author HyunGil Jeong
  */
 public class ApplicationPairs {
+    public static final ApplicationPairs EMPTY = new ApplicationPairs();
+
+    public static ApplicationPairs empty() {
+        return EMPTY;
+    }
 
     @JsonProperty("from")
     private List<ApplicationPair> fromApplications;
@@ -49,10 +54,9 @@ public class ApplicationPairs {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("ApplicationPairs{");
-        sb.append("fromApplications=").append(fromApplications);
-        sb.append(", toApplications=").append(toApplications);
-        sb.append('}');
-        return sb.toString();
+        return "ApplicationPairs{" +
+                "fromApplications=" + fromApplications +
+                ", toApplications=" + toApplications +
+                '}';
     }
 }

@@ -1,0 +1,152 @@
+import React from 'react';
+import { ErrorBoundary } from '@pinpoint-fe/ui';
+import { GetServerMap } from '@pinpoint-fe/ui/src/constants';
+import { ResponseSummaryChart, ResponseAvgMaxChart, LoadChart, LoadChartProps } from '../Chart';
+import { cn } from '../../lib';
+import { HelpPopover, Separator } from '..';
+import { colors } from '@pinpoint-fe/ui/src/constants';
+
+export interface ChartsBoardProps {
+  className?: string;
+  chartsContainerClassName?: string;
+  children?: React.ReactNode;
+  header: React.ReactNode;
+  timestamp?: GetServerMap.ApplicationMapData['timestamp'];
+  nodeData?: GetServerMap.NodeData;
+  emptyMessage?: string;
+  disabledBreak?: boolean;
+}
+
+export const ChartsBoard = ({
+  className,
+  chartsContainerClassName,
+  header,
+  children,
+  timestamp,
+  nodeData,
+  emptyMessage,
+  disabledBreak,
+}: ChartsBoardProps) => {
+  const categories = React.useMemo(() => {
+    return Object.keys(nodeData?.histogram || {});
+  }, [nodeData]);
+
+  const data = React.useCallback(
+    (categories: string[]) => {
+      const histogram = nodeData?.histogram;
+      if (histogram) {
+        return categories?.map((category) => {
+          return histogram?.[category as keyof GetServerMap.Histogram] as number;
+        });
+      }
+      return [];
+    },
+    [nodeData],
+  );
+
+  return (
+    <ErrorBoundary>
+      <div className={cn('flex h-full w-full flex-col bg-white', className)}>
+        {header}
+        <div className={cn('w-full h-full overflow-y-auto', chartsContainerClassName)}>
+          {children}
+          {nodeData && (
+            // 보드가 넓어도 차트는 한 줄에 하나씩 쌓는다.
+            <div className="grid grid-cols-[100%]">
+              <div className="px-4 py-2.5">
+                <ResponseSummaryChart
+                  className="h-40"
+                  title={
+                    <div className="flex items-center h-12 font-semibold">Response Summary</div>
+                  }
+                  categories={categories}
+                  data={data}
+                  emptyMessage={emptyMessage}
+                  disabledBreak={disabledBreak}
+                />
+              </div>
+              <Separator />
+              <div className="px-4 py-2.5">
+                <ResponseAvgMaxChart
+                  className="h-40"
+                  title={
+                    <div className="flex items-center h-12 font-semibold">Response Avg & Max</div>
+                  }
+                  data={(categories) => {
+                    const responseStatistics = nodeData?.responseStatistics;
+                    if (responseStatistics) {
+                      return categories!.map((category) => {
+                        return responseStatistics?.[
+                          category as keyof GetServerMap.ResponseStatistics
+                        ];
+                      });
+                    }
+                    return [];
+                  }}
+                  emptyMessage={emptyMessage}
+                />
+              </div>
+              <Separator />
+              <div className="px-4 py-2.5">
+                <LoadChart
+                  className="h-40"
+                  title={
+                    <div className="flex items-center h-12 gap-1 font-semibold">
+                      Load
+                      <HelpPopover helpKey="HELP_VIEWER.LOAD" />
+                    </div>
+                  }
+                  datas={(chartColors: LoadChartProps['chartColors']) => {
+                    const keys = Object.keys(chartColors!);
+
+                    return {
+                      dates: timestamp || [],
+                      ...keys.reduce((prev, curr) => {
+                        const matchedHistogram = nodeData?.timeSeriesHistogram?.find(
+                          ({ key }: { key: string }) => key === curr,
+                        );
+
+                        return matchedHistogram
+                          ? {
+                              ...prev,
+                              [curr]: matchedHistogram?.values || [],
+                            }
+                          : prev;
+                      }, {}),
+                    };
+                  }}
+                  emptyMessage={emptyMessage}
+                />
+              </div>
+              <Separator />
+              <div className="px-4 py-2.5">
+                <LoadChart
+                  className="h-40"
+                  title={<div className="flex items-center h-12 font-semibold">Load Avg & Max</div>}
+                  chartColors={{
+                    Avg: colors.green[300],
+                    Max: colors.sky[500],
+                  }}
+                  datas={{
+                    dates: timestamp || [],
+                    ...['Avg', 'Max'].reduce((prev, curr) => {
+                      const matchedHistogram = nodeData?.timeSeriesHistogram?.find(
+                        ({ key }: { key: string }) => key === curr,
+                      );
+
+                      return {
+                        ...prev,
+                        [curr]: matchedHistogram?.values || [],
+                      };
+                    }, {}),
+                  }}
+                  emptyMessage={emptyMessage}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </ErrorBoundary>
+  );
+};

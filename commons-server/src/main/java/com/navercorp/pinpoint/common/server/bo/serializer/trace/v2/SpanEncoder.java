@@ -13,9 +13,21 @@ public interface SpanEncoder {
     byte TYPE_SPAN = 0;
     byte TYPE_SPAN_CHUNK = 1;
 
+    // OpenTelemetry-origin spans. The first byte of the qualifier doubles as both the
+    // span/chunk discriminator and the source-type discriminator (Pinpoint vs OTel).
+    byte TYPE_OTEL_SPAN = 2;
+    byte TYPE_OTEL_SPAN_CHUNK = 3;
+
     // reserved
     byte TYPE_PASSIVE_SPAN = 4;
     byte TYPE_INDEX = 7;
+
+    // serviceUid-bearing variants. Same span/chunk and source-type semantics as the
+    // codes above, but the qualifier additionally carries a serviceUid.
+    byte TYPE_SPAN_UID = 8;
+    byte TYPE_SPAN_CHUNK_UID = 9;
+    byte TYPE_OTEL_SPAN_UID = 10;
+    byte TYPE_OTEL_SPAN_CHUNK_UID = 11;
 
     ByteBuffer encodeSpanQualifier(SpanEncodingContext<SpanBo> encodingContext);
 

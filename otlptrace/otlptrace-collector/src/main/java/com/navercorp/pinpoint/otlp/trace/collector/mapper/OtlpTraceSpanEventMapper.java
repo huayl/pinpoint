@@ -1,0 +1,497 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.otlp.trace.collector.mapper;
+
+import com.navercorp.pinpoint.common.plugin.util.HostAndPort;
+import com.navercorp.pinpoint.common.server.bo.AnnotationBo;
+import com.navercorp.pinpoint.common.server.bo.AttributeBo;
+import com.navercorp.pinpoint.common.server.bo.ExceptionInfo;
+import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
+import com.navercorp.pinpoint.common.server.util.ByteStringUtils;
+import com.navercorp.pinpoint.common.server.util.Utf8;
+import com.navercorp.pinpoint.common.trace.AnnotationKey;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.trace.attribute.AttributeValue;
+import com.navercorp.pinpoint.io.SpanVersion;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.ActiveMQAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.KafkaAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.MessagingAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.OtlpMessagingTypeResolver;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.PulsarAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.RabbitMQAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.RocketMQAttributeUtils;
+import com.navercorp.pinpoint.otlp.trace.collector.util.AttributeUtils;
+import io.opentelemetry.proto.common.v1.InstrumentationScope;
+import io.opentelemetry.proto.trace.v1.Span;
+import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+@Component
+public class OtlpTraceSpanEventMapper {
+
+    private final OtlpTraceEventMapper eventMapper;
+    private final OtlpTraceLinkMapper linkMapper;
+    private final OtlpDbSystemTypeResolver dbSystemTypeResolver;
+    private final OtlpMessagingTypeResolver messagingTypeResolver;
+    private final OtlpClientTypeResolver clientTypeResolver;
+    private final OtlpEnvoyRecorder envoyRecorder;
+    private final OtlpExceptionInfoResolver exceptionInfoResolver;
+    private final OtlpAttributeBoMapper attributeBoMapper;
+    private final int sqlMaxBytes;
+
+    public OtlpTraceSpanEventMapper(OtlpTraceEventMapper eventMapper,
+                                    OtlpTraceLinkMapper linkMapper,
+                                    ServiceTypeRegistryService serviceTypeRegistryService,
+                                    OtlpMessagingTypeResolver messagingTypeResolver,
+                                    OtlpClientTypeResolver clientTypeResolver,
+                                    OtlpEnvoyRecorder envoyRecorder,
+                                    OtlpExceptionInfoResolver exceptionInfoResolver,
+                                    OtlpAttributeBoMapper attributeBoMapper,
+                                    @Value("${pinpoint.collector.otlptrace.sql.max-bytes:8192}") int sqlMaxBytes) {
+        this.eventMapper = Objects.requireNonNull(eventMapper, "eventMapper");
+        this.linkMapper = Objects.requireNonNull(linkMapper, "linkMapper");
+        this.dbSystemTypeResolver = new OtlpDbSystemTypeResolver(
+                Objects.requireNonNull(serviceTypeRegistryService, "serviceTypeRegistryService"));
+        this.messagingTypeResolver = Objects.requireNonNull(messagingTypeResolver, "messagingTypeResolver");
+        this.clientTypeResolver = Objects.requireNonNull(clientTypeResolver, "clientTypeResolver");
+        this.envoyRecorder = Objects.requireNonNull(envoyRecorder, "envoyRecorder");
+        this.exceptionInfoResolver = Objects.requireNonNull(exceptionInfoResolver, "exceptionInfoResolver");
+        this.attributeBoMapper = Objects.requireNonNull(attributeBoMapper, "attributeBoMapper");
+        if (sqlMaxBytes < 0) {
+            throw new IllegalArgumentException("sqlMaxBytes must be >= 0: " + sqlMaxBytes);
+        }
+        this.sqlMaxBytes = sqlMaxBytes;
+    }
+
+    List<SpanEventBo> map(long spanStartTimeNanos, Span span, InstrumentationScope scope) {
+        // Delegate to depth-aware mapper with default depth=1
+        List<SpanEventBo> list = new ArrayList<>();
+        list.add(map(spanStartTimeNanos, span, scope, 1));
+        return list;
+    }
+
+    SpanEventBo map(long spanStartTimeNanos, Span span, InstrumentationScope scope, int depth) {
+        SpanEventBo spanEventBo = new SpanEventBo();
+        spanEventBo.setSequence((short) 0);
+        final long eventStartTimeNanos = span.getStartTimeUnixNano();
+        final long eventEndTimeNanos = Math.max(span.getEndTimeUnixNano(), eventStartTimeNanos);
+
+        final int startElapsed = (int) TimeUnit.NANOSECONDS.toMillis(eventStartTimeNanos - spanStartTimeNanos);
+        spanEventBo.setTraceTime(SpanVersion.TRACE_V3, eventStartTimeNanos, eventEndTimeNanos, startElapsed);
+
+        final Map<String, AttributeValue> attributes = OtlpTraceMapperUtils.getAttributeValueMap(span.getAttributesList());
+        final TruncatedCounts truncatedCounts = new TruncatedCounts();
+        // Keys promoted to a 1st-class field/annotation are collected here and excluded from the
+        // raw attribute list below — "filter only what was actually consumed". Keys consumed by
+        // the messaging/db collaborators are covered by the static FILTERED_ATTRIBUTE_KEY_SET.
+        final Set<String> consumedKeys = new HashSet<>();
+
+        // Keep the order
+        if (isDatabase(attributes)) {
+            spanEventBo.setEndPoint(getClientSpanToEndPoint(attributes, consumedKeys));
+            spanEventBo.setDestinationId(getClientSpanToDestinationId(attributes, consumedKeys));
+            final String dbSystem = getDbSystem(attributes);
+            spanEventBo.setServiceType(dbSystemTypeResolver.resolveBaseCode(dbSystem));
+            if (isDatabaseExecuteQuery(attributes)) {
+                spanEventBo.setServiceType(dbSystemTypeResolver.resolveExecuteQueryCode(dbSystem));
+                String statement = getClientSpanDbStatement(attributes);
+                final String truncatedStatement = (statement == null) ? null : Utf8.truncate(statement, sqlMaxBytes);
+                if (truncatedStatement != null) {
+                    statement = truncatedStatement;
+                    truncatedCounts.sql();
+                }
+                spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.SQL.getCode(), statement));
+            }
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.API.getCode(), getSpanNameOrDefault(span, OtlpTraceMapper.CLIENT_METHOD_NAME)));
+        } else if (isClient(span)) {
+            spanEventBo.setEndPoint(getClientSpanToEndPoint(attributes, consumedKeys));
+            spanEventBo.setDestinationId(getClientSpanToDestinationId(attributes, consumedKeys));
+            // rpc.system(.name) dispatch: grpc → GRPC, dubbo/apache_dubbo → APACHE_DUBBO_CONSUMER.
+            // No rpc system + HTTP method/URL key → OPENTELEMETRY_HTTP_CLIENT; otherwise the
+            // generic OPENTELEMETRY_CLIENT fallback.
+            final String rpcSystem = OtlpTraceSpanMapper.getRpcSystem(attributes, consumedKeys);
+            spanEventBo.setServiceType(clientTypeResolver.resolveClientServiceType(rpcSystem, attributes));
+            // Envoy egress detection → identification annotations only. The ServiceType is NOT
+            // overridden to ENVOY_EGRESS (see OtlpEnvoyRecorder Javadoc); Envoy's HTTP tags make
+            // it an OPENTELEMETRY_HTTP_CLIENT like any other HTTP call.
+            if (envoyRecorder.isEnvoy(attributes)) {
+                envoyRecorder.recordAnnotations(spanEventBo::addAnnotation, attributes, false, consumedKeys);
+            }
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.API.getCode(), getSpanNameOrDefault(span, OtlpTraceMapper.CLIENT_METHOD_NAME)));
+            // Request URL → HTTP_URL (40) annotation, mirroring the native HTTP client plugins
+            // (ClientRequestRecorder records InterceptorUtils.getHttpUrl(url) on the SpanEvent).
+            // The web reads this key for the Call Tree display argument and for the filtered
+            // ServerMap URL-pattern filter (RpcURLPatternFilter), neither of which sees raw
+            // attributes. Query / fragment / userinfo are stripped like the raw attribute
+            // (OtlpSensitiveAttributeFilter) and the plugins' default (param=false). The URL key
+            // is not consumed: the raw attribute keeps the full value under the same redaction.
+            final String httpUrl = getClientRequestUrl(attributes);
+            if (httpUrl != null) {
+                spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.HTTP_URL.getCode(), httpUrl));
+            }
+        } else if (isProducer(span)) {
+            final String messagingSystem = MessagingAttributeUtils.getSystem(attributes);
+            final String endPoint = MessagingAttributeUtils.resolveEndPoint(attributes);
+            spanEventBo.setEndPoint(endPoint);
+            spanEventBo.setDestinationId(MessagingAttributeUtils.resolveProducerDestinationId(attributes, endPoint));
+            spanEventBo.setServiceType(messagingTypeResolver.resolveClientServiceType(messagingSystem));
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.API.getCode(), getSpanNameOrDefault(span, OtlpTraceMapper.PRODUCER_METHOD_NAME)));
+            recordMessagingProducerAnnotations(messagingSystem, attributes, spanEventBo::addAnnotation);
+        } else {
+            // Internal span has no outgoing endpoint/destination. OTel-explicit INTERNAL kind
+            // keeps the OPENTELEMETRY_INTERNAL namespace; UNSPECIFIED / nested SERVER / nested
+            // CONSUMER (rare fallthroughs that don't match any earlier branch) fall back to
+            // the generic INTERNAL_METHOD type to signal "kind was not classified".
+            final boolean isOtelInternal = span.getKind().getNumber() == Span.SpanKind.SPAN_KIND_INTERNAL_VALUE;
+            spanEventBo.setServiceType(isOtelInternal
+                    ? ServiceType.OPENTELEMETRY_INTERNAL.getCode()
+                    : ServiceType.INTERNAL_METHOD.getCode());
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.API.getCode(), getSpanNameOrDefault(span, OtlpTraceMapper.INTERNAL_METHOD_NAME)));
+        }
+        // error status → SpanEvent exception (mirrors the root SpanBo error rule). A SpanEventBo
+        // has no transaction-level errCode flag, so exceptionInfo is the only error marker.
+        final ExceptionInfo exceptionInfo = exceptionInfoResolver.resolveErrorExceptionInfo(span, attributes);
+        if (exceptionInfo != null) {
+            spanEventBo.setExceptionInfo(exceptionInfo);
+        }
+        final boolean skipExceptionEvent = exceptionInfoResolver.isExceptionClassCaptured(exceptionInfo);
+
+        // api
+        spanEventBo.setApiId(0);
+        spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.OPENTELEMETRY_SPAN_ID.getCode(), OtlpTraceMapperUtils.getSpanId(span.getSpanId())));
+        spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.OPENTELEMETRY_PARENT_SPAN_ID.getCode(), OtlpTraceMapperUtils.getParentSpanId(span.getParentSpanId())));
+        // instrumentation scope identity ("name@version") — omitted when the SDK left the
+        // scope name unset, so scope-less spans stay annotation-free.
+        final String scopeValue = OtlpTraceMapperUtils.formatScope(scope);
+        if (scopeValue != null) {
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.OPENTELEMETRY_SCOPE.getCode(), scopeValue));
+        }
+        // HTTP response status → HTTP_STATUS_CODE annotation, mirroring the native HTTP client
+        // plugins (okhttp / httpclient / resttemplate / ...) which record it on the SpanEvent via
+        // SpanEventRecorder.recordAttribute(AnnotationKey.HTTP_STATUS_CODE, ...). Only the consumed
+        // raw key is excluded below, so a non-promoted variant survives. Fires only when an HTTP
+        // status attribute is present (gRPC clients carry rpc.grpc.status_code instead → no-op).
+        // Spring Boot micrometer-tracing bridge (Micrometer key names, see OtlpMicrometerAttributes): its
+        // string-typed `status` / `method` complement the semconv keys on HTTP client spans only — on
+        // @Observed (INTERNAL) spans `method` is the Java method name.
+        final boolean micrometerHttpClient = isClient(span) && OtlpMicrometerAttributes.isMicrometerScope(scope);
+        OtlpHttpStatusResolver.ResponseStatus responseStatus = OtlpHttpStatusResolver.resolve(attributes);
+        if (responseStatus == null && micrometerHttpClient) {
+            responseStatus = OtlpMicrometerAttributes.getResponseStatus(attributes);
+        }
+        if (responseStatus != null) {
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.HTTP_STATUS_CODE.getCode(), responseStatus.code()));
+            consumedKeys.add(responseStatus.sourceKey());
+        }
+        // http method → HTTP_METHOD annotation (e.g. an HTTP client SpanEvent's request method)
+        String httpMethod = OtlpTraceSpanMapper.getHttpMethod(attributes, consumedKeys);
+        if (httpMethod == null && micrometerHttpClient) {
+            httpMethod = OtlpMicrometerAttributes.getHttpMethod(attributes, consumedKeys);
+        }
+        if (httpMethod != null) {
+            spanEventBo.addAnnotation(AnnotationBo.of(AnnotationKey.HTTP_METHOD.getCode(), httpMethod));
+        }
+        // gRPC status → grpc.status (160) annotation, mirroring the native gRPC client plugin
+        // (ListenerClosedInterceptor records Status.getCode().name() on the client SpanEvent).
+        final OtlpGrpcStatusResolver.GrpcStatus grpcStatus = OtlpGrpcStatusResolver.resolve(attributes);
+        if (grpcStatus != null) {
+            spanEventBo.addAnnotation(AnnotationBo.of(OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS, grpcStatus.name()));
+            consumedKeys.add(grpcStatus.sourceKey());
+        }
+        // GenAI (LLM call) → gen_ai.model (409) / gen_ai.usage (410) annotations. Claude Code
+        // carries these on kind=0 child spans (claude_code.llm_request), so the SpanEvent path
+        // is the primary consumer; the root-span path is wired symmetrically for SDKs that
+        // emit an LLM call as a root/local-root span.
+        OtlpGenAiRecorder.record(spanEventBo::addAnnotation, attributes, consumedKeys);
+        // attributes
+        if (!attributes.isEmpty()) {
+            final Predicate<String> attributeFilter = OtlpTraceConstants.FILTERED_ATTRIBUTE_KEY.or(consumedKeys::contains);
+            List<AttributeBo> attributeBoList = attributeBoMapper.toAttributeBoList(
+                    attributes, attributeFilter, truncatedCounts::attribute);
+            spanEventBo.setAttributeBoList(attributeBoList);
+        }
+        // event
+        for (Span.Event event : span.getEventsList()) {
+            // The exception event's class name is captured into exceptionInfo and its message/
+            // stacktrace into exception-trace metadata, so skip its (redundant) annotation.
+            if (skipExceptionEvent && OtlpTraceConstants.EVENT_NAME_EXCEPTION.equals(event.getName())) {
+                continue;
+            }
+            final AnnotationBo eventAnnotation = eventMapper.toAnnotation(event, truncatedCounts::event);
+            if (eventAnnotation != null) {
+                spanEventBo.addAnnotation(eventAnnotation);
+            }
+        }
+        // link
+        for (Span.Link link : span.getLinksList()) {
+            final AnnotationBo linkAnnotation = linkMapper.toAnnotation(link, truncatedCounts::link);
+            if (linkAnnotation != null) {
+                spanEventBo.addAnnotation(linkAnnotation);
+            }
+        }
+        // SDK-side data-loss hints (Span proto fields 10/12/14). Only emit when > 0.
+        final AnnotationBo droppedAnnotation = OtlpTraceSpanMapper.toDroppedAnnotation(
+                span.getDroppedAttributesCount(),
+                span.getDroppedEventsCount(),
+                span.getDroppedLinksCount());
+        if (droppedAnnotation != null) {
+            spanEventBo.addAnnotation(droppedAnnotation);
+        }
+
+        spanEventBo.setDepth(depth);
+
+        if (span.getKind().getNumber() == Span.SpanKind.SPAN_KIND_CLIENT_VALUE || span.getKind().getNumber() == Span.SpanKind.SPAN_KIND_PRODUCER_VALUE) {
+            final long nextSpanId = ByteStringUtils.parseLong(span.getSpanId());
+            spanEventBo.setNextSpanId(nextSpanId);
+        }
+
+        final AnnotationBo truncatedAnnotation = OtlpTraceSpanMapper.toTruncatedAnnotation(truncatedCounts);
+        if (truncatedAnnotation != null) {
+            spanEventBo.addAnnotation(truncatedAnnotation);
+        }
+
+        return spanEventBo;
+    }
+
+    boolean isClient(Span span) {
+        return span.getKind().getNumber() == Span.SpanKind.SPAN_KIND_CLIENT_VALUE;
+    }
+
+    boolean isProducer(Span span) {
+        return span.getKind().getNumber() == Span.SpanKind.SPAN_KIND_PRODUCER_VALUE;
+    }
+
+    boolean isDatabase(Map<String, AttributeValue> attributes) {
+        return attributes.containsKey(OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM) || attributes.containsKey(OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME);
+    }
+
+    String getDbSystem(Map<String, AttributeValue> attributes) {
+        // db.system.name (2.x) preferred over db.system (1.x)
+        String dbSystemName = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, null);
+        if (dbSystemName != null) {
+            return dbSystemName;
+        }
+        return AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, null);
+    }
+
+    boolean isDatabaseExecuteQuery(Map<String, AttributeValue> attributes) {
+        return attributes.containsKey(OtlpTraceConstants.ATTRIBUTE_KEY_DB_STATEMENT) || attributes.containsKey(OtlpTraceConstants.ATTRIBUTE_KEY_DB_QUERY_TEXT);
+    }
+
+    String getClientSpanDbStatement(Map<String, AttributeValue> attributes) {
+        String statement = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_QUERY_TEXT, null);
+        if (statement == null) {
+            statement = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_STATEMENT, null);
+        }
+        return statement;
+    }
+
+    String getClientSpanToEndPoint(Map<String, AttributeValue> attributes, Set<String> consumedKeys) {
+        // Logical names first (better ServerMap grouping than socket IPs), then URL-derived
+        // host:port, then the socket address, then the proxy tag.
+        final String serverAddress = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, null);
+        if (serverAddress != null) {
+            final long serverPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT);
+            return HostAndPort.toHostAndPortString(serverAddress, (int) serverPort, 0);
+        }
+        // legacy (semconv 1.x) equivalent of server.address — otel-js gRPC/HTTP clients emit
+        // only net.peer.name/net.peer.port, which previously left endPoint/destinationId null.
+        final String netPeerName = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, null);
+        if (netPeerName != null) {
+            final long netPeerPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT);
+            return HostAndPort.toHostAndPortString(netPeerName, (int) netPeerPort, 0);
+        }
+        // host:port extracted from the request URL — url.full (new semconv) / http.url (legacy).
+        // The URL keys are deliberately NOT collected: only host:port is consumed and the raw
+        // URL retains path/query information beyond the promoted field.
+        final String urlHostAndPort = getUrlToHostAndPort(attributes);
+        if (urlHostAndPort != null) {
+            return urlHostAndPort;
+        }
+        // socket-level fallback when no application-level address is emitted by the SDK
+        final String networkPeerIp = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, null);
+        if (networkPeerIp != null) {
+            final long networkPeerPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT);
+            return HostAndPort.toHostAndPortString(networkPeerIp, (int) networkPeerPort, 0);
+        }
+        // proxy
+        final String upstreamAddress = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_ADDRESS, null);
+        if (upstreamAddress != null) {
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_ADDRESS);
+        }
+        return upstreamAddress;
+    }
+
+    /**
+     * HTTP client request URL for the {@link AnnotationKey#HTTP_URL} annotation — {@code url.full}
+     * (new semconv) before {@code http.url} (legacy) — with the query string, fragment and userinfo
+     * removed. Returns {@code null} when neither key is present, the value is empty (also after
+     * stripping, e.g. {@code "?q=1"}), or an absolute URL has no host (bare {@code "https://"}).
+     */
+    static @Nullable String getClientRequestUrl(Map<String, AttributeValue> attributes) {
+        String url = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_URL_FULL, null);
+        if (url == null) {
+            url = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_HTTP_URL, null);
+        }
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        final String stripped = OtlpSensitiveAttributeFilter.stripUrl(url);
+        if (stripped.isEmpty()) {
+            return null;
+        }
+        if (stripped.contains("://")) {
+            final String hostAndPort = OtlpTraceSpanMapper.extractHostAndPort(stripped);
+            if (hostAndPort == null || hostAndPort.isEmpty()) {
+                return null;
+            }
+        }
+        return stripped;
+    }
+
+    /**
+     * Extracts {@code host[:port]} from the HTTP client request URL — {@code url.full}
+     * (new semconv) before {@code http.url} (legacy). Returns {@code null} when neither is
+     * present or the URL has no extractable host (e.g. a bare {@code "https://"}).
+     */
+    static @Nullable String getUrlToHostAndPort(Map<String, AttributeValue> attributes) {
+        String url = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_URL_FULL, null);
+        if (url == null) {
+            url = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_HTTP_URL, null);
+        }
+        final String hostAndPort = OtlpTraceSpanMapper.extractHostAndPort(url);
+        if (hostAndPort == null || hostAndPort.isEmpty()) {
+            return null;
+        }
+        return hostAndPort;
+    }
+
+    String getClientSpanToDestinationId(Map<String, AttributeValue> attributes, Set<String> consumedKeys) {
+        // Resolve db.system up front — OTel Redis spec defines db.namespace (and legacy
+        // db.name) as the numeric DB index (0-15), not a logical namespace. For Redis we
+        // skip those keys so destinationId falls through to db.system ("redis"), keeping
+        // ServerMap grouped at the system level instead of fanning out per index.
+        // db.* keys are covered by the static FILTERED_ATTRIBUTE_KEY_SET, not collected here.
+        final String dbSystem = getDbSystem(attributes);
+        final boolean isRedis = OtlpTraceConstants.DB_SYSTEM_REDIS.equalsIgnoreCase(dbSystem);
+        if (!isRedis) {
+            // 2.x
+            final String dbNamespace = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAMESPACE, null);
+            if (dbNamespace != null) {
+                return dbNamespace;
+            }
+            // 1.x
+            final String dbName = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAME, null);
+            if (dbName != null) {
+                return dbName;
+            }
+        }
+        // Namespace-less DBs (redis, elasticsearch, memcached, ...) — group ServerMap
+        // by system (e.g. "redis") instead of fanning out per-shard host:port.
+        if (dbSystem != null) {
+            return dbSystem;
+        }
+
+        final String upstreamClusterName = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_CLUSTER_NAME, null);
+        if (upstreamClusterName != null) {
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_CLUSTER_NAME);
+            return upstreamClusterName;
+        }
+
+        final String serverAddress = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, null);
+        if (serverAddress != null) {
+            final long serverPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT);
+            return HostAndPort.toHostAndPortString(serverAddress, (int) serverPort, 0);
+        }
+        // legacy (semconv 1.x) equivalent of server.address — see getClientSpanToEndPoint
+        final String netPeerName = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, null);
+        if (netPeerName != null) {
+            final long netPeerPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT);
+            return HostAndPort.toHostAndPortString(netPeerName, (int) netPeerPort, 0);
+        }
+        // host:port from the request URL — url.full (new semconv) / http.url (legacy).
+        // URL keys are deliberately NOT collected (partial consumption, see getClientSpanToEndPoint).
+        final String urlHostAndPort = getUrlToHostAndPort(attributes);
+        if (urlHostAndPort != null) {
+            return urlHostAndPort;
+        }
+        final String networkPeerIp = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, null);
+        if (networkPeerIp != null) {
+            final long networkPeerPort = AttributeUtils.getAttributeIntValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, 0L);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP);
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT);
+            return HostAndPort.toHostAndPortString(networkPeerIp, (int) networkPeerPort, 0);
+        }
+
+        // proxy
+        final String upstreamAddress = AttributeUtils.getAttributeStringValue(attributes, OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_ADDRESS, null);
+        if (upstreamAddress != null) {
+            consumedKeys.add(OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_ADDRESS);
+        }
+        return upstreamAddress;
+    }
+
+    String getSpanNameOrDefault(Span span, String defaultName) {
+        if (span.getName().isEmpty()) {
+            return defaultName;
+        }
+        return span.getName();
+    }
+
+
+    /**
+     * Dispatch {@code messaging.system} → system-specific annotation emitter.
+     * No-op when the system is unrecognized.
+     */
+    static void recordMessagingProducerAnnotations(String messagingSystem,
+                                                   Map<String, AttributeValue> attributes,
+                                                   Consumer<AnnotationBo> sink) {
+        if (OtlpTraceConstants.MESSAGING_SYSTEM_KAFKA.equalsIgnoreCase(messagingSystem)) {
+            KafkaAttributeUtils.recordTopicPartitionOffset(attributes, sink);
+        } else if (OtlpTraceConstants.MESSAGING_SYSTEM_RABBITMQ.equalsIgnoreCase(messagingSystem)) {
+            RabbitMQAttributeUtils.recordExchangeRoutingKey(attributes, sink);
+        } else if (OtlpTraceConstants.MESSAGING_SYSTEM_PULSAR.equalsIgnoreCase(messagingSystem)) {
+            PulsarAttributeUtils.recordTopicPartitionMessage(attributes, sink);
+        } else if (OtlpTraceConstants.MESSAGING_SYSTEM_ROCKETMQ.equalsIgnoreCase(messagingSystem)) {
+            RocketMQAttributeUtils.recordTopicQueueBroker(attributes, sink);
+        } else if (OtlpTraceConstants.MESSAGING_SYSTEM_ACTIVEMQ.equalsIgnoreCase(messagingSystem)) {
+            ActiveMQAttributeUtils.recordQueueBroker(attributes, sink);
+        }
+    }
+}

@@ -1,0 +1,260 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.exceptiontrace.web.util;
+
+import com.google.common.primitives.Ints;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import com.navercorp.pinpoint.common.timeseries.window.TimePrecision;
+import com.navercorp.pinpoint.common.util.KeyValueTokenizer;
+import com.navercorp.pinpoint.common.util.StringUtils;
+import com.navercorp.pinpoint.metric.web.util.QueryParameter;
+
+import java.security.InvalidParameterException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author intr3p1d
+ */
+public class ExceptionTraceQueryParameter extends QueryParameter {
+
+    private final String tableName;
+
+    private final String tenantId;
+    private final String serviceName;
+    private final String applicationName;
+    private final String agentId;
+
+    private final String transactionId;
+    private final long spanId;
+    private final long exceptionId;
+    private final int exceptionDepth;
+
+    private final OrderByAttributes orderBy;
+    private final String isDesc;
+    private final List<GroupByAttributes> groupByAttributes;
+    private final FilterByAttributes filterByAttributes;
+
+    private final long timeWindowRangeCount;
+
+    protected ExceptionTraceQueryParameter(
+            Builder builder
+    ) {
+        super(builder.getRange(), builder.getTimePrecision(), builder.getLimit());
+        this.tableName = builder.tableName;
+        this.tenantId = builder.tenantId;
+        this.serviceName = builder.serviceName;
+        this.applicationName = builder.applicationName;
+        this.agentId = builder.agentId;
+        this.transactionId = builder.transactionId;
+        this.spanId = builder.spanId;
+        this.exceptionId = builder.exceptionId;
+        this.exceptionDepth = builder.exceptionDepth;
+        this.orderBy = builder.orderBy;
+        this.isDesc = builder.isDesc;
+        this.groupByAttributes = builder.groupByAttributes;
+        this.filterByAttributes = builder.filterByAttributes;
+        this.timeWindowRangeCount = builder.timeWindowRangeCount;
+    }
+
+    public List<GroupByAttributes> getGroupByAttributes() {
+        return groupByAttributes;
+    }
+
+    public static class Builder extends QueryParameter.Builder<Builder> {
+
+        private static final int MAX_LIMIT = 65536;
+        private Integer hardLimit = null;
+
+        private String tableName;
+
+        private String tenantId;
+        private String serviceName;
+        private String applicationName;
+        private String agentId = null;
+
+
+        private String transactionId = null;
+        private long spanId = Long.MIN_VALUE;
+        private long exceptionId = Long.MIN_VALUE;
+        private int exceptionDepth = Integer.MIN_VALUE;
+
+        private OrderByAttributes orderBy;
+        private String isDesc;
+        private final List<GroupByAttributes> groupByAttributes = new ArrayList<>();
+        private final FilterByAttributes filterByAttributes = new FilterByAttributes();
+
+        private long timeWindowRangeCount = 0;
+
+        @Override
+        protected Builder self() {
+            return this;
+        }
+
+        public Builder setTableName(String tableName) {
+            this.tableName = tableName;
+            return self();
+        }
+
+        public Builder setTenantId(String tenantId) {
+            this.tenantId = tenantId;
+            return self();
+        }
+
+        public Builder setServiceName(String serviceName) {
+            this.serviceName = StringPrecondition.requireHasLength(serviceName, "serviceName");
+            return self();
+        }
+
+        public Builder setApplicationName(String applicationName) {
+            this.applicationName = StringPrecondition.requireHasLength(applicationName, "applicationName");
+            return self();
+        }
+
+        public Builder setExceptionDepth(int exceptionDepth) {
+            this.exceptionDepth = exceptionDepth;
+            return self();
+        }
+
+        public Builder setAgentId(String agentId) {
+            if (StringUtils.hasLength(agentId)) {
+                this.agentId = agentId;
+            }
+            return self();
+        }
+
+        public Builder setTransactionId(String transactionId) {
+            this.transactionId = transactionId;
+            return self();
+        }
+
+        public Builder setSpanId(long spanId) {
+            this.spanId = spanId;
+            return self();
+        }
+
+        public Builder setExceptionId(long exceptionId) {
+            this.exceptionId = exceptionId;
+            return self();
+        }
+
+        public Builder setTimeWindowRangeCount(long timeWindowRangeCount) {
+            this.timeWindowRangeCount = timeWindowRangeCount;
+            return self();
+        }
+
+        public Builder setHardLimit(int limit) {
+            this.hardLimit = Ints.constrainToRange(limit, 50, 200);
+            return self();
+        }
+
+        public Builder setOrderBy(String orderBy) {
+            OrderByAttributes order = OrderByAttributes.fromValue(orderBy);
+            if (order == null) {
+                throw new InvalidParameterException("Invalid order by type : " + orderBy + " not supported.");
+            }
+            this.orderBy = order;
+            return self();
+        }
+
+        public Builder setIsDesc(boolean desc) {
+            if (desc) {
+                this.isDesc = "desc";
+            } else {
+                this.isDesc = "asc";
+            }
+            return self();
+        }
+
+        public Builder setGroupByAttributes(List<GroupByAttributes> groupByAttributes) {
+            this.groupByAttributes.addAll(groupByAttributes);
+            return self();
+        }
+
+        public Builder addAllGroupByList(Collection<String> strings) {
+            if (strings == null) {
+                return self();
+            }
+            List<GroupByAttributes> groupByAttributesList = strings.stream().map(
+                            GroupByAttributes::fromValue
+                    )
+                    .filter(Objects::nonNull)
+                    .distinct().sorted().toList();
+            this.groupByAttributes.addAll(groupByAttributesList);
+            return self();
+        }
+
+        public Builder addAllFilters(Collection<String> strings) {
+            if (strings == null) {
+                return self();
+            }
+            for (String string : strings) {
+                KeyValueTokenizer.KeyValue keyValue = KeyValueTokenizer.tokenize(string, ":");
+                filterByAttributes.put(keyValue.getKey(), keyValue.getValue());
+            }
+            return self();
+        }
+
+        public int useLimitIfSet() {
+            if (hardLimit != null) {
+                return hardLimit;
+            }
+            return estimateLimit();
+        }
+
+        @Override
+        public int estimateLimit() {
+            if (this.range != null) {
+                return Math.toIntExact(range.getRange() / Math.max(timePrecision.getInterval(), 30000)) + 1;
+            } else {
+                return MAX_LIMIT;
+            }
+        }
+
+        @Override
+        public ExceptionTraceQueryParameter build() {
+            if (timePrecision == null) {
+                this.timePrecision = TimePrecision.newTimePrecision(TimeUnit.MILLISECONDS, 30000);
+            }
+            this.limit = this.useLimitIfSet();
+            return new ExceptionTraceQueryParameter(this);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "ExceptionTraceQueryParameter{" +
+                "tableName='" + tableName + '\'' +
+                ", tenantId='" + tenantId + '\'' +
+                ", serviceName='" + serviceName + '\'' +
+                ", applicationName='" + applicationName + '\'' +
+                ", agentId='" + agentId + '\'' +
+                ", transactionId='" + transactionId + '\'' +
+                ", spanId=" + spanId +
+                ", exceptionId=" + exceptionId +
+                ", exceptionDepth=" + exceptionDepth +
+                ", orderBy=" + orderBy +
+                ", isDesc='" + isDesc + '\'' +
+                ", groupByAttributes=" + groupByAttributes +
+                ", filterByAttributes=" + filterByAttributes +
+                ", timeWindowRangeCount=" + timeWindowRangeCount +
+                '}';
+    }
+}

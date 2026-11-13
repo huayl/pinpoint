@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,12 @@
 package com.navercorp.pinpoint.common.server.bo;
 
 import com.navercorp.pinpoint.common.server.util.AgentLifeCycleState;
+import com.navercorp.pinpoint.common.server.util.ByteUtils;
+import com.navercorp.pinpoint.common.server.util.NumberPrecondition;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import org.jspecify.annotations.NonNull;
+
+import java.util.Objects;
 
 /**
  * @author HyunGil Jeong
@@ -26,6 +32,7 @@ public class AgentLifeCycleBo {
     public static final int CURRENT_VERSION = 0;
 
     private final byte version;
+    @NonNull
     private final String agentId;
     private final long startTimestamp;
     private final long eventTimestamp;
@@ -37,37 +44,20 @@ public class AgentLifeCycleBo {
     }
 
     public AgentLifeCycleBo(int version, String agentId, long startTimestamp, long eventTimestamp, long eventIdentifier, AgentLifeCycleState agentLifeCycleState) {
-        if (version < 0 || version > 255) {
-            throw new IllegalArgumentException("version out of range (0~255)");
-        }
-        if (agentId == null) {
-            throw new IllegalArgumentException("agentId cannot be null");
-        }
-        if (agentId.isEmpty()) {
-            throw new IllegalArgumentException("agentId cannot be empty");
-        }
-        if (startTimestamp < 0) {
-            throw new IllegalArgumentException("startTimestamp cannot be less than 0");
-        }
-        if (eventTimestamp < 0) {
-            throw new IllegalArgumentException("eventTimestamp cannot be less than 0");
-        }
+        this.version = ByteUtils.toUnsignedByte(version);
+        this.agentId = StringPrecondition.requireHasLength(agentId, "agentId");
+
         if (eventIdentifier < 0) {
             throw new IllegalArgumentException("eventIdentifier cannot be less than 0");
         }
-        if (agentLifeCycleState == null) {
-            throw new IllegalArgumentException("agentLifeCycleState cannot be null");
-        }
-        this.version = (byte)(version & 0xFF);
-        this.agentId = agentId;
-        this.startTimestamp = startTimestamp;
-        this.eventTimestamp = eventTimestamp;
+        this.startTimestamp = NumberPrecondition.requirePositiveOrZero(startTimestamp, "startTimestamp");
+        this.eventTimestamp = NumberPrecondition.requirePositiveOrZero(eventTimestamp, "eventTimestamp");
         this.eventIdentifier = eventIdentifier;
-        this.agentLifeCycleState = agentLifeCycleState;
+        this.agentLifeCycleState = Objects.requireNonNull(agentLifeCycleState, "agentLifeCycleState");
     }
 
     public int getVersion() {
-        return this.version & 0xFF;
+        return Byte.toUnsignedInt(this.version);
     }
 
     public String getAgentId() {
@@ -92,14 +82,13 @@ public class AgentLifeCycleBo {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("AgentLifeCycleBo{");
-        sb.append("version=").append(this.getVersion());
-        sb.append(", agentId='").append(this.getAgentId()).append('\'');
-        sb.append(", startTimestamp=").append(this.getStartTimestamp());
-        sb.append(", eventTimestamp=").append(this.getEventTimestamp());
-        sb.append(", eventIdentifier=").append(this.eventIdentifier);
-        sb.append(", state=").append(this.agentLifeCycleState.toString());
-        return sb.toString();
+        return "AgentLifeCycleBo{" +
+                "version=" + version +
+                ", agentId='" + agentId + '\'' +
+                ", startTimestamp=" + startTimestamp +
+                ", eventTimestamp=" + eventTimestamp +
+                ", eventIdentifier=" + eventIdentifier +
+                ", agentLifeCycleState=" + agentLifeCycleState +
+                '}';
     }
-
 }

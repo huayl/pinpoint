@@ -20,9 +20,12 @@ package com.navercorp.pinpoint.common.util;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.StringTokenizer;
 
 public final class StringUtils {
+
+    public static final String EMPTY_STRING = "";
 
     private static final int DEFAULT_ABBREVIATE_MAX_WIDTH = 64;
 
@@ -33,16 +36,87 @@ public final class StringUtils {
     private StringUtils() {
     }
 
+    /**
+     *
+     * @deprecated Since 3.1.0. Use {@link Objects#toString(Object, String)}
+     */
+    @Deprecated
     public static String defaultString(final String str, final String defaultStr) {
         return str == null ? defaultStr : str;
+    }
+
+    public static String defaultIfEmpty(final String str, final String defaultStr) {
+        return isEmpty(str) ? defaultStr : str;
     }
 
     public static boolean isEmpty(final String string) {
         return string == null || string.isEmpty();
     }
 
+
+    public static String trim(final String str) {
+        return str == null ? null : str.trim();
+    }
+
+    public static String trimToEmpty(final String str) {
+        return str == null ? EMPTY_STRING : str.trim();
+    }
+
+    public static String rightTrim(final String string) {
+        return rightTrim0(string, null);
+    }
+
+    public static String rightTrimToEmpty(final String string) {
+        return rightTrim0(string, "");
+    }
+
+    private static String rightTrim0(final String string, String defaultString) {
+        if (string == null) {
+            return defaultString;
+        }
+        final int length = string.length();
+        if (length == 0) {
+            return "";
+        }
+        final int rTrimIndex = rightTrimIndex(string, 0, length);
+        if (rTrimIndex == length) {
+            return string;
+        }
+        return string.substring(0, rTrimIndex);
+    }
+
+    /**
+     * @return the exclusive end index of {@code string} once its trailing whitespace is dropped,
+     * in {@code [0, string.length()]}; the whitespace test is {@code <= ' '}, as in {@link String#trim()}
+     * @throws NullPointerException if {@code string} is null
+     */
+    public static int rightTrimIndex(final String string) {
+        Objects.requireNonNull(string, "string");
+        return rightTrimIndex(string, 0, string.length());
+    }
+
+    /**
+     * @param from the inclusive start of the range to scan
+     * @param to   the exclusive end of the range to scan
+     * @return the exclusive end index of {@code string[from..to)} once its trailing whitespace is dropped,
+     * in {@code [from, to]}; the whitespace test is {@code <= ' '}, as in {@link String#trim()}
+     * @throws NullPointerException      if {@code string} is null
+     * @throws IndexOutOfBoundsException if the range is out of bounds of {@code string}
+     */
+    static int rightTrimIndex(final String string, final int from, final int to) {
+        if (from < 0 || from > to || to > string.length()) {
+            throw new IndexOutOfBoundsException("from=" + from + ", to=" + to + ", length=" + string.length());
+        }
+        int index = to - 1;
+        while (index >= from && string.charAt(index) <= ' ') {
+            index--;
+        }
+        return index + 1;
+    }
+
+
     public static boolean hasLength(final String string) {
-        return string != null && string.length() > 0;
+        return string != null && !string.isEmpty();
     }
 
     public static boolean hasText(String string) {
@@ -59,22 +133,34 @@ public final class StringUtils {
         return false;
     }
 
-    public static <T> int getLength(final String string) {
+    public static int getLength(final String string) {
         return getLength(string, 0);
     }
 
-    public static <T> int getLength(final String string, final int nullValue) {
+    public static int getLength(final String string, final int nullValue) {
         if (string == null) {
             return nullValue;
         }
         return string.length();
     }
 
+    /**
+     * alternative to {@link String#valueOf(Object)}
+     */
+    @Deprecated
     public static String toString(final Object object) {
         if (object == null) {
             return NULL_STRING;
         }
         return object.toString();
+    }
+
+    public static boolean startWith(String str, String prefix) {
+        return str != null && str.startsWith(prefix);
+    }
+
+    public static boolean contains(String str, String prefix) {
+        return str != null && str.contains(prefix);
     }
 
 
@@ -91,13 +177,26 @@ public final class StringUtils {
             throw new IllegalArgumentException("negative maxWidth:" + maxWidth);
         }
         if (str.length() > maxWidth) {
-            StringBuilder buffer = new StringBuilder(abbreviateBufferSize(maxWidth, str.length()));
-            buffer.append(str, 0, maxWidth);
+            final int endIndex = abbreviateEndIndex(str, maxWidth);
+            StringBuilder buffer = new StringBuilder(abbreviateBufferSize(endIndex, str.length()));
+            buffer.append(str, 0, endIndex);
             appendAbbreviateMessage(buffer, str.length());
             return buffer.toString();
         } else {
             return str;
         }
+    }
+
+    /**
+     * An unpaired high surrogate left by cutting a surrogate pair in half
+     * is not encodable to UTF-8 (e.g. protobuf throws UnpairedSurrogateException),
+     * so drop the high surrogate instead of splitting the pair.
+     */
+    static int abbreviateEndIndex(final String str, final int maxWidth) {
+        if (maxWidth > 0 && Character.isHighSurrogate(str.charAt(maxWidth - 1))) {
+            return maxWidth - 1;
+        }
+        return maxWidth;
     }
 
     static int abbreviateBufferSize(int maxWidth, int strLength) {
@@ -112,7 +211,7 @@ public final class StringUtils {
             return;
         }
         if (str.length() > maxWidth) {
-            builder.append(str, 0, maxWidth);
+            builder.append(str, 0, abbreviateEndIndex(str, maxWidth));
             appendAbbreviateMessage(builder, str.length());
         } else {
             builder.append(str);
@@ -179,13 +278,13 @@ public final class StringUtils {
             return Collections.emptyList();
         }
         StringTokenizer st = new StringTokenizer(str, delimiters);
-        List<String> tokens = new ArrayList<String>();
+        List<String> tokens = new ArrayList<>();
         while (st.hasMoreTokens()) {
             String token = st.nextToken();
             if (trimTokens) {
                 token = token.trim();
             }
-            if (!ignoreEmptyTokens || token.length() > 0) {
+            if (!ignoreEmptyTokens || !token.isEmpty()) {
                 tokens.add(token);
             }
         }
@@ -262,8 +361,8 @@ public final class StringUtils {
         }
         int replLength = searchString.length();
         int increase = replacement.length() - replLength;
-        increase = increase < 0 ? 0 : increase;
-        increase *= max < 0 ? 16 : max > 64 ? 64 : max;
+        increase = Math.max(increase, 0);
+        increase *= max < 0 ? 16 : Math.min(max, 64);
         StringBuilder buf = new StringBuilder(text.length() + increase);
         while (end != INDEX_NOT_FOUND) {
             buf.append(text, start, end).append(replacement);
@@ -273,7 +372,7 @@ public final class StringUtils {
             }
             end = text.indexOf(searchString, start);
         }
-        buf.append(text.substring(start));
+        buf.append(text, start, text.length());
         return buf.toString();
     }
 }

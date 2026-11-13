@@ -19,8 +19,10 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 
 import com.navercorp.pinpoint.web.applicationmap.ApplicationMap;
-import com.navercorp.pinpoint.web.vo.Application;
+import com.navercorp.pinpoint.common.server.bo.Application;
 import com.navercorp.pinpoint.web.websocket.message.RequestMessage;
+
+import java.util.List;
 
 /**
  * @author minwoo.jung
@@ -28,6 +30,8 @@ import com.navercorp.pinpoint.web.websocket.message.RequestMessage;
 public interface ServerMapDataFilter {
     
     boolean filter(Application application);
+
+    List<Application> filterApplications(List<Application> applications);
     
     boolean filter(WebSocketSession webSocketSession, RequestMessage requestMessage);
     

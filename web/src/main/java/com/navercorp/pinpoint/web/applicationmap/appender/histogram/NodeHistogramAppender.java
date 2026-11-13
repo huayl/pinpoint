@@ -16,14 +16,14 @@
 
 package com.navercorp.pinpoint.web.applicationmap.appender.histogram;
 
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
 import com.navercorp.pinpoint.web.applicationmap.link.LinkList;
 import com.navercorp.pinpoint.web.applicationmap.nodes.NodeList;
-import com.navercorp.pinpoint.web.vo.Range;
 
 /**
  * @author HyunGil Jeong
  */
 public interface NodeHistogramAppender {
 
-    void appendNodeHistogram(Range range, NodeList nodeList, LinkList linkList, long timeoutMillis);
+    void appendNodeHistogram(TimeWindow timeWindow, NodeList nodeList, LinkList linkList, long timeoutMillis);
 }

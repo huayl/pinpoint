@@ -16,23 +16,20 @@
 
 package com.navercorp.pinpoint.batch.alarm;
 
-import com.navercorp.pinpoint.batch.alarm.AlarmPartitioner;
-import com.navercorp.pinpoint.web.dao.ApplicationIndexDao;
-import org.junit.Assert;
-import org.junit.Test;
-import org.springframework.batch.item.ExecutionContext;
+import org.junit.jupiter.api.Test;
+import org.springframework.batch.infrastructure.item.ExecutionContext;
 
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class AlarmPartitionerTest {
 
-    private static ApplicationIndexDao dao;
-    
     @Test
     public void partitionTest() {
         AlarmPartitioner partitioner = new AlarmPartitioner(Optional.empty());
         Map<String, ExecutionContext> partitions = partitioner.partition(0);
-        Assert.assertEquals(1, partitions.size());
+        assertThat(partitions).hasSize(1);
     }
 }

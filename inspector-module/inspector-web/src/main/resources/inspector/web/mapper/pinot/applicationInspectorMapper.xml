@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  ~ /*
+  ~  * Copyright 2024 NAVER Corp.
+  ~  *
+  ~  * Licensed under the Apache License, Version 2.0 (the "License");
+  ~  * you may not use this file except in compliance with the License.
+  ~  * You may obtain a copy of the License at
+  ~  *
+  ~  * http://www.apache.org/licenses/LICENSE-2.0
+  ~  *
+  ~  * Unless required by applicable law or agreed to in writing, software
+  ~  * distributed under the License is distributed on an "AS IS" BASIS,
+  ~  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~  * See the License for the specific language governing permissions and
+  ~  * limitations under the License.
+  ~  */
+  ~
+  -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.navercorp.pinpoint.inspector.web.dao.pinot.PinotApplicationStatDao">
+
+    <resultMap id="avgMinMaxResultMap" type="AvgMinMaxMetricPoint">
+        <constructor>
+            <arg column="aggregatedTime" javaType="_long"/>
+            <arg column="avgValue" javaType="_double"/>
+            <arg column="minValue" javaType="_double"/>
+            <arg column="maxValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="minMaxResultMap" type="MinMaxMetricPoint">
+        <constructor>
+            <arg column="aggregatedTime" javaType="_long"/>
+            <arg column="minValue" javaType="_double"/>
+            <arg column="maxValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="avgMinResultMap" type="AvgMinMetricPoint">
+        <constructor>
+            <arg column="aggregatedTime" javaType="_long"/>
+            <arg column="avgValue" javaType="_double"/>
+            <arg column="minValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="singleResultMap" type="DoubleDataPoint">
+        <constructor>
+            <arg column="aggregatedTime" javaType="_long"/>
+            <arg column="fValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectInspectorAvgMinMaxData" parameterType="inspectorQueryParameter" resultMap="avgMinMaxResultMap" >
+        SELECT
+            DIV(SUM(sumFieldValue), SUM(countFieldValue)) AS avgValue,
+            MIN(minFieldValue) AS minValue,
+            MAX(maxFieldValue) AS maxValue,
+            DATETIME_CONVERT(roundedEventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS aggregatedTime
+        FROM inspectorStatApp
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY aggregatedTime
+        ORDER BY aggregatedTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorSumData" parameterType="inspectorQueryParameter" resultMap="singleResultMap" >
+        SELECT
+        SUM(sumFieldValue) as fValue,
+        DATETIME_CONVERT(roundedEventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS aggregatedTime
+        FROM inspectorStatApp
+        WHERE
+        sortKey = #{sortKey}
+        AND serviceName = #{serviceName}
+        AND fieldName = #{fieldName}
+        AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+        <foreach collection="tagList" item="tag" separator=" ">
+            AND tags = #{tag}
+        </foreach>
+        GROUP BY aggregatedTime
+        ORDER BY aggregatedTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorMinMaxData" parameterType="inspectorQueryParameter" resultMap="minMaxResultMap" >
+        SELECT
+        MIN(minFieldValue) AS minValue,
+        MAX(maxFieldValue) AS maxValue,
+        DATETIME_CONVERT(roundedEventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS aggregatedTime
+        FROM inspectorStatApp
+        WHERE
+        sortKey = #{sortKey}
+        AND serviceName = #{serviceName}
+        AND fieldName = #{fieldName}
+        AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+        <foreach collection="tagList" item="tag" separator=" ">
+            AND tags = #{tag}
+        </foreach>
+        GROUP BY aggregatedTime
+        ORDER BY aggregatedTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorAvgMinData" parameterType="inspectorQueryParameter" resultMap="avgMinResultMap" >
+        SELECT
+        DIV(SUM(sumFieldValue), SUM(countFieldValue)) AS avgValue,
+        MIN(minFieldValue) AS minValue,
+        DATETIME_CONVERT(roundedEventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS aggregatedTime
+        FROM inspectorStatApp
+        WHERE
+        sortKey = #{sortKey}
+        AND serviceName = #{serviceName}
+        AND fieldName = #{fieldName}
+        AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+        <if test="tagList != null and tagList.size() > 0">
+            AND primaryTag = #{tagList[0]}
+        </if>
+        GROUP BY aggregatedTime
+        ORDER BY aggregatedTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorMaxData" parameterType="inspectorQueryParameter" resultMap="singleResultMap" >
+        SELECT
+        MAX(maxFieldValue) as fValue,
+        DATETIME_CONVERT(roundedEventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS aggregatedTime
+        FROM inspectorStatApp
+        WHERE
+        sortKey = #{sortKey}
+        AND serviceName = #{serviceName}
+        AND fieldName = #{fieldName}
+        AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+        <if test="tagList != null and tagList.size() > 0">
+            AND primaryTag = #{tagList[0]}
+        </if>
+        GROUP BY aggregatedTime
+        ORDER BY aggregatedTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectTagInfo" parameterType="inspectorQueryParameter" resultType="Tag">
+        SELECT DISTINCT(primaryTag)
+        FROM inspectorStatApp
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND roundedEventTime BETWEEN #{range.from} AND #{range.to}
+    </select>
+
+</mapper>

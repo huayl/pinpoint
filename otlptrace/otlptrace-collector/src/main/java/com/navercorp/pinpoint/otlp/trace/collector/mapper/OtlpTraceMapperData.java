@@ -1,0 +1,89 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.otlp.trace.collector.mapper;
+
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
+import com.navercorp.pinpoint.common.server.bo.exception.ExceptionMetaDataBo;
+import com.navercorp.pinpoint.otlp.trace.collector.OtlpTraceCollectorRejectedSpan;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class OtlpTraceMapperData {
+
+    private final List<SpanBo> spanBoList = new ArrayList<>();
+    private final List<SpanChunkBo> spanChunkBoList = new ArrayList<>();
+    private final List<OtlpAgentInfo> agentInfoList = new ArrayList<>();
+    private final List<ExceptionMetaDataBo> exceptionMetaDataBoList = new ArrayList<>();
+    private final List<OtlpUriStatSpan> uriStatSpanList = new ArrayList<>();
+    private final OtlpTraceCollectorRejectedSpan rejectedSpan = new OtlpTraceCollectorRejectedSpan();
+
+    public List<SpanBo> getSpanBoList() {
+        return spanBoList;
+    }
+
+    public void addSpanBo(SpanBo spanBo) {
+        spanBoList.add(spanBo);
+    }
+
+    public List<SpanChunkBo> getSpanChunkBoList() {
+        return spanChunkBoList;
+    }
+
+    public void addSpanChunkBo(SpanChunkBo spanChunkBo) {
+        spanChunkBoList.add(spanChunkBo);
+    }
+
+    /** Agents to register, each paired with the serviceUid of its Resource. */
+    public List<OtlpAgentInfo> getAgentInfoList() {
+        return agentInfoList;
+    }
+
+    public List<AgentInfoBo> getAgentInfoBoList() {
+        final List<AgentInfoBo> result = new ArrayList<>(agentInfoList.size());
+        for (OtlpAgentInfo agentInfo : agentInfoList) {
+            result.add(agentInfo.agentInfoBo());
+        }
+        return result;
+    }
+
+    public void addAgentInfo(OtlpAgentInfo agentInfo) {
+        agentInfoList.add(agentInfo);
+    }
+
+    public List<ExceptionMetaDataBo> getExceptionMetaDataBoList() {
+        return exceptionMetaDataBoList;
+    }
+
+    public void addExceptionMetaDataBo(ExceptionMetaDataBo exceptionMetaDataBo) {
+        exceptionMetaDataBoList.add(exceptionMetaDataBo);
+    }
+
+    public List<OtlpUriStatSpan> getUriStatSpanList() {
+        return uriStatSpanList;
+    }
+
+    public void addUriStatSpan(OtlpUriStatSpan uriStatSpan) {
+        uriStatSpanList.add(uriStatSpan);
+    }
+
+    public OtlpTraceCollectorRejectedSpan getRejectedSpan() {
+        return rejectedSpan;
+    }
+}

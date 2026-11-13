@@ -16,86 +16,89 @@
 
 package com.navercorp.pinpoint.web.controller;
 
+import com.navercorp.pinpoint.common.server.response.Response;
+import com.navercorp.pinpoint.common.server.response.SimpleResponse;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
 import com.navercorp.pinpoint.web.service.AgentStatisticsService;
 import com.navercorp.pinpoint.web.util.DateTimeUtils;
 import com.navercorp.pinpoint.web.vo.AgentCountStatistics;
-import com.navercorp.pinpoint.web.vo.Range;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
+import jakarta.validation.constraints.PositiveOrZero;
+import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author Taejin Koo
  */
-@Controller
+@RestController
+@RequestMapping("/api")
+@Validated
 public class AgentStatisticsController {
 
-    @Autowired
-    private AgentStatisticsService agentStatisticsService;
+    private final AgentStatisticsService agentStatisticsService;
 
-    @RequestMapping(value = "/insertAgentCount", method = RequestMethod.GET, params = {"agentCount"})
-    @ResponseBody
-    public Map<String, String> insertAgentCount(@RequestParam("agentCount") int agentCount) {
-        return insertAgentCount(agentCount, new Date().getTime());
+    public AgentStatisticsController(AgentStatisticsService agentStatisticsService) {
+        this.agentStatisticsService = Objects.requireNonNull(agentStatisticsService, "agentStatisticsService");
     }
 
-    @RequestMapping(value = "/insertAgentCount", method = RequestMethod.GET, params = {"agentCount", "timestamp"})
-    @ResponseBody
-    public Map<String, String> insertAgentCount(@RequestParam("agentCount") int agentCount, @RequestParam("timestamp") long timestamp) {
-        if (timestamp < 0) {
-            Map<String, String> result = new HashMap<>();
-            result.put("result", "FAIL");
-            result.put("message", "negative timestamp.");
-            return result;
-        }
+    @GetMapping(value = "/insertAgentCount", params = {"agentCount"})
+    public Response insertAgentCount(@RequestParam("agentCount") @PositiveOrZero int agentCount) {
+        return insertAgentCount(agentCount, Timestamp.now());
+    }
 
-        AgentCountStatistics agentCountStatistics = new AgentCountStatistics(agentCount, DateTimeUtils.timestampToStartOfDay(timestamp));
+    @GetMapping(value = "/insertAgentCount", params = {"agentCount", "timestamp"})
+    public Response insertAgentCount(
+            @RequestParam("agentCount") @PositiveOrZero int agentCount,
+            @RequestParam("timestamp") Timestamp timestamp
+    ) {
+        AgentCountStatistics agentCountStatistics =
+                new AgentCountStatistics(agentCount, DateTimeUtils.timestampToStartOfDay(timestamp.getEpochMillis()));
         boolean success = agentStatisticsService.insertAgentCount(agentCountStatistics);
 
         if (success) {
-            Map<String, String> result = new HashMap<>();
-            result.put("result", "SUCCESS");
-            return result;
+            return SimpleResponse.ok();
         } else {
-            Map<String, String> result = new HashMap<>();
-            result.put("result", "FAIL");
-            result.put("message", "insert DAO error.");
-            return result;
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "insert DAO error.");
         }
     }
 
-    @RequestMapping(value = "/selectAgentCount", method = RequestMethod.GET)
-    @ResponseBody
+    @GetMapping(value = "/selectAgentCount")
     public List<AgentCountStatistics> selectAgentCount() {
-        return selectAgentCount(0L, System.currentTimeMillis());
+        return selectAgentCount(Timestamp.zero(), Timestamp.now());
     }
 
-    @RequestMapping(value = "/selectAgentCount", method = RequestMethod.GET, params = {"to"})
-    @ResponseBody
-    public List<AgentCountStatistics> selectAgentCount(@RequestParam("to") long to) {
-        return selectAgentCount(0L, to);
+    @GetMapping(value = "/selectAgentCount", params = {"to"})
+    public List<AgentCountStatistics> selectAgentCount(@RequestParam("to") Timestamp to) {
+        return selectAgentCount(Timestamp.zero(), to);
     }
 
-    @RequestMapping(value = "/selectAgentCount", method = RequestMethod.GET, params = {"from", "to"})
-    @ResponseBody
-    public List<AgentCountStatistics> selectAgentCount(@RequestParam("from") long from, @RequestParam("to") long to) {
-        Range range = Range.newRange(DateTimeUtils.timestampToStartOfDay(from), DateTimeUtils.timestampToStartOfDay(to));
+    @GetMapping(value = "/selectAgentCount", params = {"from", "to"})
+    public List<AgentCountStatistics> selectAgentCount(
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        Range range = Range.between(DateTimeUtils.timestampToStartOfDay(from.getEpochMillis()), DateTimeUtils.timestampToStartOfDay(to.getEpochMillis()));
         List<AgentCountStatistics> agentCountStatisticsList = agentStatisticsService.selectAgentCount(range);
 
-        agentCountStatisticsList.sort(Collections.reverseOrder(Comparator.comparingLong(AgentCountStatistics::getTimestamp)));
+        agentCountStatisticsList.sort(Comparator.comparingLong(AgentCountStatistics::getTimestamp).reversed());
 
         return agentCountStatisticsList;
     }
 
+    @GetMapping(value = "/selectLatestAgentCount")
+    public List<AgentCountStatistics> selectLatestAgentCount(
+            @RequestParam(value = "size", defaultValue = "1") @PositiveOrZero int size
+    ) {
+        return agentStatisticsService.selectLatestAgentCount(size);
+    }
 
 }

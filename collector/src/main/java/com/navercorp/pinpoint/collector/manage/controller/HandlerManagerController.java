@@ -16,20 +16,22 @@
 
 package com.navercorp.pinpoint.collector.manage.controller;
 
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.servlet.ModelAndView;
-
 import com.navercorp.pinpoint.collector.manage.HandlerManager;
+import com.navercorp.pinpoint.common.server.response.MapResponse;
+import com.navercorp.pinpoint.common.server.response.Response;
+import com.navercorp.pinpoint.common.server.response.Result;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Objects;
 
 /**
  * @author Taejin Koo
  */
-@Controller
+@RestController
 @RequestMapping("/admin")
 public class HandlerManagerController {
 
@@ -39,37 +41,40 @@ public class HandlerManagerController {
         this.handlerManager = Objects.requireNonNull(handlerManager, "handlerManager");
     }
 
-    @RequestMapping(value = "/enableAccess", method = RequestMethod.GET)
-    @ResponseBody
-    public ModelAndView enableAccess() {
+    @GetMapping(value = "/enableAccess")
+    public ResponseEntity<Response> enableAccess() {
         try {
             handlerManager.enableAccess();
-            return ControllerUtils.createJsonView(true);
+            return ResponseEntity.ok(MapResponse.ok());
         } catch (Exception e) {
-            return ControllerUtils.createJsonView(false, e.getMessage());
+            return unauthorizedResponse(e.getMessage());
         }
     }
 
-    @RequestMapping(value = "/disableAccess", method = RequestMethod.GET)
-    @ResponseBody
-    public ModelAndView disableAccess() {
+
+
+    @GetMapping(value = "/disableAccess")
+    public ResponseEntity<Response> disableAccess() {
         try {
             handlerManager.disableAccess();
-            return ControllerUtils.createJsonView(true);
+            return ResponseEntity.ok(MapResponse.ok());
         } catch (Exception e) {
-            return ControllerUtils.createJsonView(false, e.getMessage());
+            return unauthorizedResponse(e.getMessage());
         }
     }
 
-    @RequestMapping(value = "/isEnable", method = RequestMethod.GET)
-    @ResponseBody
-    public ModelAndView isEnable() {
+    @GetMapping(value = "/isEnable")
+    public ResponseEntity<Response> isEnable() {
         boolean isEnable = handlerManager.isEnable();
-        
-        ModelAndView mv = ControllerUtils.createJsonView(true);
-        mv.addObject("isEnable", isEnable);
-        
-        return mv;
+
+        MapResponse response = new MapResponse(Result.SUCCESS);
+        response.addAttribute("isEnable", isEnable);
+
+        return ResponseEntity.ok(response);
     }
 
+    private ResponseEntity<Response> unauthorizedResponse(String errorMessage) {
+        MapResponse body = new MapResponse(Result.FAIL, errorMessage);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+    }
 }

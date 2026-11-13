@@ -1,8 +1,115 @@
 spring:
-  main:
-    allow-bean-definition-overriding: true
   profiles:
     active: release
+  mvc:
+    problemdetails:
+      enabled: true
 
 server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
   port: 8080
+  error:
+    path: /api/error
+    include-exception: true
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: always
+    whitelabel:
+      enabled: true
+  max-http-request-header-size: 32KB
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+management:
+  metrics:
+    enable:
+      tomcat: false
+  health:
+    defaults:
+      enabled: false
+    diskspace:
+      enabled: true
+  endpoint:
+    health:
+      show-details: always
+      access: read_only
+    beans:
+      access: read_only
+    conditions:
+      access: read_only
+    configprops:
+      show-values: always
+      access: read_only
+    env:
+      show-values: always
+      access: read_only
+    logfile:
+      access: read_only
+    loggers:
+      access: unrestricted
+    mappings:
+      access: read_only
+    info:
+      access: read_only
+    threaddump:
+      access: read_only
+    heapdump:
+      access: none
+    metrics:
+      access: none
+    httptrace:
+      access: none
+    prometheus:
+      access: none
+    shutdown:
+      access: none
+  endpoints:
+    web:
+      exposure:
+        include: health,beans,conditions,configprops,env,logfile,loggers,mappings,info,threaddump,pause
+      base-path: /monitor
+      path-mapping:
+        health: l7check
+  server:
+    ssl:
+      enabled: false
+    port: 8443
+
+pinpoint:
+  modules:
+    web:
+      # github or url
+      install:
+        type: github
+      # basicLogin
+      login:
+      webhook: true
+    realtime:
+      enabled: false
+  web:
+    agent-status:
+      legacy-agent-support: true
+
+hbase:
+  client:
+    scan-metric-reporter:
+      enable: false
+
+pinpoint.web.cache-resources: true
+
+pinpoint.web.websocket:
+  async-send-timeout:
+  max-session-idle-timeout: 10800000 # 3 hours
+  max-binary-message-buffer-size:
+  max-text-message-buffer-size:
+
+
+---
+spring.config.activate.on-profile: local
+pinpoint.web.cache-resources: false
+
+

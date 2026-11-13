@@ -1,0 +1,95 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.navercorp.pinpoint.alarm.service;
+
+import com.navercorp.pinpoint.alarm.evaluation.ConditionEvaluator;
+import com.navercorp.pinpoint.alarm.evaluation.ConditionUtils;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryResult;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryService;
+import com.navercorp.pinpoint.alarm.dao.AlarmStateDao;
+import com.navercorp.pinpoint.alarm.vo.AlarmCondition;
+import com.navercorp.pinpoint.alarm.vo.AlarmRuleV2;
+import com.navercorp.pinpoint.alarm.vo.AlarmState;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Evaluates metrics and delegates durable state transitions to the event persistence service.
+ */
+@Service
+public class AlarmEvaluationService {
+
+    private final AlarmStateDao stateDao;
+    private final AlarmEventPersistenceService eventPersistenceService;
+    private final ConditionEvaluator conditionEvaluator;
+
+    public AlarmEvaluationService(AlarmStateDao stateDao,
+                                  AlarmEventPersistenceService eventPersistenceService,
+                                  ConditionEvaluator conditionEvaluator) {
+        this.stateDao = Objects.requireNonNull(stateDao, "stateDao");
+        this.eventPersistenceService = Objects.requireNonNull(eventPersistenceService, "eventPersistenceService");
+        this.conditionEvaluator = Objects.requireNonNull(conditionEvaluator, "conditionEvaluator");
+    }
+
+    /**
+     * @return true if the alarm fired
+     */
+    public boolean evaluate(AlarmRuleV2 rule, MetricQueryService metricQueryService) {
+        // At the column's precision: rounded up on write, the next window would start after
+        // the one this check reads ends.
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        AlarmState state = stateDao.selectByRuleId(rule.getId());
+        if (state == null) {
+            state = new AlarmState(rule.getId());
+        }
+
+        if (rule.getConditions() == null) {
+            throw new IllegalArgumentException("rule.conditions must not be null");
+        }
+        List<AlarmCondition> leaves = ConditionUtils.extractLeaves(rule.getConditions());
+        MetricQueryResult metricResults = metricQueryService.query(
+                rule, leaves, rule.getFilters(), state);
+        boolean fired = conditionEvaluator.evaluate(rule.getConditions(), metricResults.values());
+
+        if (fired) {
+            eventPersistenceService.recordFired(rule, metricResults, leaves, now);
+        } else {
+            eventPersistenceService.recordResolved(rule, leaves, now);
+        }
+        return fired;
+    }
+
+    /**
+     * Records that a rule could not be checked, without telling the rule's owner.
+     *
+     * <p>Nothing that reaches here is theirs to fix: an authoring mistake is refused when the
+     * rule is saved, by these same validators, so what gets this far is a data source whose
+     * process is not deployed, a metric the catalog dropped, a missing template row, or a
+     * service someone deleted on purpose. Those are all operator work, so the failure is
+     * written down rather than sent anywhere: a CHECK_FAILED history row carrying the
+     * exception, and the state moved to CHECK_FAILED with the next check pushed out.
+     */
+    public void handleEvaluationFailed(AlarmRuleV2 rule, RuntimeException failure) {
+        Objects.requireNonNull(rule, "rule");
+        Objects.requireNonNull(failure, "failure");
+        eventPersistenceService.recordCheckFailed(rule, failure, LocalDateTime.now(ZoneOffset.UTC));
+    }
+}

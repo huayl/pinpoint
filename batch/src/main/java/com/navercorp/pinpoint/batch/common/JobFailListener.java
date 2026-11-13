@@ -16,20 +16,25 @@
 
 package com.navercorp.pinpoint.batch.common;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.batch.core.ExitStatus;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobExecutionListener;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.listener.JobExecutionListener;
+
+import java.util.Optional;
 
 /**
  * @author minwoo.jung<minwoo.jung@navercorp.com>
  */
 public class JobFailListener implements JobExecutionListener {
 
-    @Autowired(required = false)
-    private JobFailMessageSender jobFailMessageSender = new EmptyJobFailMessageSender();
+    private static final Logger logger = LogManager.getLogger(JobFailListener.class);
 
-    public JobFailListener() {
+    private final JobFailMessageSender jobFailMessageSender;
+
+    public JobFailListener(Optional<JobFailMessageSender> jobFailMessageSender) {
+        this.jobFailMessageSender = jobFailMessageSender.orElseGet(EmptyJobFailMessageSender::new);
     }
 
     @Override
@@ -39,6 +44,10 @@ public class JobFailListener implements JobExecutionListener {
     @Override
     public void afterJob(JobExecution jobExecution) {
         if (!jobExecution.getExitStatus().equals(ExitStatus.COMPLETED)) {
+            for (Throwable throwable : jobExecution.getAllFailureExceptions()) {
+                logger.error("job fail. exception message : " , throwable);
+            }
+
             jobFailMessageSender.sendSMS(jobExecution);
             jobFailMessageSender.sendEmail(jobExecution);
         }

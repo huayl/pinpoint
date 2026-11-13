@@ -1,0 +1,32 @@
+name: Validate Commit Messages
+
+on:
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  validate-commit-messages:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Validate commit messages
+        run: |
+          commit_msg=$(git show -s --format=%s)
+          commit_regex='^\[#(noissue|[0-9]+?)\].*'
+          error_msg="Commit message does not follow the Conventional Commits format:
+              [#issue-number] messge
+              
+              Examples:
+                  [#1001] Refactor servermap
+                  [#noissue] Update README.md"
+
+          if ! echo "${commit_msg}" | grep -Eq "$commit_regex"; then
+            echo "$error_msg"
+            echo "Invalid commit message: \"${commit_msg}\""
+            exit 1
+          fi

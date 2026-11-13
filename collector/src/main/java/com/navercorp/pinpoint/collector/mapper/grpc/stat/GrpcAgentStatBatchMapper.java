@@ -17,7 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
-import com.navercorp.pinpoint.grpc.Header;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PAgentStatBatch;
 import org.springframework.stereotype.Component;
@@ -37,14 +37,16 @@ public class GrpcAgentStatBatchMapper {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
-    public AgentStatBo map(final PAgentStatBatch agentStatBatch, final Header header) {
+    public AgentStatBo map(final PAgentStatBatch agentStatBatch, final ServerHeader header) {
         if (agentStatBatch == null) {
             return null;
         }
+        final String applicationName = header.getApplicationName();
         final String agentId = header.getAgentId();
+        final String serviceName = header.getServiceName();
         final long startTimestamp = header.getAgentStartTime();
 
-        final AgentStatBo.Builder builder = new AgentStatBo.Builder(agentId, startTimestamp);
+        final AgentStatBo.Builder builder = AgentStatBo.newBuilder(serviceName, applicationName, agentId, startTimestamp);
         for (PAgentStat agentStat : agentStatBatch.getAgentStatList()) {
             this.mapper.map(agentStat, builder);
         }

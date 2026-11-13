@@ -60,4 +60,42 @@ public class LongIntIntByteByteStringValue implements DataType {
     public String getStringValue() {
         return stringValue;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        LongIntIntByteByteStringValue that = (LongIntIntByteByteStringValue) o;
+
+        if (longValue != that.longValue) return false;
+        if (intValue1 != that.intValue1) return false;
+        if (intValue2 != that.intValue2) return false;
+        if (byteValue1 != that.byteValue1) return false;
+        if (byteValue2 != that.byteValue2) return false;
+        return stringValue != null ? stringValue.equals(that.stringValue) : that.stringValue == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Long.hashCode(longValue);
+        result = 31 * result + intValue1;
+        result = 31 * result + intValue2;
+        result = 31 * result + (int) byteValue1;
+        result = 31 * result + (int) byteValue2;
+        result = 31 * result + (stringValue != null ? stringValue.hashCode() : 0);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "LongIntIntByteByteStringValue{" +
+                "longValue=" + longValue +
+                ", intValue1=" + intValue1 +
+                ", intValue2=" + intValue2 +
+                ", byteValue1=" + byteValue1 +
+                ", byteValue2=" + byteValue2 +
+                ", stringValue='" + stringValue + '\'' +
+                '}';
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,120 +16,84 @@
 
 package com.navercorp.pinpoint.common.server.bo.stat;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import org.jspecify.annotations.NonNull;
+
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author Taejin Koo
  */
-public class AgentUriStatBo implements AgentStatDataPoint {
+public class AgentUriStatBo {
+    private final byte bucketVersion;
+    @NonNull
+    private final String serviceName;
+    @NonNull
+    private final String applicationName;
+    @NonNull
+    private final String agentId;
 
-    private String agentId;
-    private long startTimestamp;
+    private final List<EachUriStatBo> eachUriStatBoList;
 
-    private long timestamp;
-    private byte bucketVersion;
-
-    private List<EachUriStatBo> eachUriStatBoList = new ArrayList<>();
-
-    @Override
-    public String getAgentId() {
-        return agentId;
-    }
-
-    @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    @Override
-    public long getStartTimestamp() {
-        return startTimestamp;
-    }
-
-    @Override
-    public void setStartTimestamp(long startTimestamp) {
-        this.startTimestamp = startTimestamp;
-    }
-
-    @Override
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    @Override
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
+    public AgentUriStatBo(byte bucketVersion,
+                          String serviceName,
+                          String applicationName,
+                          String agentId,
+                          List<EachUriStatBo> eachUriStatBoList) {
+        this.bucketVersion = bucketVersion;
+        this.serviceName = StringPrecondition.requireHasLength(serviceName, "serviceName");
+        this.applicationName = StringPrecondition.requireHasLength(applicationName, "applicationName");
+        this.agentId = StringPrecondition.requireHasLength(agentId, "agentId");
+        this.eachUriStatBoList = Objects.requireNonNull(eachUriStatBoList, "eachUriStatBoList");
     }
 
     public byte getBucketVersion() {
         return bucketVersion;
     }
 
-    public void setBucketVersion(byte bucketVersion) {
-        this.bucketVersion = bucketVersion;
+    public String getServiceName() {
+        return serviceName;
     }
 
-    @Override
-    public AgentStatType getAgentStatType() {
-        return AgentStatType.URI;
+    public String getApplicationName() {
+        return applicationName;
     }
 
-    public boolean addEachUriStatBo(EachUriStatBo eachUriStatBo) {
-        return eachUriStatBoList.add(eachUriStatBo);
-    }
-
-    public boolean addAllEachUriStatBo(Collection<EachUriStatBo> eachUriStatBos) {
-        return eachUriStatBoList.addAll(eachUriStatBos);
-    }
-
-    public boolean removeEachUriStatBo(EachUriStatBo eachUriStatBo) {
-        return eachUriStatBoList.remove(eachUriStatBo);
+    public String getAgentId() {
+        return agentId;
     }
 
     public List<EachUriStatBo> getEachUriStatBoList() {
         return eachUriStatBoList;
     }
 
-    public void setEachUriStatBoList(List<EachUriStatBo> eachUriStatBoList) {
-        this.eachUriStatBoList = eachUriStatBoList;
-    }
-
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
         AgentUriStatBo that = (AgentUriStatBo) o;
-
-        if (startTimestamp != that.startTimestamp) return false;
-        if (timestamp != that.timestamp) return false;
-        if (bucketVersion != that.bucketVersion) return false;
-        if (agentId != null ? !agentId.equals(that.agentId) : that.agentId != null) return false;
-        return eachUriStatBoList != null ? eachUriStatBoList.equals(that.eachUriStatBoList) : that.eachUriStatBoList == null;
+        return bucketVersion == that.bucketVersion && serviceName.equals(that.serviceName) && applicationName.equals(that.applicationName) && agentId.equals(that.agentId) && eachUriStatBoList.equals(that.eachUriStatBoList);
     }
 
     @Override
     public int hashCode() {
-        int result = agentId != null ? agentId.hashCode() : 0;
-        result = 31 * result + (int) (startTimestamp ^ (startTimestamp >>> 32));
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        result = 31 * result + (int) bucketVersion;
-        result = 31 * result + (eachUriStatBoList != null ? eachUriStatBoList.hashCode() : 0);
+        int result = bucketVersion;
+        result = 31 * result + serviceName.hashCode();
+        result = 31 * result + applicationName.hashCode();
+        result = 31 * result + agentId.hashCode();
+        result = 31 * result + eachUriStatBoList.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("AgentUriStatBo{");
-        sb.append("agentId='").append(agentId).append('\'');
-        sb.append(", startTimestamp=").append(startTimestamp);
-        sb.append(", timestamp=").append(timestamp);
-        sb.append(", bucketVersion=").append(bucketVersion);
-        sb.append(", eachUriStatBoList=").append(eachUriStatBoList);
-        sb.append('}');
-        return sb.toString();
+        return "AgentUriStatBo{" +
+                "serviceName='" + serviceName + '\'' +
+                ", applicationName='" + applicationName + '\'' +
+                ", agentId='" + agentId + '\'' +
+                ", bucketVersion=" + bucketVersion +
+                ", eachUriStatBoList=" + eachUriStatBoList +
+                '}';
     }
-
 }

@@ -16,17 +16,15 @@
 
 package com.navercorp.pinpoint.web.filter.deserializer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.ValueDeserializer;
 import com.navercorp.pinpoint.web.filter.RpcHint;
 import com.navercorp.pinpoint.web.filter.RpcType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,30 +32,26 @@ import java.util.List;
 /**
  * @author emeroad
  */
-public class RpcHintJsonDeserializer extends JsonDeserializer<RpcHint> {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+public class RpcHintJsonDeserializer extends ValueDeserializer<RpcHint> {
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     @Override
-    public RpcHint deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException, JsonProcessingException {
-        final String applicationName = jp.getText();
+    public RpcHint deserialize(JsonParser jp, DeserializationContext ctxt) {
+        final String applicationName = jp.getString();
 
         if (jp.nextToken() != JsonToken.START_ARRAY) {
             ctxt.handleUnexpectedToken(RpcHint.class, jp);
         }
         // skip start array
-        final JsonToken token = jp.nextToken();
         // [] empty array
-        if (token == JsonToken.END_ARRAY) {
+        if (jp.nextToken() == JsonToken.END_ARRAY) {
             return new RpcHint(applicationName, Collections.emptyList());
         }
         final List<RpcType> rpcHintList = new ArrayList<>();
-        while (true) {
-            RpcType rpcType =  jp.readValueAs(RpcType.class);
+        do {
+            RpcType rpcType = jp.readValueAs(RpcType.class);
             rpcHintList.add(rpcType);
-            if (jp.nextToken() == JsonToken.END_ARRAY) {
-                break;
-            }
-        }
+        } while (jp.nextToken() != JsonToken.END_ARRAY);
         return new RpcHint(applicationName, rpcHintList);
     }
 

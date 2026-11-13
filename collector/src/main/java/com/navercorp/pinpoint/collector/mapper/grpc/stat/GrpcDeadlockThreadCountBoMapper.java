@@ -17,6 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.DeadlockThreadCountBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PDeadlock;
@@ -28,10 +29,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcDeadlockThreadCountBoMapper implements GrpcStatMapper {
 
-    public DeadlockThreadCountBo map(final PDeadlock tDeadlock) {
-        final DeadlockThreadCountBo deadlockThreadCountBo = new DeadlockThreadCountBo();
-        deadlockThreadCountBo.setDeadlockedThreadCount(tDeadlock.getCount());
-        return deadlockThreadCountBo;
+    public DeadlockThreadCountBo map(DataPoint point, final PDeadlock tDeadlock) {
+        return new DeadlockThreadCountBo(point, tDeadlock.getCount());
     }
 
     @Override
@@ -39,8 +38,9 @@ public class GrpcDeadlockThreadCountBoMapper implements GrpcStatMapper {
         // deadlock
         if (agentStat.hasDeadlock()) {
             final PDeadlock deadlock = agentStat.getDeadlock();
-            final DeadlockThreadCountBo deadlockThreadCountBo = this.map(deadlock);
-            builder.addDeadlockThreadCount(deadlockThreadCountBo);
+            DataPoint point = builder.getDataPoint();
+            final DeadlockThreadCountBo deadlockThreadCountBo = this.map(point, deadlock);
+            builder.addPoint(deadlockThreadCountBo);
         }
     }
 }

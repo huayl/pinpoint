@@ -1,0 +1,184 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.bootstrap.plugin.request;
+
+import com.navercorp.pinpoint.bootstrap.config.HttpStatusCodeErrors;
+import com.navercorp.pinpoint.bootstrap.config.ProfilerConfig;
+import com.navercorp.pinpoint.bootstrap.context.AsyncContext;
+import com.navercorp.pinpoint.bootstrap.context.AsyncContextUtils;
+import com.navercorp.pinpoint.bootstrap.context.MethodDescriptor;
+import com.navercorp.pinpoint.bootstrap.context.SpanEventRecorder;
+import com.navercorp.pinpoint.bootstrap.context.SpanRecorder;
+import com.navercorp.pinpoint.bootstrap.context.Trace;
+import com.navercorp.pinpoint.bootstrap.context.TraceContext;
+import com.navercorp.pinpoint.bootstrap.logging.PluginLogManager;
+import com.navercorp.pinpoint.bootstrap.logging.PluginLogger;
+import com.navercorp.pinpoint.bootstrap.plugin.http.HttpStatusCodeRecorder;
+import com.navercorp.pinpoint.bootstrap.plugin.request.method.AsyncListenerOnCompleteMethodDescriptor;
+import com.navercorp.pinpoint.bootstrap.plugin.request.method.AsyncListenerOnErrorMethodDescriptor;
+import com.navercorp.pinpoint.bootstrap.plugin.request.method.AsyncListenerOnTimeoutMethodDescriptor;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+
+import java.util.Objects;
+
+/**
+ * @author jaehong.kim
+ */
+public class AsyncListenerInterceptorHelper implements AsyncListenerInterceptor {
+    private static final MethodDescriptor ASYNC_LISTENER_ON_COMPLETE_METHOD_DESCRIPTOR = new AsyncListenerOnCompleteMethodDescriptor();
+    private static final MethodDescriptor ASYNC_LISTENER_ON_ERROR_METHOD_DESCRIPTOR = new AsyncListenerOnErrorMethodDescriptor();
+    private static final MethodDescriptor ASYNC_LISTENER_ON_TIMEOUT_METHOD_DESCRIPTOR = new AsyncListenerOnTimeoutMethodDescriptor();
+
+    private final PluginLogger logger = PluginLogManager.getLogger(this.getClass());
+    private final boolean isDebug = logger.isDebugEnabled();
+
+    private final AsyncContext asyncContext;
+    private final HttpStatusCodeRecorder httpStatusCodeRecorder;
+
+    public AsyncListenerInterceptorHelper(final TraceContext traceContext, final AsyncContext asyncContext) {
+        Objects.requireNonNull(traceContext, "traceContext");
+        this.asyncContext = Objects.requireNonNull(asyncContext, "asyncContext");
+        ProfilerConfig profilerConfig = traceContext.getProfilerConfig();
+        this.httpStatusCodeRecorder = new HttpStatusCodeRecorder(HttpStatusCodeErrors.of(profilerConfig::readString));
+
+        traceContext.cacheApi(ASYNC_LISTENER_ON_COMPLETE_METHOD_DESCRIPTOR);
+        traceContext.cacheApi(ASYNC_LISTENER_ON_ERROR_METHOD_DESCRIPTOR);
+        traceContext.cacheApi(ASYNC_LISTENER_ON_TIMEOUT_METHOD_DESCRIPTOR);
+    }
+
+    public void complete(Throwable throwable, int statusCode) {
+        if (isDebug) {
+            logger.debug("Complete async listener. throwable={}, statusCode={}", throwable, statusCode);
+        }
+
+        final TraceWithLocation trace = createTraceWithLocation(asyncContext);
+        if (trace == null) {
+            return;
+        }
+
+        try {
+            // Record http status code
+            recordHttpStatusCode(trace, statusCode);
+            // Record event
+            recordAsyncEvent(trace, throwable, ASYNC_LISTENER_ON_COMPLETE_METHOD_DESCRIPTOR);
+        } finally {
+            // Close async trace
+            close(trace);
+            // End Point
+            finish();
+        }
+    }
+
+    private void recordHttpStatusCode(final TraceWithLocation trace, final int statusCode) {
+        // Record http status code
+        final Trace actualTrace = trace.getActual();
+        final SpanRecorder spanRecorder = actualTrace.getSpanRecorder();
+        this.httpStatusCodeRecorder.record(spanRecorder, statusCode);
+    }
+
+    public void error(Throwable throwable) {
+        if (isDebug) {
+            logger.debug("Error async listener. throwable={}", throwable);
+        }
+
+        final TraceWithLocation trace = createTraceWithLocation(asyncContext);
+        if (trace == null) {
+            return;
+        }
+
+        try {
+            recordAsyncEvent(trace, throwable, ASYNC_LISTENER_ON_ERROR_METHOD_DESCRIPTOR);
+        } finally {
+            close(trace);
+        }
+    }
+
+    public void timeout(Throwable throwable) {
+        if (isDebug) {
+            logger.debug("Timeout async listener. throwable={}", throwable);
+        }
+
+        final TraceWithLocation trace = createTraceWithLocation(asyncContext);
+        if (trace == null) {
+            return;
+        }
+
+        try {
+            recordAsyncEvent(trace, throwable, ASYNC_LISTENER_ON_TIMEOUT_METHOD_DESCRIPTOR);
+        } finally {
+            close(trace);
+        }
+    }
+
+    private void recordAsyncEvent(final TraceWithLocation trace, final Throwable throwable, MethodDescriptor methodDescriptor) {
+        final Trace actualTrace = trace.getActual();
+
+        final SpanEventRecorder recorder = actualTrace.traceBlockBegin();
+        recorder.recordServiceType(ServiceType.SERVLET);
+        recorder.recordApi(methodDescriptor);
+        recorder.recordException(throwable);
+        actualTrace.traceBlockEnd();
+    }
+
+    private void close(final TraceWithLocation trace) {
+        if (trace.isIncludedCurrentThread()) {
+            return;
+        }
+
+        final Trace actualTrace = trace.getActual();
+        actualTrace.close();
+        this.asyncContext.close();
+    }
+
+    private void finish() {
+        AsyncContextUtils.asyncStateFinish(this.asyncContext);
+    }
+
+    private static TraceWithLocation createTraceWithLocation(AsyncContext asyncContext) {
+        final Trace currentAsyncTraceObject = asyncContext.currentAsyncTraceObject();
+        if (currentAsyncTraceObject != null) {
+            return new TraceWithLocation(currentAsyncTraceObject, true);
+        }
+
+        final Trace continueAsyncTraceObject = asyncContext.continueAsyncTraceObject();
+        if (continueAsyncTraceObject != null) {
+            return new TraceWithLocation(continueAsyncTraceObject, false);
+        }
+        return null;
+    }
+
+    private static class TraceWithLocation {
+
+        private final Trace trace;
+        private final boolean isIncludedCurrentThread;
+
+        private TraceWithLocation(Trace trace, boolean isIncludedCurrentThread) {
+            this.trace = Objects.requireNonNull(trace, "trace");
+            this.isIncludedCurrentThread = isIncludedCurrentThread;
+        }
+
+        private Trace getActual() {
+            return trace;
+        }
+
+        private boolean isIncludedCurrentThread() {
+            return isIncludedCurrentThread;
+        }
+
+    }
+
+}

@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,10 +18,11 @@ package com.navercorp.pinpoint.common.server.bo;
 
 import com.navercorp.pinpoint.common.buffer.AutomaticBuffer;
 import com.navercorp.pinpoint.common.buffer.Buffer;
-import org.apache.commons.lang3.StringUtils;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import org.jspecify.annotations.NonNull;
 
-
-import java.util.Comparator;
+import java.util.Objects;
 
 /**
  * @author emeroad
@@ -29,16 +30,17 @@ import java.util.Comparator;
  */
 public class AgentInfoBo {
 
-    public static final Comparator<AgentInfoBo> AGENT_NAME_ASC_COMPARATOR
-            = Comparator.comparing(agentInfoBo -> StringUtils.defaultString(agentInfoBo.getAgentId()));
-
     private final String hostName;
     private final String ip;
     private final String ports;
+    @NonNull
     private final String agentId;
+    @NonNull
     private final String agentName;
     private final String applicationName;
-    private final short serviceTypeCode;
+    private final int serviceTypeCode;
+    @NonNull
+    private final ServiceUid serviceUid;
     private final int pid;
     private final String vmVersion;
     private final String agentVersion;
@@ -58,10 +60,11 @@ public class AgentInfoBo {
         this.hostName = builder.hostName;
         this.ip = builder.ip;
         this.ports = builder.ports;
-        this.agentId = builder.agentId;
+        this.agentId = StringPrecondition.requireHasLength(builder.agentId, "agentId");
         this.agentName = builder.agentName;
-        this.applicationName = builder.applicationName;
+        this.applicationName = StringPrecondition.requireHasLength(builder.applicationName, "applicationName");
         this.serviceTypeCode = builder.serviceTypeCode;
+        this.serviceUid = builder.serviceUid;
         this.pid = builder.pid;
         this.vmVersion = builder.vmVersion;
         this.agentVersion = builder.agentVersion;
@@ -113,10 +116,13 @@ public class AgentInfoBo {
         return pid;
     }
 
-    public short getServiceTypeCode() {
+    public int getServiceTypeCode() {
         return serviceTypeCode;
     }
 
+    public ServiceUid getServiceUid() {
+        return serviceUid;
+    }
 
     public String getVmVersion() {
         return vmVersion;
@@ -144,18 +150,19 @@ public class AgentInfoBo {
         buffer.putPrefixedString(this.getIp());
         buffer.putPrefixedString(this.getPorts());
         buffer.putPrefixedString(this.getApplicationName());
-        buffer.putShort(this.getServiceTypeCode());
+        buffer.putShort((short) this.getServiceTypeCode());
         buffer.putInt(this.getPid());
         buffer.putPrefixedString(this.getAgentVersion());
 
         buffer.putLong(this.getStartTime());
         buffer.putLong(this.getEndTimeStamp());
         buffer.putInt(this.getEndStatus());
-        
+
         buffer.putPrefixedString(this.getVmVersion());
 
         buffer.putBoolean(this.isContainer());
         buffer.putPrefixedString(this.getAgentName());
+        buffer.putInt(this.getServiceUid().getUid());
 
         return buffer.getBuffer();
     }
@@ -176,7 +183,7 @@ public class AgentInfoBo {
             return false;
         if (getClass() != obj.getClass())
             return false;
-        AgentInfoBo other = (AgentInfoBo)obj;
+        AgentInfoBo other = (AgentInfoBo) obj;
         if (agentId == null) {
             if (other.agentId != null)
                 return false;
@@ -187,22 +194,25 @@ public class AgentInfoBo {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("AgentInfoBo{");
-        sb.append("hostName='").append(hostName).append('\'');
-        sb.append(", ip='").append(ip).append('\'');
-        sb.append(", ports='").append(ports).append('\'');
-        sb.append(", agentId='").append(agentId).append('\'');
-        sb.append(", agentName='").append(agentName).append('\'');
-        sb.append(", applicationName='").append(applicationName).append('\'');
-        sb.append(", serviceTypeCode=").append(serviceTypeCode);
-        sb.append(", pid=").append(pid);
-        sb.append(", vmVersion=").append(vmVersion).append('\'');
-        sb.append(", agentVersion='").append(agentVersion).append('\'');
-        sb.append(", startTime=").append(startTime);
-        sb.append(", endTimeStamp=").append(endTimeStamp);
-        sb.append(", endStatus=").append(endStatus);
-        sb.append('}');
-        return sb.toString();
+        return "AgentInfoBo{" +
+                "hostName='" + hostName + '\'' +
+                ", ip='" + ip + '\'' +
+                ", ports='" + ports + '\'' +
+                ", agentId='" + agentId + '\'' +
+                ", agentName='" + agentName + '\'' +
+                ", applicationName='" + applicationName + '\'' +
+                ", serviceTypeCode=" + serviceTypeCode +
+                ", serviceUid=" + serviceUid +
+                ", pid=" + pid +
+                ", vmVersion='" + vmVersion + '\'' +
+                ", agentVersion='" + agentVersion + '\'' +
+                ", startTime=" + startTime +
+                ", endTimeStamp=" + endTimeStamp +
+                ", endStatus=" + endStatus +
+                ", container=" + container +
+                ", serverMetaData=" + serverMetaData +
+                ", jvmInfo=" + jvmInfo +
+                '}';
     }
 
     public static class Builder {
@@ -212,7 +222,8 @@ public class AgentInfoBo {
         private String agentId;
         private String agentName;
         private String applicationName;
-        private short serviceTypeCode;
+        private int serviceTypeCode;
+        private ServiceUid serviceUid;
         private int pid;
         private String vmVersion;
         private String agentVersion;
@@ -222,7 +233,7 @@ public class AgentInfoBo {
         private int endStatus;
 
         private boolean container;
-        
+
         // Should be serialized separately
         private ServerMetaDataBo serverMetaData;
         private JvmInfoBo jvmInfo;
@@ -243,7 +254,7 @@ public class AgentInfoBo {
         }
 
         public void setAgentId(String agentId) {
-            this.agentId = agentId;
+            this.agentId = StringPrecondition.requireHasLength(agentId, "agentId");
         }
 
         public void setAgentName(String agentName) {
@@ -251,21 +262,25 @@ public class AgentInfoBo {
         }
 
         public void setApplicationName(String applicationName) {
-            this.applicationName = applicationName;
+            this.applicationName = StringPrecondition.requireHasLength(applicationName, "applicationName");
         }
 
-        public void setServiceTypeCode(short serviceTypeCode) {
+        public void setServiceTypeCode(int serviceTypeCode) {
             this.serviceTypeCode = serviceTypeCode;
         }
 
         public short getServiceTypeCode() {
-            return serviceTypeCode;
+            return (short) serviceTypeCode;
+        }
+
+        public void setServiceUid(ServiceUid serviceUid) {
+            this.serviceUid = serviceUid;
         }
 
         public void setPid(int pid) {
             this.pid = pid;
         }
-        
+
         public void setVmVersion(String vmVersion) {
             this.vmVersion = vmVersion;
         }
@@ -289,7 +304,7 @@ public class AgentInfoBo {
         public void isContainer(boolean container) {
             this.container = container;
         }
-        
+
         public void setServerMetaData(ServerMetaDataBo serverMetaData) {
             this.serverMetaData = serverMetaData;
         }
@@ -305,12 +320,14 @@ public class AgentInfoBo {
                 this.ip = "";
             if (this.ports == null)
                 this.ports = "";
-            if (this.agentId == null)
-                this.agentId = "";
-            if (this.agentName == null)
+
+            StringPrecondition.requireHasLength(this.agentId, "agentId");
+            if (this.agentName == null) {
                 this.agentName = "";
-            if (this.applicationName == null)
-                this.applicationName = "";
+            }
+            StringPrecondition.requireHasLength(this.applicationName, "applicationName");
+            Objects.requireNonNull(this.serviceUid, "serviceUid");
+
             if (this.vmVersion == null)
                 this.vmVersion = "";
             if (this.agentVersion == null) {

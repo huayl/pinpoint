@@ -1,0 +1,125 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.batch.config;
+
+import com.navercorp.pinpoint.batch.common.BatchJobLauncher;
+import com.navercorp.pinpoint.batch.common.BatchMetaCleanupProperties;
+import com.navercorp.pinpoint.batch.common.BatchProperties;
+import com.navercorp.pinpoint.batch.otlp.OtlpLinkJoinLauncher;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.scheduling.support.CronTrigger;
+
+@Configuration
+@EnableScheduling
+public class BatchScheduleConfig implements SchedulingConfigurer {
+
+    private final BatchJobLauncher batchJobLauncher;
+    private final BatchProperties batchProperties;
+    private final ObjectProvider<OtlpLinkJoinLauncher> otlpLinkJoinLauncher;
+    private final String otlpLinkJoinCron;
+    private final BatchMetaCleanupProperties batchMetaCleanupProperties;
+
+    public BatchScheduleConfig(BatchJobLauncher batchJobLauncher, BatchProperties batchProperties,
+                               ObjectProvider<OtlpLinkJoinLauncher> otlpLinkJoinLauncher,
+                               @Value("${job.otlp.link-join.cron:30 * * * * *}") String otlpLinkJoinCron,
+                               BatchMetaCleanupProperties batchMetaCleanupProperties) {
+        this.batchJobLauncher = batchJobLauncher;
+        this.batchProperties = batchProperties;
+        this.otlpLinkJoinLauncher = otlpLinkJoinLauncher;
+        this.otlpLinkJoinCron = otlpLinkJoinCron;
+        this.batchMetaCleanupProperties = batchMetaCleanupProperties;
+    }
+
+
+    @Override
+    public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
+        taskRegistrar.setScheduler(taskScheduler());
+
+        // 1. Alarm Job
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::alarmJob,
+                triggerContext -> {
+                    String cron = batchProperties.getAlarmJobCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::agentCountJob,
+                triggerContext -> {
+                    String cron = batchProperties.getAgentCountJobCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::cleanAgentAndApplicationJob,
+                triggerContext -> {
+                    String cron = batchProperties.getCleanupAgentAndApplicationJobCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::uriStatAlarmJob,
+                triggerContext -> {
+                    String cron = batchProperties.getUriStatAlarmJobCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+
+        // OTLP link join: registered only when job.otlp.link-join.enable=true creates the launcher
+        final OtlpLinkJoinLauncher linkJoinLauncher = otlpLinkJoinLauncher.getIfAvailable();
+        if (linkJoinLauncher != null) {
+            taskRegistrar.addTriggerTask(linkJoinLauncher::run, new CronTrigger(otlpLinkJoinCron));
+        }
+
+        // Spring Batch meta data cleanup (job.cleanup.batch-meta.enable, default off)
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::batchMetaCleanupJob,
+                triggerContext -> {
+                    String cron = batchMetaCleanupProperties.getCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+
+        taskRegistrar.addTriggerTask(
+                batchJobLauncher::alarmHistoryCleanupJob,
+                triggerContext -> {
+                    String cron = batchProperties.getAlarmHistoryCleanupJobCron();
+                    return new CronTrigger(cron).nextExecution(triggerContext);
+                }
+        );
+    }
+
+    @Bean
+    public TaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(5);
+        scheduler.setThreadNamePrefix("batch-scheduler-");
+        scheduler.initialize();
+        return scheduler;
+    }
+}

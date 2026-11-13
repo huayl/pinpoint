@@ -16,11 +16,10 @@
 
 package com.navercorp.pinpoint.common.server.util;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -31,7 +30,7 @@ import java.util.Objects;
  */
 public class IgnoreAddressFilter implements AddressFilter {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final InetAddress[] ignoreAddressList;
     private final List<CidrAddressFilter> cidrAddressFilterList;
@@ -40,7 +39,7 @@ public class IgnoreAddressFilter implements AddressFilter {
         Objects.requireNonNull(ignoreAddressList, "ignoreAddressList");
 
         List<String> ignoreRawAddressList = new ArrayList<>(ignoreAddressList.size());
-        List<CidrAddressFilter> cidrAddressFilterList = new ArrayList<CidrAddressFilter>(0);
+        List<CidrAddressFilter> cidrAddressFilterList = new ArrayList<>(0);
         for (String ignoreAddress : ignoreAddressList) {
             if (isCidrAddress(ignoreAddress)) {
                 CidrAddressFilter cidrAddressFilter = createCidrAddressFilter(ignoreAddress);
@@ -62,11 +61,7 @@ public class IgnoreAddressFilter implements AddressFilter {
 
     private CidrAddressFilter createCidrAddressFilter(String address) {
         try {
-            String[] cidrAddress = address.split("/", 2);
-            String ipAddress = cidrAddress[0];
-            int cidrPrefix = Integer.parseInt(cidrAddress[1]);
-
-            return new CidrAddressFilter(ipAddress, cidrPrefix);
+            return new CidrAddressFilter(address);
         } catch (Exception e) {
             logger.warn("Failed to create CidrAddress:{}. message:{}", address, e.getMessage());
         }
@@ -86,9 +81,8 @@ public class IgnoreAddressFilter implements AddressFilter {
             return true;
         }
 
-        InetSocketAddress inetSocketAddress = new InetSocketAddress(address, 0);
         for (CidrAddressFilter cidrAddressFilter : cidrAddressFilterList) {
-            if (cidrAddressFilter.matches(inetSocketAddress)) {
+            if (cidrAddressFilter.matches(address)) {
                 return false;
             }
         }
@@ -98,11 +92,10 @@ public class IgnoreAddressFilter implements AddressFilter {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("IgnoreAddressFilter{");
-        sb.append("ignoreAddressList=").append(Arrays.toString(ignoreAddressList));
-        sb.append(", cidrAddressFilterList=").append(cidrAddressFilterList);
-        sb.append('}');
-        return sb.toString();
+        return "IgnoreAddressFilter{" +
+                "ignoreAddressList=" + Arrays.toString(ignoreAddressList) +
+                ", cidrAddressFilterList=" + cidrAddressFilterList +
+                '}';
     }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,69 +17,70 @@
 package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2;
 
 import com.navercorp.pinpoint.common.buffer.Buffer;
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
 import com.navercorp.pinpoint.common.server.bo.AnnotationBo;
 import com.navercorp.pinpoint.common.server.bo.AnnotationTranscoder;
+import com.navercorp.pinpoint.common.server.bo.AttributeBo;
+import com.navercorp.pinpoint.common.server.bo.AttributeTranscoder;
 import com.navercorp.pinpoint.common.server.bo.BasicSpan;
+import com.navercorp.pinpoint.common.server.bo.ExceptionInfo;
 import com.navercorp.pinpoint.common.server.bo.LocalAsyncIdBo;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
+import com.navercorp.pinpoint.common.server.bo.SpanOwner;
 import com.navercorp.pinpoint.common.server.bo.filter.SequenceSpanEventFilter;
 import com.navercorp.pinpoint.common.server.bo.filter.SpanEventFilter;
-import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanBitFiled;
+import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanBitField;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanEventBitField;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanEventQualifierBitField;
+import com.navercorp.pinpoint.common.server.io.AnnotationWriter;
+import com.navercorp.pinpoint.common.server.io.SpanEventWriter;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.FixedServiceUid;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
 import com.navercorp.pinpoint.io.SpanVersion;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
-@Component
 public class SpanDecoderV0 implements SpanDecoder {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private static final SequenceSpanEventFilter SEQUENCE_SPAN_EVENT_FILTER = new SequenceSpanEventFilter(SequenceSpanEventFilter.MAX_SEQUENCE);
 
-    private static final AnnotationTranscoder transcoder = new AnnotationTranscoder();
+    private static final AnnotationDecoder annotationDecoder = new AnnotationDecoder();
+    private static final AttributeTranscoder attributeTranscoder = new AttributeTranscoder();
 
     @Override
-    public Object decode(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext) {
+    public BasicSpan decode(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext) {
         final byte type = qualifier.readByte();
 
-        if (SpanEncoder.TYPE_SPAN == type) {
-
-            SpanBo span = readSpan(qualifier, columnValue, decodingContext);
-            return span;
-
-        } else if (SpanEncoder.TYPE_SPAN_CHUNK == type) {
-
-            SpanChunkBo spanChunk = readSpanChunk(qualifier, columnValue, decodingContext);
-            return spanChunk;
-
-        } else {
-            logger.warn("Unknown span type {}", type);
-            return UNKNOWN;
+        final SpanHeader header = SpanHeader.of(type);
+        if (header == null) {
+            throw new IllegalStateException("Unknown span qualifier type: " + Byte.toUnsignedInt(type));
         }
+        if (header.isSpanChunk()) {
+            return readSpanChunk(qualifier, columnValue, decodingContext, header);
+        }
+        return readSpan(qualifier, columnValue, decodingContext, header);
     }
 
-    private SpanChunkBo readSpanChunk(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext) {
-        final SpanChunkBo spanChunk = new SpanChunkBo();
+    private SpanChunkBo readSpanChunk(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext,
+                                      SpanHeader header) {
+        final SpanChunkBo spanChunk = new SpanChunkBo(header.getTraceSourceType(), new SpanOwner());
 
-        final TransactionId transactionId = decodingContext.getTransactionId();
+        final ServerTraceId transactionId = decodingContext.getTransactionId();
         spanChunk.setTransactionId(transactionId);
         spanChunk.setCollectorAcceptTime(decodingContext.getCollectorAcceptedTime());
 
 
-        readQualifier(spanChunk, qualifier);
+        readQualifier(spanChunk, qualifier, decodingContext, header);
 
         readSpanChunkValue(columnValue, spanChunk, decodingContext);
 
@@ -87,14 +88,15 @@ public class SpanDecoderV0 implements SpanDecoder {
     }
 
 
-    private SpanBo readSpan(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext) {
-        final SpanBo span = new SpanBo();
+    private SpanBo readSpan(Buffer qualifier, Buffer columnValue, SpanDecodingContext decodingContext,
+                            SpanHeader header) {
+        final SpanBo span = new SpanBo(header.getTraceSourceType(), new SpanOwner());
 
-        final TransactionId transactionId = decodingContext.getTransactionId();
+        final ServerTraceId transactionId = decodingContext.getTransactionId();
         span.setTransactionId(transactionId);
         span.setCollectorAcceptTime(decodingContext.getCollectorAcceptedTime());
 
-        readQualifier(span, qualifier);
+        readQualifier(span, qualifier, decodingContext, header);
 
         readSpanValue(columnValue, span, decodingContext);
 
@@ -104,28 +106,31 @@ public class SpanDecoderV0 implements SpanDecoder {
     private void readSpanChunkValue(Buffer buffer, SpanChunkBo spanChunk, SpanDecodingContext decodingContext) {
         final byte version = buffer.readByte();
 
-        spanChunk.setVersion(version);
-        if (version == SpanVersion.TRACE_V2) {
+        long spanEventBaseTimeNanos = 0;
+        if (version == SpanVersion.TRACE_V3) {
+            // keyTime is an absolute epoch-nanos value; it does not depend on collectorAcceptTime.
             final long keyTime = buffer.readVLong();
-            spanChunk.setKeyTime(keyTime);
+            spanChunk.setTraceTime(version, keyTime);
+            spanEventBaseTimeNanos = keyTime;
+        } else if (version == SpanVersion.TRACE_V2) {
+            final long keyTime = buffer.readVLong();
+            spanChunk.setTraceTime(version, keyTime);
+        } else {
+            spanChunk.setVersion(version);
         }
 
-        List<SpanEventBo> spanEventBoList = readSpanEvent(buffer, decodingContext, SEQUENCE_SPAN_EVENT_FILTER);
-        spanChunk.addSpanEventBoList(spanEventBoList);
+        readSpanEvent(spanChunk::addSpanEvent, buffer, decodingContext, SEQUENCE_SPAN_EVENT_FILTER, version, spanEventBaseTimeNanos);
     }
 
     public void readSpanValue(Buffer buffer, SpanBo span, SpanDecodingContext decodingContext) {
-
         final byte version = buffer.readByte();
 
-        span.setVersion(version);
-
-        final SpanBitFiled bitFiled = new SpanBitFiled(buffer.readByte());
+        final SpanBitField bitField = new SpanBitField(buffer.readByte());
 
         final short serviceType = buffer.readShort();
         span.setServiceType(serviceType);
 
-        switch (bitFiled.getApplicationServiceTypeEncodingStrategy()) {
+        switch (bitField.getApplicationServiceTypeEncodingStrategy()) {
             case PREV_EQUALS:
                 span.setApplicationServiceType(serviceType);
                 break;
@@ -136,16 +141,24 @@ public class SpanDecoderV0 implements SpanDecoder {
                 throw new IllegalStateException("applicationServiceType");
         }
 
-        if (!bitFiled.isRoot()) {
+        if (!bitField.isRoot()) {
             span.setParentSpanId(buffer.readLong());
         } else {
             span.setParentSpanId(-1);
         }
 
-        final long startTimeDelta = buffer.readVLong();
-        final long startTime = span.getCollectorAcceptTime() - startTimeDelta;
-        span.setStartTime(startTime);
-        span.setElapsed(buffer.readVInt());
+        if (version == SpanVersion.TRACE_V3) {
+            final long startTimeDelta = buffer.readSVLong();
+            final long startTime = TimeUnit.MILLISECONDS.toNanos(span.getCollectorAcceptTime()) - startTimeDelta;
+            final long endTime = startTime + buffer.readVLong();
+            final int elapsed = buffer.readVInt();
+            span.setTraceTime(version, startTime, endTime, elapsed);
+        } else {
+            final long startTimeDelta = buffer.readVLong();
+            final long startTime = span.getCollectorAcceptTime() - startTimeDelta;
+            final int elapsed = buffer.readVInt();
+            span.setTraceTime(version, startTime, elapsed);
+        }
 
         span.setRpc(buffer.readPrefixedString());
 
@@ -153,57 +166,73 @@ public class SpanDecoderV0 implements SpanDecoder {
         span.setRemoteAddr(buffer.readPrefixedString());
         span.setApiId(buffer.readSVInt());
 
-        if (bitFiled.isSetErrorCode()) {
+        if (bitField.isSetErrorCode()) {
             span.setErrCode(buffer.readInt());
         }
-        if (bitFiled.isSetHasException()) {
+        if (bitField.isSetHasException()) {
             int exceptionId = buffer.readSVInt();
             String exceptionMessage = buffer.readPrefixedString();
-            span.setExceptionInfo(exceptionId, exceptionMessage);
+            ExceptionInfo exceptionInfo = new ExceptionInfo(exceptionId, exceptionMessage);
+            span.setExceptionInfo(exceptionInfo);
         }
 
-        if (bitFiled.isSetFlag()) {
+        if (bitField.isSetFlag()) {
             span.setFlag(buffer.readShort());
         }
 
-        if (bitFiled.isSetLoggingTransactionInfo()) {
+        if (bitField.isSetLoggingTransactionInfo()) {
             span.setLoggingTransactionInfo(buffer.readByte());
         }
 
         span.setAcceptorHost(buffer.readPrefixedString());
 
 
-        if (bitFiled.isSetAnnotation()) {
-            List<AnnotationBo> annotationBoList = readAnnotationList(buffer, decodingContext);
-            span.setAnnotationBoList(annotationBoList);
+        if (bitField.isSetAnnotation()) {
+            annotationDecoder.readAnnotationList(span::addAnnotation, buffer, decodingContext);
         }
 
-        List<SpanEventBo> spanEventBoList = readSpanEvent(buffer, decodingContext, SEQUENCE_SPAN_EVENT_FILTER);
-        span.addSpanEventBoList(spanEventBoList);
+        if (bitField.isSetAttribute()) {
+            List<AttributeBo> attributeBoList = attributeTranscoder.readAttributeList(buffer);
+            span.setAttributeBoList(attributeBoList);
+        }
+
+        final long spanEventBaseTimeNanos = version == SpanVersion.TRACE_V3 ? span.getStartTimeNanos() : 0;
+        readSpanEvent(span::addSpanEvent, buffer, decodingContext, SEQUENCE_SPAN_EVENT_FILTER, version, spanEventBaseTimeNanos);
     }
 
-    private List<SpanEventBo> readSpanEvent(Buffer buffer, SpanDecodingContext decodingContext, SpanEventFilter spanEventFilter) {
+    private void readSpanEvent(SpanEventWriter writer, Buffer buffer, SpanDecodingContext decodingContext, SpanEventFilter spanEventFilter, byte version, long baseTimeNanos) {
         final int spanEventSize = buffer.readVInt();
         if (spanEventSize <= 0) {
-            return new ArrayList<>();
+            return;
         }
-        final List<SpanEventBo> spanEventBoList = new ArrayList<>();
         SpanEventBo prev = null;
         for (int i = 0; i < spanEventSize; i++) {
             SpanEventBo spanEvent;
+            final long startTime;
+            final long endTime;
+            if (version == SpanVersion.TRACE_V3) {
+                startTime = baseTimeNanos + buffer.readSVLong();
+                endTime = startTime + buffer.readVLong();
+            } else {
+                startTime = SpanEventBo.DEFAULT_START_TIME;
+                endTime = SpanEventBo.DEFAULT_END_TIME;
+            }
             if (i == 0) {
                 spanEvent = readFirstSpanEvent(buffer, decodingContext);
             } else {
                 spanEvent = readNextSpanEvent(buffer, prev, decodingContext);
             }
+            if (version == SpanVersion.TRACE_V3) {
+                spanEvent.setTraceTime(version, startTime, endTime, spanEvent.getStartElapsed());
+            } else {
+                spanEvent.setTraceTime(version, spanEvent.getStartElapsed(), spanEvent.getEndElapsed());
+            }
             prev = spanEvent;
             boolean accept = spanEventFilter.filter(spanEvent);
             if (accept) {
-                spanEventBoList.add(spanEvent);
+                writer.write(spanEvent);
             }
         }
-
-        return spanEventBoList;
     }
 
     private SpanEventBo readNextSpanEvent(final Buffer buffer, final SpanEventBo prev, SpanDecodingContext decodingContext) {
@@ -263,10 +292,6 @@ public class SpanDecoderV0 implements SpanDecoder {
 
         spanEventBo.setApiId(buffer.readSVInt());
 
-        if (bitField.isSetRpc()) {
-            spanEventBo.setRpc(buffer.readPrefixedString());
-        }
-
         if (bitField.isSetEndPoint()) {
             spanEventBo.setEndPoint(buffer.readPrefixedString());
         }
@@ -282,21 +307,21 @@ public class SpanDecoderV0 implements SpanDecoder {
         if (bitField.isSetHasException()) {
             int exceptionId = buffer.readSVInt();
             String exceptionMessage = buffer.readPrefixedString();
-            spanEventBo.setExceptionInfo(exceptionId, exceptionMessage);
+            ExceptionInfo exceptionInfo = new ExceptionInfo(exceptionId, exceptionMessage);
+            spanEventBo.setExceptionInfo(exceptionInfo);
         }
 
         if (bitField.isSetAnnotation()) {
-            List<AnnotationBo> annotationBoList = readAnnotationList(buffer, decodingContext);
-            spanEventBo.setAnnotationBoList(annotationBoList);
+            annotationDecoder.readAnnotationList(spanEventBo::addAnnotation, buffer, decodingContext);
         }
 
         if (bitField.isSetNextAsyncId()) {
             spanEventBo.setNextAsyncId(buffer.readSVInt());
         }
 
-        if (bitField.isSetAsyncId()) {
-            spanEventBo.setAsyncId(buffer.readInt());
-            spanEventBo.setAsyncSequence((short) buffer.readVInt());
+        if (bitField.isSetAttribute()) {
+            List<AttributeBo> attributeBoList = attributeTranscoder.readAttributeList(buffer);
+            spanEventBo.setAttributeBoList(attributeBoList);
         }
 
         return spanEventBo;
@@ -312,10 +337,6 @@ public class SpanDecoderV0 implements SpanDecoder {
         firstSpanEvent.setSequence(buffer.readShort());
         firstSpanEvent.setDepth(buffer.readSVInt());
         firstSpanEvent.setServiceType(buffer.readShort());
-
-        if (bitField.isSetRpc()) {
-            firstSpanEvent.setRpc(buffer.readPrefixedString());
-        }
 
         if (bitField.isSetEndPoint()) {
             firstSpanEvent.setEndPoint(buffer.readPrefixedString());
@@ -333,82 +354,81 @@ public class SpanDecoderV0 implements SpanDecoder {
         if (bitField.isSetHasException()) {
             int exceptionId = buffer.readSVInt();
             String exceptionMessage = buffer.readPrefixedString();
-            firstSpanEvent.setExceptionInfo(exceptionId, exceptionMessage);
+            ExceptionInfo exceptionInfo = new ExceptionInfo(exceptionId, exceptionMessage);
+            firstSpanEvent.setExceptionInfo(exceptionInfo);
         }
 
         if (bitField.isSetAnnotation()) {
-            List<AnnotationBo> annotationBoList = readAnnotationList(buffer, decodingContext);
-            firstSpanEvent.setAnnotationBoList(annotationBoList);
+            annotationDecoder.readAnnotationList(firstSpanEvent::addAnnotation, buffer, decodingContext);
         }
 
         if (bitField.isSetNextAsyncId()) {
             firstSpanEvent.setNextAsyncId(buffer.readSVInt());
         }
 
-//        if (bitField.isSetAsyncId()) {
-//            firstSpanEvent.setAsyncId(buffer.readInt());
-//            firstSpanEvent.setAsyncSequence((short) buffer.readVInt());
-//        }
+        if (bitField.isSetAttribute()) {
+            List<AttributeBo> attributeBoList = attributeTranscoder.readAttributeList(buffer);
+            firstSpanEvent.setAttributeBoList(attributeBoList);
+        }
+
         return firstSpanEvent;
     }
 
-    private List<AnnotationBo> readAnnotationList(Buffer buffer, SpanDecodingContext decodingContext) {
-        int annotationListSize = buffer.readVInt();
-        List<AnnotationBo> annotationBoList = new ArrayList<AnnotationBo>(annotationListSize);
+    public static class AnnotationDecoder {
 
-//        AnnotationBo prev = decodingContext.getPrevFirstAnnotationBo();
-        AnnotationBo prev = null;
-        for (int i = 0; i < annotationListSize; i++) {
-            AnnotationBo current;
-            if (i == 0) {
-                current = readFirstAnnotationBo(buffer);
-                // save first annotation for delta bitfield
-//                decodingContext.setPrevFirstAnnotationBo(current);
-            } else {
-                current = readDeltaAnnotationBo(buffer, prev);
+        private static final AnnotationTranscoder transcoder = new AnnotationTranscoder();
+
+        public void readAnnotationList(AnnotationWriter writer, Buffer buffer, SpanDecodingContext decodingContext) {
+            int annotationListSize = buffer.readVInt();
+
+            AnnotationBo prev = null;
+            for (int i = 0; i < annotationListSize; i++) {
+                AnnotationBo current;
+                if (i == 0) {
+                    current = readFirstAnnotationBo(buffer);
+                } else {
+                    current = readDeltaAnnotationBo(buffer, prev);
+                }
+
+                prev = current;
+                writer.write(current);
             }
-
-            prev = current;
-            annotationBoList.add(current);
         }
-        return annotationBoList;
+
+        public AnnotationBo readFirstAnnotationBo(Buffer buffer) {
+            final int key = buffer.readSVInt();
+            byte valueType = buffer.readByte();
+            byte[] valueBytes = buffer.readPrefixedBytes();
+            return transcoder.decodeAnnotation(key, valueType, valueBytes);
+        }
+
+        public AnnotationBo readDeltaAnnotationBo(Buffer buffer, AnnotationBo prev) {
+            final int prevKey = prev.getKey();
+            int key = buffer.readSVInt() + prevKey;
+
+            byte valueType = buffer.readByte();
+            byte[] valueBytes = buffer.readPrefixedBytes();
+
+            return transcoder.decodeAnnotation(key, valueType, valueBytes);
+        }
     }
 
-    private AnnotationBo readFirstAnnotationBo(Buffer buffer) {
-        final int key = buffer.readSVInt();
-        byte valueType = buffer.readByte();
-        byte[] valueBytes = buffer.readPrefixedBytes();
-        Object value = transcoder.decode(valueType, valueBytes);
+    private void readQualifier(BasicSpan basicSpan, Buffer buffer, SpanDecodingContext decodingContext, SpanHeader header) {
+        final SpanOwner owner = basicSpan.getSpanOwner();
 
-        AnnotationBo current = new AnnotationBo(key, value);
-        return current;
-    }
+        if (header.hasServiceUid()) {
+            // layout: [serviceUid(4)][appNameHash(1)][spanId(8)] then applicationInfo
+            final ServiceUid serviceUid = ServiceUid.of(buffer.readInt());
+            owner.setServiceName(decodingContext.getServiceName(serviceUid));
+            owner.setServiceUid(new FixedServiceUid(serviceUid));
 
-    private AnnotationBo readDeltaAnnotationBo(Buffer buffer, AnnotationBo prev) {
-        final int prevKey = prev.getKey();
-        int key = buffer.readSVInt() + prevKey;
-
-        byte valueType = buffer.readByte();
-        byte[] valueBytes = buffer.readPrefixedBytes();
-        Object value = transcoder.decode(valueType, valueBytes);
-
-        AnnotationBo annotation = new AnnotationBo(key, value);
-        return annotation;
-    }
-
-
-    private void readQualifier(BasicSpan basicSpan, Buffer buffer) {
-        String applicationId = buffer.readPrefixedString();
-        basicSpan.setApplicationId(applicationId);
-
-        String agentId = buffer.readPrefixedString();
-        basicSpan.setAgentId(agentId);
-
-        long agentStartTime = buffer.readVLong();
-        basicSpan.setAgentStartTime(agentStartTime);
-
-        long spanId = buffer.readLong();
-        basicSpan.setSpanId(spanId);
+            buffer.readByte(); // applicationName hash: filter-only, the name below is authoritative
+            basicSpan.setSpanId(buffer.readLong());
+            readApplicationInfo(owner, buffer, decodingContext);
+        } else {
+            readApplicationInfo(owner, buffer, decodingContext);
+            basicSpan.setSpanId(buffer.readLong());
+        }
 
         if (!buffer.hasRemaining()) {
             // spanEventList.size() == 0
@@ -420,17 +440,24 @@ public class SpanDecoderV0 implements SpanDecoder {
             // consume buffer
 //            buffer.readByte();
 //            readQualifierLocalAsyncIdBo(buffer);
-
-            logger.warn("sequence overflow. firstSpanEventSequence:{} basicSpan:{}", firstSpanEventSequence, basicSpan);
+            if (logger.isWarnEnabled()) {
+                logger.warn("sequence overflow. firstSpanEventSequence:{} basicSpan:{}", firstSpanEventSequence, basicSpan);
+            }
         }
         setLocalAsyncId(basicSpan, buffer);
+    }
+
+    private void readApplicationInfo(SpanOwner owner, Buffer buffer, SpanDecodingContext decodingContext) {
+        owner.setApplicationName(decodingContext.encoding(buffer.readPrefixedBytes()));
+        owner.setAgentId(decodingContext.encoding(buffer.readPrefixedBytes()));
+        owner.setAgentStartTime(buffer.readVLong());
     }
 
     private void setLocalAsyncId(BasicSpan basicSpan, Buffer buffer) {
         final LocalAsyncIdBo localAsyncIdBo = readQualifierLocalAsyncIdBo(buffer);
         if (localAsyncIdBo != null) {
-            if (basicSpan instanceof SpanChunkBo) {
-                ((SpanChunkBo) basicSpan).setLocalAsyncId(localAsyncIdBo);
+            if (basicSpan instanceof SpanChunkBo spanChunk) {
+                spanChunk.setLocalAsyncId(localAsyncIdBo);
             } else {
                 throw new IllegalStateException("decode error. unexpected span:" + basicSpan);
             }
@@ -451,7 +478,5 @@ public class SpanDecoderV0 implements SpanDecoder {
     public void next(SpanDecodingContext decodingContext) {
         decodingContext.next();
     }
-
-
 
 }

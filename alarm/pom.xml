@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>pinpoint</artifactId>
+        <groupId>com.navercorp.pinpoint</groupId>
+        <version>4.1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>pinpoint-alarm-module</artifactId>
+    <name>pinpoint-alarm-module</name>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>alarm-common</module>
+        <module>alarm-web</module>
+        <module>alarm-batch</module>
+        <module>alarm-core</module>
+    </modules>
+
+    <properties>
+        <!-- Renders the alarm email body. The spring integration evaluates expressions with
+             SpEL, which is already on the classpath, instead of pulling in OGNL.
+             Versioned here rather than in the root: the root does not import the spring-boot
+             BOM, and a pin there would also override the thymeleaf that
+             spring-boot-starter-thymeleaf brings elsewhere in the build. -->
+        <thymeleaf.version>3.1.5.RELEASE</thymeleaf.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.thymeleaf</groupId>
+                <artifactId>thymeleaf-spring6</artifactId>
+                <version>${thymeleaf.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+</project>

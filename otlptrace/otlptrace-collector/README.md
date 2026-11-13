@@ -1,0 +1,327 @@
+# otlptrace-collector
+
+The OTLP (OpenTelemetry Protocol) trace ingestion collector module. It receives the
+`ExportTraceServiceRequest` sent by an OTLP exporter over gRPC/HTTP, converts it into Pinpoint's
+SpanBo/SpanChunkBo, and stores it in HBase.
+
+This document summarizes the analysis of the gRPC/HTTP ingestion layer and the worker/HBase storage
+layer. (Analysis baseline: 2026-07 master branch)
+
+---
+
+## 1. Architecture Overview
+
+```
+OTLP exporter
+  ├─ gRPC  :9998 (plaintext) / :9448 (TLS, opt-in)  ── GrpcOtlpTraceService
+  └─ HTTP  :9997  POST /v1/traces (protobuf | JSON) ── OtlpTraceController
+                     │
+                     ▼
+             OtlpTraceMapper (OTLP span → SpanBo/SpanChunkBo/AgentInfoBo/ExceptionMetaDataBo)
+                     │
+                     ▼
+             HbaseOtlpTraceService / HbaseOtlpAgentInfoService / HbaseOtlpApplicationIndexV2Service
+                     │
+                     ▼
+             HBase (TraceV2, TRACE_INDEX, AGENTINFO, APPLICATION/AGENT_ID, server-map stats)
+```
+
+- Startup: the multi-app starter in `collector-starter` boots it as a child context when
+  `CollectorType.OTLPTRACE` (`collector-starter/.../PinpointCollectorStarter.java:95-124`).
+  servlet port 9997, gRPC 9998, TLS 9448.
+- Module gate: `pinpoint.modules.collector.otlptrace.enabled=true` (`OtlpTraceCollectorModule.java:75`)
+- Properties: `otlptrace/collector/pinpoint-otlptrace-grpc-root.properties` + per-profile overrides
+
+---
+
+## 2. gRPC Layer
+
+### Server bootstrap
+
+- Reuses the collector module's shared `GrpcReceiver`/`ServerFactory` (`OtlpTraceCollectorModule.java:120-142`).
+  IP filter (`IgnoreAddressFilter`, skips L4 health-check IPs) and the TransportMetadata / StreamCount
+  interceptors are installed by default.
+- Service registration: a single service — `GrpcOtlpTraceService` + `MetricCollectingServerInterceptor`
+  (tagged `service=otlptrace`).
+- The SSL module (`OtlpTraceCollectorGrpcSslModule`) is opt-in (off by default). It binds a separate
+  `GrpcReceiver` on 9448 that shares the same serviceList / executor / ServerOption as the plaintext
+  receiver. Certificate config reuses the collector's shared prefix `collector.receiver.grpc.ssl.*`.
+
+### Key settings (pinpoint-otlptrace-grpc-root.properties)
+
+| Item | Value | Notes |
+|---|---|---|
+| inbound_message_size_max | 4MB | Matches the reference OTel Collector (4MiB) and the HTTP path; worst-case ~512MB/connection direct memory at 128 concurrent calls |
+| HTTP/2 flow-control window | 512KB | |
+| Concurrent calls per connection | 128 | Conservative vs the main collector's 1024 |
+| keepalive | time 30s / timeout 60s, permit 10s + without_calls | Handles OTLP exporter idle PINGs (avoids GOAWAY too_many_pings) |
+| max header | 8KB | Accounts for the JWT Authorization header |
+| server executor | 4 threads / queue 256 | Serves both the gRPC handler and HBase async callbacks |
+| worker executor | 16 threads / queue 128 | Runs mapping + insert, AbortPolicy |
+| in-flight byte admission | 256MB (Semaphore) | Code `@Value` default aligned to 256MB (matches this properties value) |
+
+### Request handling flow (`GrpcOtlpTraceService.java:86-153`)
+
+1. **Byte admission**: `tryAcquire` on the Semaphore for `request.getSerializedSize()`; on failure,
+   return `UNAVAILABLE` immediately. The reason for using `UNAVAILABLE` instead of `RESOURCE_EXHAUSTED`
+   (OTLP exporters retry it unconditionally) is documented in a comment.
+   Counted as `collector.otlptrace.request.rejected{transport=grpc, reason=inflight_bytes}`.
+2. **Worker offload**: submitted to the worker executor via `Context.current().wrap()` — non-blocking
+   for the gRPC handler thread. On queue saturation (`RejectedExecutionException`), release the permit
+   and return `UNAVAILABLE`. Counted as `request.rejected{transport=grpc, reason=executor_rejected}` —
+   the two UNAVAILABLE causes are indistinguishable on the wire but separate in the metric.
+3. **Cancellation check**: if the client has cancelled by execution time, skip mapping; the permit is
+   released in a finally block.
+4. **Response semantics**:
+   - Server-side error (insert failure) → `UNAVAILABLE` for the whole batch (drives retry, prevents loss)
+   - Client data fault (mapping reject) → OTLP-spec `ExportTracePartialSuccess` (rejectedSpans + errorMessage);
+     the same spans are counted per reason in `collector.otlptrace.span.rejected{reason}` (see
+     [Ingest metrics](#ingest-metrics))
+   - Unexpected exception in the worker → `INTERNAL` (prevents a poison-data retry storm)
+
+---
+
+## 3. HTTP Layer
+
+- Endpoint: a single mapping `POST /v1/traces`, `consumes = application/x-protobuf | application/json`,
+  dispatched on the request Content-Type; the response body mirrors the request encoding (per the
+  OTLP/HTTP spec, no Accept negotiation). Any other Content-Type → **415**.
+  **`Content-Encoding: gzip` is supported** (decompressed by `OtlpTraceDecompressionFilter`,
+  Content-Type agnostic); any other encoding → **415** (`request.rejected{reason=unsupported_encoding}`).
+- Body parsing: raw `byte[]` + explicit branch — protobuf via `ExportTraceServiceRequest.parseFrom`,
+  OTLP/JSON via `OtlpJsonTraceParser` (a Jackson streaming rewrite of the spec's hex-encoded
+  `traceId`/`spanId`/`parentSpanId` fields to base64, then the standard proto3 `JsonFormat` parse).
+  A body that fails to parse → **400 + `google.rpc.Status`** in the request encoding
+  (`request.rejected{reason=parse_error}`).
+- Executed synchronously on the Tomcat request thread (no worker offload)
+
+### Admission Filter (`OtlpTraceHttpAdmissionFilter`)
+
+Registered only for `/v1/traces` with `Ordered.HIGHEST_PRECEDENCE`, so it runs **before** protobuf
+deserialization. A 3-stage gate:
+
+1. Content-Length > 4MB → **413** (`request.rejected{reason=payload_too_large}`). If the length is
+   unknown (chunked), pessimistically reserve 4MB and block on overflow via `LimitedRequestWrapper`.
+2. Concurrent-request Semaphore(64) failure → **503 + Retry-After (1s)** (`reason=concurrency`)
+3. in-flight byte Semaphore (256MB) failure → **503 + Retry-After (1s)** (`reason=inflight_bytes`)
+
+Permits are released in a finally block after the entire request (parse + insert) completes.
+Config keys: `pinpoint.collector.otlptrace.http.*`
+
+### Decompression Filter (`OtlpTraceDecompressionFilter`)
+
+Registered for `/v1/traces` just after the admission filter (`HIGHEST_PRECEDENCE + 1`), so the
+compressed-size gates apply to the raw request first. `Content-Encoding: gzip` bodies are inflated
+before protobuf deserialization; `identity`/absent pass through; any other encoding → **415**.
+Since Content-Length bounds only the compressed size, the inflated stream is capped at
+`http.max-decompressed-request-bytes` (16MB) to guard against decompression bombs — overflow → **400**.
+The gRPC path needs no counterpart (grpc-java decompresses `grpc-encoding: gzip` natively).
+
+### gRPC vs HTTP comparison
+
+| Item | gRPC | HTTP |
+|---|---|---|
+| Mapping/storage deps | Shares the same beans | Same |
+| export logic | Shared `OtlpTraceExportService` (single implementation) | Same |
+| agentId dedup cache | Shared Caffeine bean (`otlpAgentIdCache`, thread-safe, cross-transport) | Same |
+| Execution thread | Worker executor offload | Synchronous on the Tomcat request thread |
+| Backpressure | UNAVAILABLE | 503 + Retry-After |
+| Rejection metric | `request.rejected{transport=grpc, reason=inflight_bytes\|executor_rejected}` | `request.rejected{transport=http, reason=inflight_bytes\|concurrency\|payload_too_large\|unsupported_encoding\|parse_error}` |
+| partial success | Responds per spec | **Not emitted — always 200 (bug)** |
+| Server-side error | Drives retry via UNAVAILABLE | **Always 200 → silent loss (bug)** |
+
+---
+
+## 4. Worker / HBase Storage Layer
+
+### Thread-pool chain (per request)
+
+```
+gRPC server executor (4 threads / queue 256)
+  → [admission Semaphore: in-flight bytes 256MB]
+  → worker executor (16 threads / queue 128, AbortPolicy)   ← runs mapping + insert
+  → AsyncPollerThread[] (span: at least 4, queue 10000 each) ← actual HBase batch put (100 rows / 100ms)
+  → (completion callback) returns to the server executor
+```
+
+- HBase writes: `hbase.client.put-writer=asyncPoller` — `AsyncPollingPutWriter` distributes to pollers
+  by rowkey hash. On poller-queue saturation it returns a **failed future** carrying
+  `RequestNotPermittedException(OVERFLOW)` (not a synchronous exception).
+- `span-put-writer.concurrency-limit=0` on the span path (no rate limiter).
+- Server-map stats: `BulkWriter` aggregates in memory and flushes every 5s (`SchedulerConfiguration`).
+
+### Storage paths (per SpanBo)
+
+| Path | DAO | Table/CF | Write mode |
+|---|---|---|---|
+| span body | `HbaseTraceDaoV2.asyncInsert` | `TraceV2` / CF `S`, rowkey=salted transactionId | async (returns future, observed via callback) |
+| scatter index | `HbaseTraceIndexDao` (v2) | `TRACE_INDEX` / `TRACE_INDEX_META` | async — **future discarded** |
+| server-map stats | `BulkWriter.increment` | link/response-stats tables | in-memory aggregation + 5s flush |
+| store event | `SpanStorePublisher` | (Spring event) | published from the async callback |
+| exception traces (Error Analysis) | `PinotExceptionMetaDataService` → `ExceptionTraceDao` | Kafka topic → Pinot `exceptionTrace` | one record per mapped `exception` span event; only when `pinpoint.modules.collector.exceptiontrace.enabled=true` (the module's `ExceptionTraceCollectorConfig` import), otherwise the `Optional<ExceptionMetaDataService>` is empty and the records are dropped |
+
+spanChunk uses only `TraceV2`/CF `S` (no scatter index). AgentInfo (`AGENTINFO`/CF `Info`,
+rowkey=`agentId+startTime`) and ApplicationIndex v2 (`APPLICATION`, `AGENT_ID`) are synchronous put +
+Caffeine dedup (`otlpAgentIdCache`, maxSize 10000, shared across transports and with the metric
+path, one key space each: `OtlpAgentCacheKey`). The trace key is `t:serviceUid/agentId`, one
+registration per agent for the collector's lifetime: its start time is the span start time
+approximation (changes from span to span) unless the Resource carries `process.creation.time`. The
+metric key is `m:serviceUid/agentId@startTime`, one registration per process session: an agent
+restarted under the same agentId registers its new session there. serviceUid is always
+`ServiceUid.DEFAULT` (TODO).
+
+### Loss analysis
+
+There is no internal retry; it relies entirely on the OTLP exporter's retries. The key question is
+whether a failure **surfaces before the response**:
+
+| Failure point | Outcome |
+|---|---|
+| admission / worker queue saturation | UNAVAILABLE → client retries, **no loss** |
+| synchronous exception during mapping | UNAVAILABLE → retry, **no loss** |
+| span put failure (incl. poller-queue overflow) | **Loss after a success response** — metric + throttled WARN only (Phase 1.5 constraint, documented at `HbaseOtlpTraceService.java:51-53`) |
+| spanChunk put failure | **Fully ignored** — future discarded + success event always published |
+| scatter index failure | future discarded, no metric — loss that is invisible in scatter |
+| server-map stats | Up to 5s of increments lost on process death (acceptable by design) |
+
+### Exception field bounds (shared with the OTLP logs receiver)
+
+Client-supplied exception fields are bounded in `OtlpExceptionMapper` before parsing / storage
+(`pinpoint.collector.otlptrace.exception.*`): `message-max-bytes` 2048, `type-max-bytes` 1024,
+`uri-template-max-bytes` 1024 (route also sanitized: query string / fragment dropped, control characters
+removed, never null), `stacktrace.max-depth` 256 frames, `stacktrace.frame-max-bytes` 2048, and the
+parser input bounds `stacktrace.max-chars` 262144 / `stacktrace.line-max-chars` 4096. The last two exist
+because the Node/.NET frame regexes are quadratic on a single long line without a closing bracket
+(measured ~1.4s at 48KB, x4 per doubling): one 4MB line would pin a worker thread for hours. Each cap
+increments `collector.otlptrace.exception.truncated{field=message|type|uri_template|stacktrace_depth|
+stacktrace_bytes|stacktrace_line|frame_value}`. Values that fail the resource-id validators are echoed
+into logs / partial-success messages only through `LogSafe` (control characters escaped, 256-char cap).
+
+### Ingest metrics
+
+The pre-existing meters count **requests** (`grpc.server.requests.received{service=otlptrace}`,
+`http.server.requests{uri=/v1/traces}`) or **worker tasks** (`grpcOtlpTraceWorkerExecutor.*`, one
+task per gRPC export call). An export call is a batch of arbitrary size, so none of them yields
+spans per second. `OtlpTraceIngestMetrics` adds span-level counters to the same `MeterRegistry`
+(they reach whatever exporter the registry is wired to — no extra configuration):
+
+| Metric | Tags | Meaning |
+|---|---|---|
+| `collector.otlptrace.span.received` | `transport=grpc\|http` | spans carried by accepted export requests, counted before mapping |
+| `collector.otlptrace.span.stored` | `transport`, `type=span\|spanChunk` | root spans / orphan sub-trees handed to storage |
+| `collector.otlptrace.span.rejected` | `transport`, `reason` (table below) | spans dropped during mapping; also reported to the client as `ExportTracePartialSuccess.rejected_spans` |
+| `collector.otlptrace.request.rejected` | `transport`, `reason` (table below) | whole requests refused before mapping; the span count is unknown, so these do not appear in `span.received` |
+| `collector.otlptrace.request.bytes` | `transport` | wire bytes of admitted requests (gRPC serialized size; HTTP declared length, or bytes actually read for chunked bodies). Distribution: count / total / mean / max per step |
+| `collector.otlptrace.admission.inflight.bytes`, `.admission.limit.bytes` | `transport` | bytes currently reserved by the in-flight admission semaphore vs. the budget (`admission.max-in-flight-bytes` / `http.admission.max-in-flight-bytes`); gauges, sampled per step |
+| `collector.otlptrace.admission.inflight.requests`, `.admission.limit.requests` | `transport=http` | requests currently past the concurrency gate vs. `http.max-concurrent-requests` |
+
+Every (transport, reason) series is registered at startup, so it exists at zero before the first
+event. `received − rejected` is the number of spans that made it into transactions/span chunks;
+`received / grpcOtlpTraceWorkerExecutor.submitted` is the average batch size, `request.bytes.total`
+(rate) is the ingress in bytes per second, `request.bytes.max` against the 4MB per-request cap shows
+how close clients run to a 413 / RESOURCE_EXHAUSTED, and `admission.inflight.bytes / admission.limit.bytes`
+is the steady-state utilisation of the in-flight budget — a sub-step spike that hits the budget
+appears only as `request.rejected{reason=inflight_bytes}`.
+
+**Span reject reasons** (`OtlpTraceRejectReason`, tag `reason`) — the tag value is the stable
+identifier; renaming one is a dashboard change:
+
+| `reason` | Where | Cause | Client action |
+|---|---|---|---|
+| `unsampled` | `OtlpTraceMapper.getSpanMap` | W3C trace-flags present with the sampled bit clear | export only sampled spans (SDK sampler / exporter filter) |
+| `invalid_id` | `OtlpTraceMapper.getSpanMap` | trace/span/parent id of wrong length or all-zero | fix the SDK / propagator |
+| `invalid_resource` | `OtlpTraceMapper.getId` | no usable application/agent identifier on the `ResourceSpans` (see the top-level README, *Validation errors*); every span of that resource is rejected | fix `service.name` / `pinpoint.*` resource attributes |
+| `orphan` | end of `OtlpTraceMapper.map` | a non-root span whose parent is not in the request (batch split, dropped parent) | usually benign; check exporter batching if persistent |
+| `mapping_error` | `OtlpTraceMapper.map` (root / span-chunk try-catch) | the mapper threw on a span | collector-side fault candidate — alert on this one |
+
+**Request reject reasons** (`OtlpTraceIngestMetrics.RequestRejectReason`):
+
+| `reason` | Transport | Response | Cause |
+|---|---|---|---|
+| `inflight_bytes` | grpc, http | UNAVAILABLE / 503 + Retry-After | in-flight byte budget exhausted (`admission.max-in-flight-bytes`, `http.admission.max-in-flight-bytes`) |
+| `executor_rejected` | grpc | UNAVAILABLE | worker executor queue full |
+| `concurrency` | http | 503 + Retry-After | `http.max-concurrent-requests` reached |
+| `payload_too_large` | http | 413 | Content-Length above `http.max-request-bytes` |
+| `unsupported_encoding` | http | 415 | `Content-Encoding` other than `gzip` / `identity` |
+| `parse_error` | http | 400 | protobuf/JSON body did not parse |
+
+The first three are capacity signals (retried by the exporter, no loss); the last three are client
+faults (not retried). The gRPC `processing.duration{statusCode=UNAVAILABLE}` count equals
+`inflight_bytes + executor_rejected` for that transport.
+
+---
+
+## 5. ServiceType Resolution (OTLP → Pinpoint)
+
+An OTLP span carries no Pinpoint ServiceType, so the mapper derives one. The **primary key is
+`span.kind`**; attributes refine it. All resolvers look up the target code by ServiceType **name**
+in the registry, so a plugin re-mapping its code is followed automatically and a missing plugin
+falls back to the generic `OPENTELEMETRY_*` type instead of failing.
+
+### Node vs. call — why the category matters
+
+`ServiceTypeCategory` maps a code range to a role:
+
+| Code range | Category | Role on the ServerMap |
+|---|---|---|
+| 1000–1999 | SERVER | **node** (a box) |
+| 2000–2999 | DATABASE | node |
+| 8000–8799 | CACHE/MESSAGE_BROKER | node |
+| 9000–9999 | RPC | **call** (an outgoing arc / SpanEvent) |
+
+A SERVER-kind span becomes a **root SpanBo** — it *is* the node — so it must carry a SERVER-category
+type. A CLIENT/PRODUCER span becomes a **SpanEventBo** — an outgoing call — so it carries an
+RPC/messaging-category type. Assigning a call-category code to a node (or vice versa) miscategorizes
+the ServerMap element.
+
+### Dispatch table
+
+| span.kind | Target BO | Resolver | Attribute key | Default (fallback) |
+|---|---|---|---|---|
+| SERVER | root SpanBo (node) | `OtlpServerTypeResolver` | `rpc.system` → `GRPC_SERVER` / `APACHE_DUBBO_PROVIDER` | `OPENTELEMETRY_SERVER` (1220) |
+| SERVER + Envoy tags | root SpanBo (node) | `OtlpEnvoyTypeResolver` | Envoy gate (below) | `ENVOY` (1550) → `OPENTELEMETRY_SERVER` |
+| CLIENT | SpanEventBo (call) | `OtlpClientTypeResolver` | `rpc.system` → `GRPC` / `APACHE_DUBBO_CONSUMER` | `OPENTELEMETRY_CLIENT` (9310) |
+| CLIENT + HTTP key, no `rpc.system` | SpanEventBo (call) | `OtlpClientTypeResolver` | `http.request.method` / `http.method` / `url.full` / `http.url` | `OPENTELEMETRY_HTTP_CLIENT` (9311) — display argument = `HTTP_URL` |
+| CLIENT + Envoy tags | SpanEventBo (call) | `OtlpEnvoyTypeResolver` | Envoy gate (below) | `ENVOY_EGRESS` (9302) → `OPENTELEMETRY_HTTP_CLIENT` |
+| CLIENT + `db.system` | SpanEventBo (call) | `OtlpDbSystemTypeResolver` | `db.system` / `db.system.name` | per DB system |
+| PRODUCER | SpanEventBo (call) | `OtlpMessagingTypeResolver` | `messaging.system` | `OPENTELEMETRY_CLIENT` |
+| INTERNAL / other | SpanEventBo | — | — | `OPENTELEMETRY_INTERNAL` (1221) / `INTERNAL_METHOD` |
+
+HTTP client/server *framework* (Tomcat, OkHttp, …) cannot be derived from OTel attributes, so plain
+HTTP spans stay on the `OPENTELEMETRY_SERVER` / `OPENTELEMETRY_HTTP_CLIENT` generics. The HTTP client
+type is split from `OPENTELEMETRY_CLIENT` only so the Call Tree shows the request URL (`HTTP_URL`
+annotation) for HTTP calls, as the native HTTP client plugins do; a CLIENT span with neither an HTTP
+key nor a known `rpc.system` stays on the generic type.
+
+### Envoy proxy spans
+
+`OtlpEnvoyTypeResolver` detects Envoy spans and overrides the generic OTel types with the dedicated
+Envoy types, mirroring the native pinpoint-cpp Envoy tracer.
+
+- **Detection gate**: presence of `upstream_cluster`, `upstream_cluster.name`, or `response_flags`
+  (Envoy-only tags). `component=proxy` is intentionally **not** used — it is deprecated in OTel
+  semconv and set by other proxies, so it has no reliable discriminating power on its own.
+- **Direction**: `span.kind` SERVER → ingress node, CLIENT → egress call.
+- **Annotations**: `envoy.operation` (9441, `Ingress`/`Egress`) and `upstream.cluster` (9442).
+- Hooks: `OtlpTraceSpanMapper#recordServer` (server) and `OtlpTraceSpanEventMapper` client branch.
+
+| span.kind | ServiceType | Category | Note |
+|---|---|---|---|
+| SERVER (ingress) | `ENVOY` (1550) | SERVER (node) | ingress node |
+| CLIENT (egress) | `ENVOY_EGRESS` (9302) | RPC (call) | egress call to the upstream cluster |
+
+### Why `ENVOY_INGRESS` (9301) is not used
+
+The native pinpoint-cpp tracer models one Envoy request as **one span plus child SpanEvents**: the
+span (the node) is `ENVOY` (1550), and it carries an `ENVOY_INGRESS` (9301) SpanEvent for the received
+request and an `ENVOY_EGRESS` (9302) SpanEvent for the upstream call. `ENVOY_INGRESS` and
+`ENVOY_EGRESS` are both **RPC-category (9000–9999) *call* types**, not node types.
+
+The OTLP model is different: **one span per request with an explicit `span.kind`**, and a SERVER-kind
+ingress span maps to a **root SpanBo — which is already the ServerMap node**. A node must carry a
+SERVER-category type, so the ingress node uses `ENVOY` (1550), exactly as a generic OTLP server node
+uses `OPENTELEMETRY_SERVER` (1220). Assigning the RPC-category `ENVOY_INGRESS` (9301) to a root node
+would miscategorize it (`NodeCategory.UNKNOWN`). There is no separate ingress SpanEvent in the OTLP
+mapping for `ENVOY_INGRESS` to attach to, so it is intentionally left unused; the ingress direction is
+still recorded via the `envoy.operation=Ingress` annotation. `ENVOY_EGRESS` (9302), being a call type,
+is category-correct for the CLIENT-kind egress SpanEvent and is used as-is.

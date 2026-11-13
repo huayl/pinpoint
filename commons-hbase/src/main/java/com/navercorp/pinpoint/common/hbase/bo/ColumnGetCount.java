@@ -17,18 +17,30 @@
 package com.navercorp.pinpoint.common.hbase.bo;
 
 import com.navercorp.pinpoint.common.util.Assert;
+import org.apache.hadoop.hbase.filter.ColumnCountGetFilter;
+import org.apache.hadoop.hbase.filter.Filter;
 
 /**
  * @author Taejin Koo
  */
 public class ColumnGetCount {
 
-    public static final ColumnGetCount UNLIMITED_COLUMN_GET_COUNT = new UnlimitedColumnGetCount();
+    public static final int UNLIMITED_COUNT = Integer.MAX_VALUE;
+    public static final ColumnGetCount UNLIMITED_COLUMN_GET_COUNT = new ColumnGetCount(UNLIMITED_COUNT);
 
     private final int limit;
-    private int resultSize;
 
-    public ColumnGetCount(int limit) {
+    public static ColumnGetCount of(int limit) {
+        if (limit == -1 || limit == UNLIMITED_COUNT) {
+            return ColumnGetCount.UNLIMITED_COLUMN_GET_COUNT;
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive or -1(unlimited): " + limit);
+        }
+        return new ColumnGetCount(limit);
+    }
+
+    ColumnGetCount(int limit) {
         Assert.isTrue(limit > 0, "limit must be 'limit >= 0'");
         this.limit = limit;
     }
@@ -37,12 +49,21 @@ public class ColumnGetCount {
         return limit;
     }
 
-    public boolean isreachedLimit() {
+    public boolean isReachedLimit(int resultSize) {
+        if (limit == UNLIMITED_COUNT) {
+            return false;
+        }
         return resultSize >= limit;
     }
 
-    public void setResultSize(int resultSize) {
-        this.resultSize = resultSize;
+    public static Filter toFilter(ColumnGetCount columnGetCount) {
+        if (columnGetCount == null) {
+            return null;
+        }
+        if (columnGetCount.getLimit() != UNLIMITED_COUNT) {
+            return new ColumnCountGetFilter(columnGetCount.getLimit());
+        }
+        return null;
     }
 
     @Override
@@ -58,24 +79,6 @@ public class ColumnGetCount {
     @Override
     public int hashCode() {
         return limit;
-    }
-
-    private static class UnlimitedColumnGetCount extends ColumnGetCount {
-
-        private UnlimitedColumnGetCount() {
-            super(Integer.MAX_VALUE);
-        }
-
-        @Override
-        public boolean isreachedLimit() {
-            return false;
-        }
-
-        @Override
-        public void setResultSize(int resultSize) {
-            // skip
-        }
-
     }
 
 }

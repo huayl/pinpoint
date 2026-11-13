@@ -1,0 +1,94 @@
+import { colors } from '@pinpoint-fe/ui/src/constants';
+
+// 다중 시리즈 차트에서 시리즈 색상을 순서대로 배정할 때 쓰는 공용 팔레트.
+// (recharts/echarts 등 렌더러와 무관하게 재사용하기 위해 여기에 둔다.)
+export const CHART_SERIES_COLORS = [
+  colors.blue[600],
+  colors.blue[200],
+  colors.orange[500],
+  colors.orange[200],
+  colors.green[600],
+  colors.green[300],
+  colors.red[600],
+  colors.red[300],
+  colors.purple[500],
+  colors.purple[300],
+  colors.stone[700],
+  colors.stone[400],
+  colors.pink[400],
+  colors.pink[200],
+  colors.gray[500],
+  colors.gray[300],
+  colors.lime[500],
+  colors.yellow[200],
+  colors.cyan[500],
+  colors.cyan[200],
+];
+
+export const getRandomColor = () => {
+  const random = (Math.random() * 0xfffff * 1000000).toString(16);
+  return `#${random.slice(0, 6)}`;
+};
+
+export const getRandomColorInHSL = () => {
+  const hue = Math.floor(Math.random() * 360);
+  const saturation = 70 + Math.floor(Math.random() * 30); // 70% ~ 100%
+  const lightness = 50 + Math.floor(Math.random() * 20); // 50% ~ 70%
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+};
+
+export const getLuminanceByBT709 = (hexColor: string) => {
+  hexColor = hexColor.replace(/^#/, '');
+  // 3자리 16진수인 경우를 처리
+  if (hexColor.length === 3) {
+    hexColor = hexColor
+      .split('')
+      .map((char) => char + char)
+      .join('');
+  }
+  const r = parseInt(hexColor.substring(0, 2), 16);
+  const g = parseInt(hexColor.substring(2, 4), 16);
+  const b = parseInt(hexColor.substring(4, 6), 16);
+  // 0 to 1 to indicate the degree of brightness.
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance;
+};
+
+export const getContrastingTextColor = (hexBackgroundColor: string) => {
+  const lumniance = getLuminanceByBT709(hexBackgroundColor);
+  return lumniance > 128 ? colors.black : colors.white;
+};
+
+export const getDarkenHexColor = (hexColor: string, amount = 0.2) => {
+  hexColor = hexColor.replace(/^#/, '');
+  let r = parseInt(hexColor.substring(0, 2), 16);
+  let g = parseInt(hexColor.substring(2, 4), 16);
+  let b = parseInt(hexColor.substring(4, 6), 16);
+
+  // 각 성분을 어둡게 함
+  r = Math.max(0, Math.min(255, Math.floor(r * (1 - amount))));
+  g = Math.max(0, Math.min(255, Math.floor(g * (1 - amount))));
+  b = Math.max(0, Math.min(255, Math.floor(b * (1 - amount))));
+
+  // 어두워진 RGB 값을 다시 hex로 변환
+  const darkenedHex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b
+    .toString(16)
+    .padStart(2, '0')}`;
+
+  return darkenedHex;
+};
+
+export function getColorByString(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = input.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  let color = '#';
+  for (let i = 0; i < 3; i++) {
+    const value = (hash >> (i * 8)) & 0xff;
+    color += ('00' + value.toString(16)).slice(-2);
+  }
+
+  return color;
+}

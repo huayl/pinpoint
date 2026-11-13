@@ -18,7 +18,8 @@ package com.navercorp.pinpoint.web.service;
 
 import java.util.List;
 
-import com.navercorp.pinpoint.web.vo.Application;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.server.uid.Service;
 
 /**
  * @author netspider
@@ -26,5 +27,7 @@ import com.navercorp.pinpoint.web.vo.Application;
 public interface CommonService {
 
     List<Application> selectAllApplicationNames();
+
+    List<Application> selectAllApplicationNames(Service service);
 
 }

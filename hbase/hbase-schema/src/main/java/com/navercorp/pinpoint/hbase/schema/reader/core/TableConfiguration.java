@@ -30,11 +30,11 @@ public class TableConfiguration {
         }
     };
 
-    private Long maxFileSize;
-    private Boolean readOnly;
-    private Boolean compactionEnabled;
-    private Long memstoreFlushSize;
-    private Durability durability;
+    private final Long maxFileSize;
+    private final Boolean readOnly;
+    private final Boolean compactionEnabled;
+    private final Long memstoreFlushSize;
+    private final Durability durability;
 
     public enum Durability {
         ASYNC_WAL,
@@ -137,13 +137,12 @@ public class TableConfiguration {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("TableConfiguration{");
-        sb.append("maxFileSize=").append(maxFileSize);
-        sb.append(", readOnly=").append(readOnly);
-        sb.append(", compactionEnabled=").append(compactionEnabled);
-        sb.append(", memstoreFlushSize=").append(memstoreFlushSize);
-        sb.append(", durability=").append(durability);
-        sb.append('}');
-        return sb.toString();
+        return "TableConfiguration{" +
+                "maxFileSize=" + maxFileSize +
+                ", readOnly=" + readOnly +
+                ", compactionEnabled=" + compactionEnabled +
+                ", memstoreFlushSize=" + memstoreFlushSize +
+                ", durability=" + durability +
+                '}';
     }
 }

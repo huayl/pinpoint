@@ -16,19 +16,19 @@
 
 package com.navercorp.pinpoint.grpc.client.config;
 
-import com.navercorp.pinpoint.bootstrap.config.util.ValueAnnotationProcessor;
-import com.navercorp.pinpoint.grpc.client.config.ClientOption;
-import org.junit.Test;
+import com.navercorp.pinpoint.common.config.util.ValueAnnotationProcessor;
+import org.junit.jupiter.api.Test;
 
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 public class ClientOptionTest {
 
     @Test
-    public void build() throws Exception {
+    public void build() {
         Properties properties = new Properties();
         properties.setProperty("keepalive.time.millis", "1");
         properties.setProperty("keepalive.timeout.millis", "2");
@@ -45,11 +45,11 @@ public class ClientOptionTest {
 
         ClientOption clientOption = new ClientOption();
         ValueAnnotationProcessor processor = new ValueAnnotationProcessor();
-        processor.process(clientOption, properties);
+        processor.process(clientOption, properties::getProperty);
 
         assertEquals(1, clientOption.getKeepAliveTime());
         assertEquals(2, clientOption.getKeepAliveTimeout());
-        assertEquals(false, clientOption.isKeepAliveWithoutCalls());
+        assertFalse(clientOption.isKeepAliveWithoutCalls());
         assertEquals(TimeUnit.DAYS.toMillis(30), clientOption.getIdleTimeoutMillis());
         assertEquals(65535, clientOption.getFlowControlWindow());
         assertEquals(4, clientOption.getMaxHeaderListSize());

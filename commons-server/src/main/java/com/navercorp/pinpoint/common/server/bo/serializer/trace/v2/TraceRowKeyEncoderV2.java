@@ -1,11 +1,11 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,42 +16,51 @@
 
 package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2;
 
-import com.navercorp.pinpoint.common.PinpointConstants;
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.hbase.wd.ByteHasher;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
 import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
-import com.navercorp.pinpoint.common.util.BytesUtils;
-import com.sematext.hbase.wd.AbstractRowKeyDistributor;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Component;
+import com.navercorp.pinpoint.common.server.trace.OtelServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
 
 import java.util.Objects;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
-@Component
-public class TraceRowKeyEncoderV2 implements RowKeyEncoder<TransactionId> {
+public class TraceRowKeyEncoderV2 implements RowKeyEncoder<ServerTraceId> {
 
-    public static final int AGENT_ID_MAX_LEN = PinpointConstants.AGENT_ID_MAX_LEN;
-    public static final int DISTRIBUTE_HASH_SIZE = 1;
+    private final ByteHasher byteHasher;
+    private final ByteHasher otelByteHasher;
 
-    private final AbstractRowKeyDistributor rowKeyDistributor;
-
-
-    @Autowired
-    public TraceRowKeyEncoderV2(@Qualifier("traceV2Distributor") AbstractRowKeyDistributor rowKeyDistributor) {
-        this.rowKeyDistributor = Objects.requireNonNull(rowKeyDistributor, "rowKeyDistributor");
+    public TraceRowKeyEncoderV2(RowKeyDistributor rowKeyDistributor, RowKeyDistributor otelRowKeyDistributor) {
+        Objects.requireNonNull(rowKeyDistributor, "rowKeyDistributor");
+        Objects.requireNonNull(otelRowKeyDistributor, "otelRowKeyDistributor");
+        this.byteHasher = rowKeyDistributor.getByteHasher();
+        this.otelByteHasher = otelRowKeyDistributor.getByteHasher();
     }
 
-    public byte[] encodeRowKey(TransactionId transactionId) {
-        Objects.requireNonNull(transactionId, "transactionId");
-
-        byte[] rowKey = BytesUtils.stringLongLongToBytes(transactionId.getAgentId(), AGENT_ID_MAX_LEN, transactionId.getAgentStartTime(), transactionId.getTransactionSequence());
-        return wrapDistributedRowKey(rowKey);
+    public byte[] encodeRowKey(ServerTraceId transactionId) {
+        return encodeRowKey(byteHasher.getSaltKey().size(), transactionId);
     }
 
-    private byte[] wrapDistributedRowKey(byte[] rowKey) {
-        return rowKeyDistributor.getDistributedKey(rowKey);
+    @Override
+    public byte[] encodeRowKey(int saltKeySize, ServerTraceId serverTraceId) {
+        Objects.requireNonNull(serverTraceId, "serverTraceId");
+
+        if (serverTraceId instanceof PinpointServerTraceId pinpointServerTraceId) {
+            byte[] rowKey = PinpointTraceRowKeyCodec.encode(saltKeySize, pinpointServerTraceId);
+            if (saltKeySize == 0) {
+                return rowKey;
+            }
+            return byteHasher.writeSaltKey(rowKey);
+        }
+
+        if (serverTraceId instanceof OtelServerTraceId otelServerTraceId) {
+            byte[] rowKey = OtelTraceRowKeyCodec.encode(otelServerTraceId);
+            return otelByteHasher.writeSaltKey(rowKey);
+        }
+
+        throw new IllegalStateException("Unsupported ServerTraceId:" + serverTraceId);
     }
 }

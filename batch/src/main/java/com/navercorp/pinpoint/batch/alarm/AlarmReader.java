@@ -16,74 +16,61 @@
 
 package com.navercorp.pinpoint.batch.alarm;
 
-import com.navercorp.pinpoint.batch.alarm.DataCollectorFactory.DataCollectorCategory;
-import com.navercorp.pinpoint.batch.alarm.checker.AlarmChecker;
-import com.navercorp.pinpoint.batch.alarm.collector.DataCollector;
-import com.navercorp.pinpoint.web.alarm.vo.Rule;
-import com.navercorp.pinpoint.web.dao.ApplicationIndexDao;
+import com.navercorp.pinpoint.batch.service.BatchApplicationIndexService;
+import com.navercorp.pinpoint.common.server.uid.Service;
 import com.navercorp.pinpoint.web.service.AlarmService;
-import com.navercorp.pinpoint.web.vo.Application;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.jspecify.annotations.NonNull;
 import org.springframework.batch.core.ExitStatus;
-import org.springframework.batch.core.StepExecution;
-import org.springframework.batch.core.StepExecutionListener;
-import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.core.step.StepExecution;
+import org.springframework.batch.core.listener.StepExecutionListener;
+import org.springframework.batch.infrastructure.item.ItemReader;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * @author minwoo.jung
  */
-public class AlarmReader implements ItemReader<AlarmChecker>, StepExecutionListener {
-    
-    private final DataCollectorFactory dataCollectorFactory;
-    
-    private final ApplicationIndexDao applicationIndexDao;
-    
-    private final AlarmService alarmService;
-    
-    private final Queue<AlarmChecker> checkers = new ConcurrentLinkedDeque<>();
+public class AlarmReader implements ItemReader<Application>, StepExecutionListener {
 
-    public AlarmReader(DataCollectorFactory dataCollectorFactory, ApplicationIndexDao applicationIndexDao, AlarmService alarmService) {
-        this.dataCollectorFactory = Objects.requireNonNull(dataCollectorFactory, "dataCollectorFactory");
-        this.applicationIndexDao = Objects.requireNonNull(applicationIndexDao, "applicationIndexDao");
+    private final BatchApplicationIndexService batchApplicationIndexService;
+    private final AlarmService alarmService;
+
+    private Queue<Application> applicationQueue;
+
+    public AlarmReader(BatchApplicationIndexService batchApplicationIndexService, AlarmService alarmService) {
+        this.batchApplicationIndexService = Objects.requireNonNull(batchApplicationIndexService, "batchApplicationService");
         this.alarmService = Objects.requireNonNull(alarmService, "alarmService");
     }
-    
-    public AlarmChecker read() {
-        return checkers.poll();
+
+    public Application read() {
+        return applicationQueue.poll();
     }
 
     @Override
-    public void beforeStep(StepExecution stepExecution) {
-        List<Application> applicationList = applicationIndexDao.selectAllApplicationNames();
-
-        for (Application application : applicationList) {
-            addChecker(application);
-        }
+    public void beforeStep(@NonNull StepExecution stepExecution) {
+        this.applicationQueue = new ConcurrentLinkedQueue<>(fetchApplications());
     }
 
-    private void addChecker(Application application) {
-        List<Rule> rules = alarmService.selectRuleByApplicationId(application.getName());
-        long timeSlotEndTime = System.currentTimeMillis();
-        Map<DataCollectorCategory, DataCollector> collectorMap = new HashMap<>();
-        
-        for (Rule rule : rules) {
-            CheckerCategory checkerCategory = CheckerCategory.getValue(rule.getCheckerName());
-            DataCollector collector = collectorMap.get(checkerCategory.getDataCollectorCategory());
-            if (collector == null) {
-                collector = dataCollectorFactory.createDataCollector(checkerCategory, application, timeSlotEndTime);
-                collectorMap.put(collector.getDataCollectorCategory(), collector);
+    private List<Application> fetchApplications() {
+        List<Application> applications = batchApplicationIndexService.selectApplications(Service.DEFAULT);
+        List<String> validApplicationNames = alarmService.selectApplicationName();
+
+        List<Application> validApplications = new ArrayList<>(applications.size());
+        for (Application application: applications) {
+            if (validApplicationNames.contains(application.getApplicationName())) {
+                validApplications.add(application);
             }
-            
-            AlarmChecker checker = checkerCategory.createChecker(collector, rule);
-            checkers.add(checker);
         }
-        
+        return validApplications;
     }
 
     @Override
-    public ExitStatus afterStep(StepExecution stepExecution) {
+    public ExitStatus afterStep(@NonNull StepExecution stepExecution) {
         return null;
     }
 }

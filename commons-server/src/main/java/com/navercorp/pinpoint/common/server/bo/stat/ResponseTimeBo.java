@@ -19,44 +19,15 @@ package com.navercorp.pinpoint.common.server.bo.stat;
 /**
  * @author Taejin Koo
  */
-public class ResponseTimeBo implements AgentStatDataPoint {
+public class ResponseTimeBo extends AbstractStatDataPoint {
 
-    public static final long UNCOLLECTED_VALUE = -1;
+    private final long avg;
+    private final long max;
 
-    private String agentId;
-    private long startTimestamp;
-    private long timestamp;
-    private long avg = 0;
-    private long max = 0;
-
-    @Override
-    public String getAgentId() {
-        return agentId;
-    }
-
-    @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    @Override
-    public long getStartTimestamp() {
-        return startTimestamp;
-    }
-
-    @Override
-    public void setStartTimestamp(long startTimestamp) {
-        this.startTimestamp = startTimestamp;
-    }
-
-    @Override
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    @Override
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
+    public ResponseTimeBo(DataPoint point, long avg, long max) {
+        super(point);
+        this.avg = avg;
+        this.max = max;
     }
 
     @Override
@@ -67,42 +38,16 @@ public class ResponseTimeBo implements AgentStatDataPoint {
     public long getAvg() {
         return avg;
     }
-
-    public void setAvg(long avg) {
-        this.avg = avg;
-    }
-
     public long getMax() {
         return max;
     }
 
-    public void setMax(long max) {
-        this.max = max;
-    }
-
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        ResponseTimeBo that = (ResponseTimeBo) o;
-
-        if (startTimestamp != that.startTimestamp) return false;
-        if (timestamp != that.timestamp) return false;
-        if (avg != that.avg) return false;
-        if (max != that.max) return false;
-        return agentId != null ? agentId.equals(that.agentId) : that.agentId == null;
-
+    public String toString() {
+        return "ResponseTimeBo{" +
+                "point=" + point +
+                ", avg=" + avg +
+                ", max=" + max +
+                '}';
     }
-
-    @Override
-    public int hashCode() {
-        int result = agentId != null ? agentId.hashCode() : 0;
-        result = 31 * result + (int) (startTimestamp ^ (startTimestamp >>> 32));
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        result = 31 * result + (int) (avg ^ (avg >>> 32));
-        result = 31 * result + (int) (max ^ (max >>> 32));
-        return result;
-    }
-
 }

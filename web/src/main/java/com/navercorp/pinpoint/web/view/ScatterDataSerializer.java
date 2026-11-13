@@ -15,27 +15,27 @@
 
 package com.navercorp.pinpoint.web.view;
 
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.ValueSerializer;
+import tools.jackson.databind.SerializationContext;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
 import com.navercorp.pinpoint.web.scatter.DotGroup;
 import com.navercorp.pinpoint.web.scatter.DotGroups;
 import com.navercorp.pinpoint.web.scatter.ScatterAgentMetaData;
 import com.navercorp.pinpoint.web.scatter.ScatterData;
-import com.navercorp.pinpoint.web.vo.scatter.Dot;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
-
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 /**
  * @author Taejin Koo
  */
-public class ScatterDataSerializer extends JsonSerializer<ScatterData> {
+public class ScatterDataSerializer extends ValueSerializer<ScatterData> {
 
     @Override
-    public void serialize(ScatterData value, JsonGenerator jgen, SerializerProvider provider) throws IOException {
+    public void serialize(ScatterData value, JsonGenerator jgen, SerializationContext provider) {
         jgen.writeStartObject();
 
         ScatterAgentMetaData metadata = value.getScatterAgentMetadata();
@@ -45,12 +45,12 @@ public class ScatterDataSerializer extends JsonSerializer<ScatterData> {
         jgen.writeEndObject();
     }
 
-    private void writeScatterAgentMetaData(ScatterAgentMetaData metaData, JsonGenerator jgen) throws IOException {
-        jgen.writeObjectField("metadata", metaData);
+    private void writeScatterAgentMetaData(ScatterAgentMetaData metaData, JsonGenerator jgen) {
+        jgen.writePOJOProperty("metadata", metaData);
     }
 
-    private void writeScatterData(ScatterData scatterData, ScatterAgentMetaData metaData, JsonGenerator jgen) throws IOException {
-        jgen.writeArrayFieldStart("dotList");
+    private void writeScatterData(ScatterData scatterData, ScatterAgentMetaData metaData, JsonGenerator jgen) {
+        jgen.writeArrayPropertyStart("dotList");
 
         List<DotGroups> sortedScatterDataMap = scatterData.getScatterData();
         for (DotGroups dotGroups : sortedScatterDataMap) {
@@ -60,7 +60,7 @@ public class ScatterDataSerializer extends JsonSerializer<ScatterData> {
         jgen.writeEndArray();
     }
 
-    private void writeDotSet(DotGroups dotGroups, ScatterAgentMetaData metaData, JsonGenerator jgen) throws IOException {
+    private void writeDotSet(DotGroups dotGroups, ScatterAgentMetaData metaData, JsonGenerator jgen) {
         Map<Dot, DotGroup> dotGroupLeaders = dotGroups.getDotGroupLeaders();
 
         List<Dot> dotSet = dotGroups.getSortedDotSet();
@@ -74,7 +74,7 @@ public class ScatterDataSerializer extends JsonSerializer<ScatterData> {
         }
     }
 
-    private void writeDot(Dot dot, int thick, ScatterAgentMetaData metaData, JsonGenerator jgen) throws IOException {
+    private void writeDot(Dot dot, int thick, ScatterAgentMetaData metaData, JsonGenerator jgen) {
         jgen.writeStartArray();
 
         jgen.writeNumber(dot.getAcceptedTime());
@@ -83,13 +83,18 @@ public class ScatterDataSerializer extends JsonSerializer<ScatterData> {
         int agentId = metaData.getId(dot);
         jgen.writeNumber(agentId);
 
+        ServerTraceId serverTraceId = dot.getTransactionId();
         if (agentId == -1) {
-            jgen.writeString(dot.getTransactionIdAsString());
+            jgen.writeString(serverTraceId.toString());
         } else {
-            jgen.writeNumber(dot.getTransactionId().getTransactionSequence());
+            if (serverTraceId instanceof PinpointServerTraceId pServerTraceId) {
+                jgen.writeNumber(pServerTraceId.getTransactionSequence());
+            } else {
+                jgen.writeNumber(0);
+            }
         }
 
-        jgen.writeNumber(dot.getSimpleExceptionCode());
+        jgen.writeNumber(dot.getStatus().getCode());
         jgen.writeNumber(thick);
 
         jgen.writeEndArray();

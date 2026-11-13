@@ -1,0 +1,84 @@
+package com.navercorp.pinpoint.io.request;
+
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.uid.ServiceUidSupplier;
+import com.navercorp.pinpoint.grpc.Header;
+import org.jspecify.annotations.NonNull;
+
+import java.util.Map;
+import java.util.Objects;
+
+
+public class GrpcServerHeaderV1 implements ServerHeader {
+
+    private final Header header;
+
+    private final ServiceUidSupplier serviceUidSupplier;
+
+    public GrpcServerHeaderV1(Header header) {
+        this(header, UidFetchers.defaultUidFetcher());
+    }
+
+    public GrpcServerHeaderV1(Header header, UidFetcher uidFetcher) {
+        this.header = Objects.requireNonNull(header, "header");
+        this.serviceUidSupplier = ServiceUidSuppliers.newSupplier(header.getServiceName(), uidFetcher);
+    }
+
+    @NonNull
+    @Override
+    public String getAgentId() {
+        return header.getAgentId();
+    }
+
+    @NonNull
+    @Override
+    public String getAgentName() {
+        return header.getAgentName();
+    }
+
+    @NonNull
+    @Override
+    public String getApplicationName() {
+        return header.getApplicationName();
+    }
+
+    @Override
+    public String getServiceName() {
+        return header.getServiceName();
+    }
+
+    @Override
+    public ServiceUidSupplier getServiceUid() {
+        return serviceUidSupplier;
+    }
+
+    @Override
+    public long getAgentStartTime() {
+        return header.getAgentStartTime();
+    }
+
+    @Override
+    public int getServiceType() {
+        return header.getServiceType();
+    }
+
+    @Override
+    public boolean isGrpcBuiltInRetry() {
+        return header.isGrpcBuiltInRetry();
+    }
+
+    public Object get(String key) {
+        return header.get(key);
+    }
+
+    public Map<String, Object> getProperties() {
+        return header.getProperties();
+    }
+
+    @Override
+    public String toString() {
+        return "GrpcServerHeaderV1{" +
+                "header=" + header +
+                '}';
+    }
+}

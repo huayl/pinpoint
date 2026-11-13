@@ -23,6 +23,7 @@ import com.navercorp.pinpoint.common.util.apache.IntHashMap;
 import com.navercorp.pinpoint.common.util.apache.IntHashMapUtils;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -37,21 +38,18 @@ public class AnnotationKeyMatcherRegistry implements AnnotationKeyMatcherLocator
         this.annotationMatcherMap = Objects.requireNonNull(annotationMatcherMap, "annotationMatcherMap");
     }
 
-    public AnnotationKeyMatcher findAnnotationKeyMatcher(short serviceType) {
+    public AnnotationKeyMatcher findAnnotationKeyMatcher(int serviceType) {
         return annotationMatcherMap.get(serviceType);
     }
 
     static class Builder {
 
-        private final HashMap<Integer, AnnotationKeyMatcher> buildMap = new HashMap<Integer, AnnotationKeyMatcher>();
+        private final Map<Integer, AnnotationKeyMatcher> buildMap = new HashMap<>();
 
         AnnotationKeyMatcher addAnnotationKeyMatcher(ServiceType serviceType, AnnotationKeyMatcher annotationKeyMatcher) {
-            if (serviceType == null) {
-                throw new NullPointerException("serviceType");
-            }
-            if (annotationKeyMatcher == null) {
-                throw new NullPointerException("annotationKeyMatcher");
-            }
+            Objects.requireNonNull(serviceType, "serviceType");
+            Objects.requireNonNull(annotationKeyMatcher, "annotationKeyMatcher");
+
             int code = serviceType.getCode();
             return this.buildMap.put(code, annotationKeyMatcher);
         }

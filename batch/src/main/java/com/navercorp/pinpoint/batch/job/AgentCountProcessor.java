@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 NAVER Corp.
+ * Copyright 2022 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,39 +13,57 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.navercorp.pinpoint.batch.job;
 
-import com.navercorp.pinpoint.web.util.DateTimeUtils;
-import com.navercorp.pinpoint.web.vo.AgentCountStatistics;
-import com.navercorp.pinpoint.web.vo.ApplicationAgentList;
-import com.navercorp.pinpoint.web.vo.ApplicationAgentsList;
-import org.springframework.batch.item.ItemProcessor;
+import com.navercorp.pinpoint.batch.common.BatchProperties;
+import com.navercorp.pinpoint.batch.service.BatchApplicationIndexService;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.web.service.component.ActiveAgentValidator;
+import org.jspecify.annotations.NonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.infrastructure.item.ItemProcessor;
 
-import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
- * @author Taejin Koo
+ * @author youngjin.kim2
  */
-public class AgentCountProcessor implements ItemProcessor<ApplicationAgentsList, AgentCountStatistics> {
+public class AgentCountProcessor implements ItemProcessor<Application, Integer> {
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final BatchApplicationIndexService batchApplicationIndexService;
+    private final ActiveAgentValidator activeAgentValidator;
+
+    private final long duration;
+
+    public AgentCountProcessor(BatchApplicationIndexService batchApplicationIndexService,
+                               ActiveAgentValidator activeAgentValidator,
+                               BatchProperties batchProperties) {
+        this.batchApplicationIndexService = Objects.requireNonNull(batchApplicationIndexService, "batchApplicationIndexService");
+        this.activeAgentValidator = Objects.requireNonNull(activeAgentValidator, "activeAgentValidator");
+
+        long durationDays = batchProperties.getCleanupInactiveAgentsDurationDays();
+        this.duration = TimeUnit.DAYS.toMillis(durationDays);
+    }
 
     @Override
-    public AgentCountStatistics process(ApplicationAgentsList item) throws Exception {
-        if (item == null) {
-            return null;
-        }
-
-        int agentCount = getAgentCount(item.getApplicationAgentLists());
-        AgentCountStatistics agentCountStatistics = new AgentCountStatistics(agentCount, DateTimeUtils.timestampToStartOfDay(System.currentTimeMillis()));
-        return agentCountStatistics;
+    public Integer process(@NonNull Application application) {
+        // Per-agent event lookup. Could switch to AgentIdDao.getAgentIdEntryByMinStateTimestamp (one filtered scan).
+        long localCount = batchApplicationIndexService.selectAgentIds(application)
+                .stream()
+                .filter(this::isActive)
+                .count();
+        logger.info("Application {} has {} agents", application, localCount);
+        return Math.toIntExact(localCount);
     }
 
-    private int getAgentCount(List<ApplicationAgentList> applicationAgentLists) {
-        int agentCount = 0;
-        for (ApplicationAgentList applicationAgentList : applicationAgentLists) {
-            agentCount += applicationAgentList.getAgentInfos().size();
-        }
-        return agentCount;
+    private boolean isActive(String agentId) {
+        long now = System.currentTimeMillis();
+        Range range = Range.between(now - duration, now);
+        return activeAgentValidator.isActiveAgent(agentId, range);
     }
-
 }

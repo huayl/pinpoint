@@ -16,35 +16,82 @@
 
 package com.navercorp.pinpoint.web.websocket;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.context.SmartLifecycle;
+
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
+ * Starts and stops the websocket handlers, driven by the context as a {@link SmartLifecycle}.
+ * <p>
+ * The {@link #PHASE} is below the phase in which Spring Boot starts and stops the web server
+ * ({@code DEFAULT_PHASE - 2048}), so the handlers are started before the port is opened and
+ * stopped after it is closed.
+ *
  * @author Taejin Koo
  */
-public class PinpointWebSocketHandlerManager {
+public class PinpointWebSocketHandlerManager implements SmartLifecycle {
+
+    public static final int PHASE = SmartLifecycle.DEFAULT_PHASE - 4096;
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final List<PinpointWebSocketHandler> webSocketHandlerRepository;
 
+    private volatile boolean running;
+
     public PinpointWebSocketHandlerManager(List<PinpointWebSocketHandler> pinpointWebSocketHandlers) {
-        this.webSocketHandlerRepository = new ArrayList<>(pinpointWebSocketHandlers);
+        this.webSocketHandlerRepository = normalize(pinpointWebSocketHandlers);
     }
 
-    @PostConstruct
-    public void setUp() {
+    private List<PinpointWebSocketHandler> normalize(List<PinpointWebSocketHandler> handlers) {
+        Map<String, PinpointWebSocketHandler> handlerMap = new HashMap<>(handlers.size());
+        for (final PinpointWebSocketHandler handler: handlers) {
+            final String requestMapping = handler.getRequestMapping();
+            final int priority = handler.getPriority();
+
+            final PinpointWebSocketHandler prev = handlerMap.get(requestMapping);
+            if (prev == null || prev.getPriority() < priority) {
+                handlerMap.put(requestMapping, handler);
+            }
+        }
+        return new ArrayList<>(handlerMap.values());
+    }
+
+    @Override
+    public void start() {
+        if (this.running) {
+            return;
+        }
+        logger.info("Start websocket handlers. handlers:{}", webSocketHandlerRepository.size());
         for (PinpointWebSocketHandler handler : webSocketHandlerRepository) {
             handler.start();
         }
+        this.running = true;
     }
 
-    @PreDestroy
-    public void tearDown() {
+    @Override
+    public void stop() {
+        logger.info("Stop websocket handlers. handlers:{}", webSocketHandlerRepository.size());
         for (PinpointWebSocketHandler handler : webSocketHandlerRepository) {
             handler.stop();
         }
+        this.running = false;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return this.running;
+    }
+
+    @Override
+    public int getPhase() {
+        return PHASE;
     }
 
     public List<PinpointWebSocketHandler> getWebSocketHandlerRepository() {

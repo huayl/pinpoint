@@ -17,18 +17,17 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
-import com.navercorp.pinpoint.grpc.Header;
-import com.navercorp.pinpoint.grpc.server.ServerContext;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
 @Component
 public class GrpcAgentStatMapper {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final GrpcStatMapper[] mappers;
 
@@ -39,17 +38,17 @@ public class GrpcAgentStatMapper {
         }
     }
 
-    public AgentStatBo map(PAgentStat agentStat) {
+    public AgentStatBo map(ServerHeader header, PAgentStat agentStat) {
         if (agentStat == null) {
             return null;
         }
 
-        final Header agentInfo = ServerContext.getAgentInfo();
-        final String agentId = agentInfo.getAgentId();
-        final long startTimestamp = agentInfo.getAgentStartTime();
+        final String applicationName = header.getApplicationName();
+        final String agentId = header.getAgentId();
+        final String serviceName = header.getServiceName();
+        final long startTimestamp = header.getAgentStartTime();
 
-
-        final AgentStatBo.Builder builder = AgentStatBo.newBuilder(agentId, startTimestamp);
+        final AgentStatBo.Builder builder = AgentStatBo.newBuilder(serviceName, applicationName, agentId, startTimestamp);
 
         this.map(agentStat, builder);
 

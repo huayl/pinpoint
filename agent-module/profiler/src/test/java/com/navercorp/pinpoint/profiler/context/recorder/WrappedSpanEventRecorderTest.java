@@ -1,0 +1,135 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.profiler.context.recorder;
+
+import com.navercorp.pinpoint.bootstrap.context.ErrorRecorder;
+import com.navercorp.pinpoint.profiler.context.AsyncContextFactory;
+import com.navercorp.pinpoint.profiler.context.DisableSpanEvent;
+import com.navercorp.pinpoint.profiler.context.SpanEvent;
+import com.navercorp.pinpoint.profiler.context.SqlCountService;
+import com.navercorp.pinpoint.profiler.context.errorhandler.BypassErrorHandler;
+import com.navercorp.pinpoint.profiler.context.errorhandler.IgnoreErrorHandler;
+import com.navercorp.pinpoint.profiler.context.exception.ExceptionRecorder;
+import com.navercorp.pinpoint.profiler.context.id.TraceRoot;
+import com.navercorp.pinpoint.profiler.metadata.SqlMetaDataService;
+import com.navercorp.pinpoint.profiler.metadata.StringMetaDataService;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.only;
+import static org.mockito.Mockito.verify;
+
+
+/**
+ * @author Woonduk Kang(emeroad)
+ */
+@ExtendWith(MockitoExtension.class)
+public class WrappedSpanEventRecorderTest {
+    private WrappedSpanEventRecorder sut;
+
+    @Mock
+    private TraceRoot traceRoot;
+
+    @Mock
+    private AsyncContextFactory asyncContextFactory;
+
+    @Mock
+    private StringMetaDataService stringMetaDataService;
+
+    @Mock
+    private SqlMetaDataService sqlMetaDataService;
+
+    @Mock
+    private ExceptionRecorder exceptionRecorder;
+
+    @Mock
+    private ErrorRecorder errorRecorder;
+
+    @Mock
+    private SqlCountService sqlCountService;
+
+    private final IgnoreErrorHandler errorHandler = new BypassErrorHandler();
+
+    @BeforeEach
+    void setUp() {
+        sut = new WrappedSpanEventRecorder(traceRoot, asyncContextFactory, stringMetaDataService, sqlMetaDataService, errorHandler, exceptionRecorder, errorRecorder, sqlCountService);
+    }
+
+    @Test
+    public void testSetExceptionInfo_RootMarkError() {
+        SpanEvent spanEvent = new SpanEvent();
+        sut.setWrapped(spanEvent);
+
+        final String exceptionMessage1 = "exceptionMessage1";
+        final Exception exception1 = new Exception(exceptionMessage1);
+        sut.recordException(false, exception1);
+
+        Assertions.assertEquals(spanEvent.getExceptionInfo().getStringValue(), exceptionMessage1, "Exception recoding");
+        verify(errorRecorder, never()).recordError(any());
+
+
+        final String exceptionMessage2 = "exceptionMessage2";
+        final Exception exception2 = new Exception(exceptionMessage2);
+        sut.recordException(true, exception2);
+
+        Assertions.assertEquals(spanEvent.getExceptionInfo().getStringValue(), exceptionMessage2, "Exception recoding");
+        verify(errorRecorder, only()).recordError(any());
+    }
+
+    @Test
+    public void testRecordAPIId() {
+        SpanEvent spanEvent = new SpanEvent();
+        sut.setWrapped(spanEvent);
+
+
+        final int API_ID = 1000;
+        sut.recordApiId(API_ID);
+
+        Assertions.assertEquals(spanEvent.getApiId(), API_ID, "API ID");
+    }
+
+    @Test
+    public void testRecordException_detailedExceptionGoesToTheExceptionRecorder() {
+        SpanEvent spanEvent = new SpanEvent();
+        sut.setWrapped(spanEvent);
+
+        final Exception exception = new Exception("recorded");
+        sut.recordException(false, exception);
+
+        verify(exceptionRecorder).recordException(spanEvent, exception);
+    }
+
+    @Test
+    public void testRecordException_disabledSpanEventSkipsTheDetailedException() {
+        // the disabled instance stands in for an overflowed or missing frame: it has no start time
+        // and is never sent, so the detailed exception must not be recorded against it
+        SpanEvent spanEvent = new DisableSpanEvent();
+        sut.setWrapped(spanEvent);
+
+        final Exception exception = new Exception("dropped frame");
+        sut.recordException(false, exception);
+
+        verify(exceptionRecorder, never()).recordException(any(), any());
+        Assertions.assertEquals("dropped frame", spanEvent.getExceptionInfo().getStringValue(), "the plain exception info is still set");
+    }
+}

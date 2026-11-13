@@ -1,0 +1,196 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.collector.applicationmap.config;
+
+import com.navercorp.pinpoint.collector.applicationmap.dao.HostApplicationMapDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.MapAgentResponseDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.MapApplicationResponseDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.MapInLinkDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.MapOutLinkDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.HbaseHostApplicationMapDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.HbaseMapAgentResponseDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.HbaseMapInLinkDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.HbaseMapOutLinkDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.OutLinkFactory;
+import com.navercorp.pinpoint.collector.applicationmap.dao.hbase.SelfAgentNodeFactory;
+import com.navercorp.pinpoint.collector.applicationmap.dao.v3.HbaseMapApplicationResponseDao;
+import com.navercorp.pinpoint.collector.applicationmap.dao.v3.OutLinkFactoryV3;
+import com.navercorp.pinpoint.collector.applicationmap.dao.v3.SelfAgentNodeFactoryV3;
+import com.navercorp.pinpoint.collector.applicationmap.dao.v3.SelfAppNodeFactory;
+import com.navercorp.pinpoint.collector.applicationmap.dao.v3.SelfAppNodeFactoryV3;
+import com.navercorp.pinpoint.collector.applicationmap.statistics.BulkWriter;
+import com.navercorp.pinpoint.collector.applicationmap.statistics.config.BulkFactory;
+import com.navercorp.pinpoint.collector.applicationmap.statistics.config.BulkProperties;
+import com.navercorp.pinpoint.collector.dao.hbase.IgnoreStatFilter;
+import com.navercorp.pinpoint.collector.util.CaffeineDedupCache;
+import com.navercorp.pinpoint.collector.util.DedupCache;
+import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
+import com.navercorp.pinpoint.common.hbase.HbaseOperations;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributorByHashPrefix;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.HostLinkFactory;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.HostRowKeyEncoder;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.InLinkFactory;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.v3.HostLinkFactoryV3;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.v3.HostRowKeyEncoderV3;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.v3.InLinkFactoryV3;
+import com.navercorp.pinpoint.common.timeseries.window.TimeSlot;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Duration;
+
+@Configuration
+public class MapV3Configuration {
+    private static final Logger logger = LogManager.getLogger(MapV3Configuration.class);
+
+    public MapV3Configuration() {
+        logger.info("Install {}", MapV3Configuration.class.getName());
+    }
+
+    @Bean(name = "outLinkBulkWriterV3")
+    public BulkWriter outLinkBulkWriter(BulkFactory factory,
+                                        BulkProperties bulkProperties,
+                                        @Qualifier("uidRowKeyDistributor")
+                                        RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
+
+        int limitSize = bulkProperties.getCallerLimitSize();
+        String loggerName = newBulkWriterName(HbaseMapOutLinkDao.class.getName());
+
+        BulkFactory.Builder builder = factory.newBuilder(loggerName, HbaseTables.MAP_V3_COLUMN_FAMILY_NAME, rowKeyDistributorByHashPrefix);
+        builder.setIncrementer("outLinkIncrementReporter", limitSize);
+        builder.setMaxUpdater("outLinkUpdateReporter", limitSize);
+        return builder.build();
+    }
+
+    @Bean(name = "inLinkBulkWriterV3")
+    public BulkWriter inLinkBulkWriter(BulkFactory factory,
+                                       BulkProperties bulkProperties,
+                                       @Qualifier("uidRowKeyDistributor")
+                                       RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
+
+        int limitSize = bulkProperties.getCalleeLimitSize();
+        String loggerName = newBulkWriterName(HbaseMapInLinkDao.class.getName());
+
+        BulkFactory.Builder builder = factory.newBuilder(loggerName, HbaseTables.MAP_V3_COLUMN_FAMILY_NAME, rowKeyDistributorByHashPrefix);
+        builder.setIncrementer("inLinkIncrementReporter", limitSize);
+        builder.setMaxUpdater("inLinkUpdateReporter", limitSize);
+        return builder.build();
+    }
+
+
+    @Bean(name = "selfAgentBulkWriterV3")
+    public BulkWriter selfAgentBulkWriter(BulkFactory factory,
+                                     BulkProperties bulkProperties,
+                                     @Qualifier("uidRowKeyDistributor")
+                                     RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
+
+        int limitSize = bulkProperties.getSelfLimitSize();
+        String loggerName = newBulkWriterName(HbaseMapAgentResponseDao.class.getName());
+
+        BulkFactory.Builder builder = factory.newBuilder(loggerName, HbaseTables.MAP_V3_COLUMN_FAMILY_NAME, rowKeyDistributorByHashPrefix);
+        builder.setIncrementer("selfAgentIncrementReporter", limitSize);
+        builder.setMaxUpdater("selfAgentUpdateReporter", limitSize);
+        return builder.build();
+    }
+
+    @Bean(name = "selfBulkWriterV3")
+    public BulkWriter selfBulkWriter(BulkFactory factory,
+                                          BulkProperties bulkProperties,
+                                          @Qualifier("uidRowKeyDistributor")
+                                          RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
+
+        int limitSize = bulkProperties.getSelfLimitSize();
+        String loggerName = newBulkWriterName(HbaseMapApplicationResponseDao.class.getName());
+
+        BulkFactory.Builder builder = factory.newBuilder(loggerName, HbaseTables.MAP_V3_COLUMN_FAMILY_NAME, rowKeyDistributorByHashPrefix);
+        builder.setIncrementer("selfIncrementReporter", limitSize);
+        builder.setMaxUpdater("selfUpdateReporter", limitSize);
+        return builder.build();
+    }
+
+    private String newBulkWriterName(String className) {
+        return className + "-writer";
+    }
+
+
+    @Bean(name = "mapInLinkDaoV3")
+    public MapInLinkDao mapInLinkDao(MapLinkProperties mapLinkProperties,
+                                     IgnoreStatFilter ignoreStatFilter,
+                                     TimeSlot timeSlot,
+                                     TableNameProvider tableNameProvider,
+                                     @Qualifier("inLinkBulkWriterV3") BulkWriter bulkWriter) {
+        InLinkFactory inLinkFactory = new InLinkFactoryV3(timeSlot);
+        HbaseColumnFamily table = HbaseTables.MAP_APP_IN;
+        return new HbaseMapInLinkDao(mapLinkProperties, table, ignoreStatFilter, tableNameProvider, bulkWriter, inLinkFactory);
+    }
+
+    @Bean(name = "mapOutLinkDaoV3")
+    public MapOutLinkDao mapOutLinkDao(MapLinkProperties mapLinkProperties,
+                                       TimeSlot timeSlot,
+                                       TableNameProvider tableNameProvider,
+                                       @Qualifier("outLinkBulkWriterV3") BulkWriter bulkWriter) {
+        OutLinkFactory outLinkFactory = new OutLinkFactoryV3(timeSlot);
+        HbaseColumnFamily table = HbaseTables.MAP_APP_OUT;
+        return new HbaseMapOutLinkDao(mapLinkProperties, table, tableNameProvider, bulkWriter, outLinkFactory);
+    }
+
+    @Bean(name = "mapAgentResponseDaoV3")
+    public MapAgentResponseDao mapAgentResponseDao(MapLinkProperties mapLinkProperties,
+                                                   TimeSlot timeSlot,
+                                                   TableNameProvider tableNameProvider,
+                                                   @Qualifier("selfAgentBulkWriterV3") BulkWriter bulkWriter) {
+        SelfAgentNodeFactory selfAgentNodeFactory = new SelfAgentNodeFactoryV3(timeSlot);
+        HbaseColumnFamily table = HbaseTables.MAP_AGENT_SELF;
+        return new HbaseMapAgentResponseDao(mapLinkProperties, table, tableNameProvider, bulkWriter, selfAgentNodeFactory);
+    }
+
+    @Bean(name = "mapResponseDaoV3")
+    public MapApplicationResponseDao mapResponseDao(MapLinkProperties mapLinkProperties,
+                                                    TimeSlot timeSlot,
+                                                    TableNameProvider tableNameProvider,
+                                                    @Qualifier("selfBulkWriterV3") BulkWriter bulkWriter) {
+        SelfAppNodeFactory selfAppNodeFactory = new SelfAppNodeFactoryV3(timeSlot);
+        HbaseColumnFamily table = HbaseTables.MAP_APP_SELF;
+        return new HbaseMapApplicationResponseDao(mapLinkProperties, table, tableNameProvider, bulkWriter, selfAppNodeFactory);
+    }
+
+    @Bean
+    public DedupCache<HbaseHostApplicationMapDao.HostLinkKey> hostLinkDedupCache(TimeSlot timeSlot) {
+        // TTL = time slot length + margin; early expiry only costs a duplicate (idempotent) put
+        Duration expireAfterWrite = Duration.ofMillis(timeSlot.getResolution())
+                .plusSeconds(1);
+        return new CaffeineDedupCache<>(expireAfterWrite, 100_000);
+    }
+
+    @Bean(name = "hostApplicationMapDaoV3")
+    public HostApplicationMapDao hostApplicationMapDao(HbaseOperations hbaseTemplate,
+                                                       TableNameProvider tableNameProvider,
+                                                       @Qualifier("uidRowKeyDistributor") RowKeyDistributor rowKeyDistributor,
+                                                       DedupCache<HbaseHostApplicationMapDao.HostLinkKey> hostLinkDedupCache,
+                                                       TimeSlot timeSlot) {
+        HostRowKeyEncoder encoder = new HostRowKeyEncoderV3(rowKeyDistributor.getByteHasher());
+        HostLinkFactory hostLinkFactory = new HostLinkFactoryV3(encoder);
+        HbaseColumnFamily table = HbaseTables.MAP_APP_HOST;
+        return new HbaseHostApplicationMapDao(hbaseTemplate, table, tableNameProvider, hostLinkFactory, hostLinkDedupCache, timeSlot);
+    }
+}

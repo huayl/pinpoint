@@ -16,7 +16,11 @@
 
 package com.navercorp.pinpoint.web.dao;
 
-import com.navercorp.pinpoint.web.vo.AgentInfo;
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.common.server.bo.SimpleAgentKey;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfo;
+import com.navercorp.pinpoint.web.vo.agent.DetailedAgentInfo;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
@@ -26,13 +30,22 @@ import java.util.List;
  */
 public interface AgentInfoDao {
 
-    AgentInfo getInitialAgentInfo(String agentId);
+    DetailedAgentInfo findDetailedAgentInfo(String agentId, long maxTimestamp);
 
-    List<AgentInfo> getInitialAgentInfos(List<String> agentIds);
+    AgentInfo findAgentInfo(String agentId, long maxTimestamp);
 
-    AgentInfo getAgentInfo(String agentId, long timestamp);
+    AgentInfo findAgentInfo(String agentId, long fromTimestamp, long toTimestamp);
 
-    AgentInfo getAgentInfo(String agentId, long agentStartTime, int deltaTimeInMilliSeconds);
+    List<DetailedAgentInfo> findDetailedAgentInfos(List<String> agentIds, long maxTimestamp, AgentInfoQuery query);
 
-    List<AgentInfo> getAgentInfos(List<String> agentIds, long timestamp);
+    List<AgentInfo> findAgentInfos(List<String> agentIds, long maxTimestamp);
+
+    AgentInfo getAgentInfo(String agentId, long agentStartTime);
+
+    List<AgentInfo> getAgentInfos(List<SimpleAgentKey> simpleAgentKeyList);
+
+    List<AgentInfoBo> findAgentInfoBos(String applicationName, int serviceTypeCode, List<String> agentIds, long timestamp);
+
+    // only for migration
+    List<AgentInfoBo> fetchAgentInfoBo(int limit, long minStamp, @Nullable String lastAgentId, @Nullable Long lastAgentStartTime);
 }

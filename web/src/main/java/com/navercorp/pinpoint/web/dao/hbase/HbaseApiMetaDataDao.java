@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,24 @@
 
 package com.navercorp.pinpoint.web.dao.hbase;
 
-import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
-import com.navercorp.pinpoint.common.hbase.HbaseOperations2;
+import com.navercorp.pinpoint.common.hbase.HbaseOperations;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
 import com.navercorp.pinpoint.common.hbase.RowMapper;
-import com.navercorp.pinpoint.common.hbase.TableDescriptor;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
 import com.navercorp.pinpoint.common.server.bo.ApiMetaDataBo;
+import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.DefaultMetaDataRowKey;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.MetaDataRowKey;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.web.cache.CacheConfiguration;
 import com.navercorp.pinpoint.web.dao.ApiMetaDataDao;
-
-import com.sematext.hbase.wd.RowKeyDistributorByHashPrefix;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Get;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -39,44 +43,62 @@ import java.util.Objects;
  */
 @Repository
 public class HbaseApiMetaDataDao implements ApiMetaDataDao {
-    static final String SPEL_KEY = "#agentId.toString() + '.' + #time.toString() + '.' + #apiId.toString()";
+    static final String SPEL_KEY = "#serviceUid.toString() + '.' + #agentId.toString() + '.' + #time.toString() + '.' + #apiId.toString()";
 
-    private final HbaseOperations2 hbaseOperations2;
+    private static final HbaseTables.ApiMetadata DESCRIPTOR = HbaseTables.API_METADATA_API;
+
+    private final HbaseOperations hbaseOperations;
+    private final TableNameProvider tableNameProvider;
 
     private final RowMapper<List<ApiMetaDataBo>> apiMetaDataMapper;
 
-    private final RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix;
+    private final RowKeyEncoder<MetaDataRowKey> rowKeyEncoder;
 
-    private final TableDescriptor<HbaseColumnFamily.ApiMetadata> descriptor;
-
-    public HbaseApiMetaDataDao(HbaseOperations2 hbaseOperations2,
-                               TableDescriptor<HbaseColumnFamily.ApiMetadata> descriptor,
-                               @Qualifier("apiMetaDataMapper") RowMapper<List<ApiMetaDataBo>> apiMetaDataMapper,
-                               @Qualifier("metadataRowKeyDistributor") RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
-        this.hbaseOperations2 = Objects.requireNonNull(hbaseOperations2, "hbaseOperations2");
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
+    public HbaseApiMetaDataDao(HbaseOperations hbaseOperations,
+                               @Qualifier("metaDataRowKeyEncoder")
+                               RowKeyEncoder<MetaDataRowKey> rowKeyEncoder,
+                               TableNameProvider tableNameProvider,
+                               @Qualifier("apiMetaDataMapper")
+                               RowMapper<List<ApiMetaDataBo>> apiMetaDataMapper) {
+        this.hbaseOperations = Objects.requireNonNull(hbaseOperations, "hbaseOperations");
+        this.rowKeyEncoder = Objects.requireNonNull(rowKeyEncoder, "rowKeyEncoder");
+        this.tableNameProvider = Objects.requireNonNull(tableNameProvider, "tableNameProvider");
         this.apiMetaDataMapper = Objects.requireNonNull(apiMetaDataMapper, "apiMetaDataMapper");
-        this.rowKeyDistributorByHashPrefix = Objects.requireNonNull(rowKeyDistributorByHashPrefix, "rowKeyDistributorByHashPrefix");
     }
 
     @Override
-    @Cacheable(value="apiMetaData", key=SPEL_KEY)
-    public List<ApiMetaDataBo> getApiMetaData(String agentId, long time, int apiId) {
+    @Cacheable(cacheNames="apiMetaData", key=SPEL_KEY, cacheManager = CacheConfiguration.API_METADATA_CACHE_NAME)
+    public List<ApiMetaDataBo> getApiMetaData(ServiceUid serviceUid, String agentId, long time, int apiId) {
+        Objects.requireNonNull(serviceUid, "serviceUid");
         Objects.requireNonNull(agentId, "agentId");
 
-        ApiMetaDataBo apiMetaDataBo = new ApiMetaDataBo(agentId, time, apiId);
-        byte[] sqlId = getDistributedKey(apiMetaDataBo.toRowKey());
+        MetaDataRowKey metaDataRowKey = new DefaultMetaDataRowKey(serviceUid, agentId, time, apiId);
+        byte[] sqlId = rowKeyEncoder.encodeRowKey(metaDataRowKey);
+
         Get get = new Get(sqlId);
-        get.addFamily(descriptor.getColumnFamilyName());
+        get.addFamily(DESCRIPTOR.getName());
 
-        TableName apiMetaDataTableName = descriptor.getTableName();
-        return hbaseOperations2.get(apiMetaDataTableName, get, apiMetaDataMapper);
+        TableName apiMetaDataTableName = tableNameProvider.getTableName(DESCRIPTOR.getTable());
+        return hbaseOperations.get(apiMetaDataTableName, get, apiMetaDataMapper);
     }
 
-    private byte[] getDistributedKey(byte[] rowKey) {
-        return rowKeyDistributorByHashPrefix.getDistributedKey(rowKey);
+    @Override
+    public List<List<ApiMetaDataBo>> getApiMetaData(List<ApiMetaDataKey> keys) {
+        Objects.requireNonNull(keys, "keys");
+        if (keys.isEmpty()) {
+            return List.of();
+        }
+
+        List<Get> gets = new ArrayList<>(keys.size());
+        for (ApiMetaDataKey key : keys) {
+            MetaDataRowKey metaDataRowKey = new DefaultMetaDataRowKey(key.serviceUid(), key.agentId(), key.agentStartTime(), key.apiId());
+            Get get = new Get(rowKeyEncoder.encodeRowKey(metaDataRowKey));
+            get.addFamily(DESCRIPTOR.getName());
+            gets.add(get);
+        }
+
+        TableName apiMetaDataTableName = tableNameProvider.getTableName(DESCRIPTOR.getTable());
+        return hbaseOperations.get(apiMetaDataTableName, gets, apiMetaDataMapper);
     }
-
-
 
 }

@@ -17,6 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.DataSourceBo;
 import com.navercorp.pinpoint.common.server.bo.stat.DataSourceListBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
@@ -24,34 +25,40 @@ import com.navercorp.pinpoint.grpc.trace.PDataSource;
 import com.navercorp.pinpoint.grpc.trace.PDataSourceList;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * @author Taejin Koo
  */
 @Component
 public class GrpcDataSourceBoMapper implements GrpcStatMapper {
 
-    public DataSourceBo map(final PDataSource dataSource) {
-        final DataSourceBo dataSourceBo = new DataSourceBo();
-        dataSourceBo.setId(dataSource.getId());
-        dataSourceBo.setServiceTypeCode((short) dataSource.getServiceTypeCode());
-        dataSourceBo.setDatabaseName(dataSource.getDatabaseName());
-        dataSourceBo.setJdbcUrl(dataSource.getUrl());
-        dataSourceBo.setActiveConnectionSize(dataSource.getActiveConnectionSize());
-        dataSourceBo.setMaxConnectionSize(dataSource.getMaxConnectionSize());
-        return dataSourceBo;
+    public DataSourceBo map(DataPoint point, final PDataSource dataSource) {
+        return new DataSourceBo(point,
+                dataSource.getId(),
+                (short) dataSource.getServiceTypeCode(),
+                dataSource.getDatabaseName(),
+                dataSource.getUrl(),
+                dataSource.getActiveConnectionSize(),
+                dataSource.getMaxConnectionSize());
     }
 
     @Override
     public void map(AgentStatBo.Builder.StatBuilder builder, PAgentStat agentStat) {
         // datasource
         if (agentStat.hasDataSourceList()) {
+            DataPoint point = builder.getDataPoint();
             final PDataSourceList dataSourceList = agentStat.getDataSourceList();
-            final DataSourceListBo dataSourceListBo = new DataSourceListBo();
+
+            List<DataSourceBo> dataSourceBoList = new ArrayList<>(dataSourceList.getDataSourceCount());
             for (PDataSource dataSource : dataSourceList.getDataSourceList()) {
-                final DataSourceBo dataSourceBo = this.map(dataSource);
-                dataSourceListBo.add(dataSourceBo);
+                final DataSourceBo dataSourceBo = this.map(point, dataSource);
+                dataSourceBoList.add(dataSourceBo);
             }
-            builder.addDataSourceList(dataSourceListBo);
+
+            final DataSourceListBo dataSourceListBo = new DataSourceListBo(point, dataSourceBoList);
+            builder.addPoint(dataSourceListBo);
         }
     }
 }

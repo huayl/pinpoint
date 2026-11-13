@@ -16,16 +16,38 @@
 
 package com.navercorp.pinpoint.web.applicationmap.nodes;
 
-import com.navercorp.pinpoint.web.vo.Application;
+import com.navercorp.pinpoint.common.server.bo.Application;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author emeroad
  */
 public class NodeList {
 
-    private final Map<Application, Node> nodeMap = new HashMap<>();
+    public static final NodeList EMPTY = new NodeList(Map.of());
+
+    private final Map<Application, Node> nodeMap;
+
+    public static NodeList of(Node node) {
+        Objects.requireNonNull(node, "node");
+        return new NodeList(Map.of(node.getApplication(), node));
+    }
+
+    public static boolean isEmpty(NodeList nodeList) {
+        return nodeList == null || nodeList.isEmpty();
+    }
+
+    public static NodeList of() {
+        return EMPTY;
+    }
+
+    NodeList(Map<Application, Node> nodeMap) {
+        this.nodeMap = Objects.requireNonNull(nodeMap, "nodeMap");
+    }
 
     public Collection<Node> getNodeList() {
         return this.nodeMap.values();
@@ -33,37 +55,59 @@ public class NodeList {
 
     public Node findNode(Application application) {
         Objects.requireNonNull(application, "application");
-
         return this.nodeMap.get(application);
     }
 
-    public boolean addNode(Node node) {
-        Objects.requireNonNull(node, "node");
-
-        final Application nodeId = node.getApplication();
-        Node findNode = findNode(nodeId);
-        if (findNode != null) {
-            return false;
-        }
-        return nodeMap.put(nodeId, node) == null;
-    }
-
-
-    public void addNodeList(NodeList nodeList) {
-        Objects.requireNonNull(nodeList, "nodeList");
-
-        for (Node node : nodeList.getNodeList()) {
-            addNode(node);
-        }
-    }
-
-    public boolean containsNode(Application application) {
+    public boolean contains(Application application) {
         Objects.requireNonNull(application, "application");
-
         return nodeMap.containsKey(application);
     }
 
     public int size() {
         return this.nodeMap.size();
+    }
+
+    public boolean isEmpty() {
+        return this.nodeMap.isEmpty();
+    }
+
+    public static NodeList.Builder newBuilder() {
+        return newBuilder(16);
+    }
+
+    public static NodeList.Builder newBuilder(int size) {
+        return new NodeList.Builder(size);
+    }
+
+    public static class Builder {
+        private final Map<Application, Node> nodeMap;
+
+        Builder(int size) {
+            this.nodeMap = new HashMap<>(size);
+        }
+
+        public boolean addNode(Node node) {
+            Objects.requireNonNull(node, "node");
+
+            final Application nodeId = node.getApplication();
+            return nodeMap.putIfAbsent(nodeId, node) == null;
+        }
+
+        public boolean containsNode(Application application) {
+            Objects.requireNonNull(application, "application");
+            return nodeMap.containsKey(application);
+        }
+
+        public int size() {
+            return this.nodeMap.size();
+        }
+
+        public NodeList build() {
+            if (this.nodeMap.isEmpty()) {
+                return EMPTY;
+            }
+            // return new NodeList(Map.copyOf(this.nodeMap));
+            return new NodeList(this.nodeMap);
+        }
     }
 }

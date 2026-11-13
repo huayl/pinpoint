@@ -22,8 +22,8 @@ import com.navercorp.pinpoint.common.trace.ServiceType;
 import com.navercorp.pinpoint.common.trace.ServiceTypeInfo;
 import com.navercorp.pinpoint.common.trace.TraceMetadataProvider;
 import com.navercorp.pinpoint.common.trace.TraceMetadataSetupContext;
-import com.navercorp.pinpoint.common.util.logger.CommonLogger;
-import com.navercorp.pinpoint.common.util.logger.CommonLoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +31,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author Jongho Moon
@@ -38,43 +39,37 @@ import java.util.Map;
  */
 public class TraceMetadataLoader {
 
-    private final CommonLogger logger;
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final List<ServiceType> staticServiceTypes;
     private final List<AnnotationKey> staticAnnotationKeys;
     private final List<DisplayArgumentMatcher> staticDisplayArgumentMatchers;
 
-    private final List<ServiceTypeInfo> serviceTypeInfos = new ArrayList<ServiceTypeInfo>();
+    private final List<ServiceTypeInfo> serviceTypeInfos = new ArrayList<>();
     private final ServiceTypeChecker serviceTypeChecker = new ServiceTypeChecker();
 
-    private final List<AnnotationKey> annotationKeys = new ArrayList<AnnotationKey>();
+    private final List<AnnotationKey> annotationKeys = new ArrayList<>();
     private final AnnotationKeyChecker annotationKeyChecker = new AnnotationKeyChecker();
 
-    public TraceMetadataLoader(CommonLoggerFactory loggerFactory) {
-        if (loggerFactory == null) {
-            throw new NullPointerException("loggerFactory");
-        }
-        this.logger = loggerFactory.getLogger(TraceMetadataLoader.class.getName());
+    public TraceMetadataLoader() {
         this.staticServiceTypes = staticFieldLookUp(ServiceType.class, ServiceType.class);
         this.staticAnnotationKeys = staticFieldLookUp(AnnotationKey.class, AnnotationKey.class);
         this.staticDisplayArgumentMatchers = staticFieldLookUp(DefaultDisplayArgument.class, DisplayArgumentMatcher.class);
     }
 
     private <T> List<T> staticFieldLookUp(Class<?> targetClazz, Class<T> lookUpClazz) {
-        StaticFieldLookUp<T> staticFieldLookUp = new StaticFieldLookUp<T>(targetClazz, lookUpClazz);
+        StaticFieldLookUp<T> staticFieldLookUp = new StaticFieldLookUp<>(targetClazz, lookUpClazz);
         return Collections.unmodifiableList(staticFieldLookUp.lookup());
     }
 
     public void load(List<TraceMetadataProvider> providers) {
-        if (providers == null) {
-            throw new NullPointerException("providers");
-        }
+        Objects.requireNonNull(providers, "providers");
 
         logger.info("Loading TraceMetadataProviders");
 
         for (TraceMetadataProvider provider : providers) {
             if (logger.isInfoEnabled()) {
-                logger.info("Loading TraceMetadataProvider: " + provider.getClass().getName() + " from:" + provider.toString());
+                logger.info("Loading TraceMetadataProvider: " + provider.getClass().getName() + " from:" + provider);
             }
 
             TraceMetadataSetupContextImpl context = new TraceMetadataSetupContextImpl(provider);
@@ -156,29 +151,24 @@ public class TraceMetadataLoader {
 
         @Override
         public void addServiceType(ServiceType serviceType) {
-            if (serviceType == null) {
-                throw new NullPointerException("serviceType");
-            }
+            Objects.requireNonNull(serviceType, "serviceType");
+
             ServiceTypeInfo type = new DefaultServiceTypeInfo(serviceType);
             addType0(type);
         }
 
         @Override
         public void addServiceType(ServiceType serviceType, AnnotationKeyMatcher annotationKeyMatcher) {
-            if (serviceType == null) {
-                throw new NullPointerException("serviceType");
-            }
-            if (annotationKeyMatcher == null) {
-                throw new NullPointerException("annotationKeyMatcher");
-            }
+            Objects.requireNonNull(serviceType, "serviceType");
+            Objects.requireNonNull(annotationKeyMatcher, "annotationKeyMatcher");
+
             ServiceTypeInfo type = new DefaultServiceTypeInfo(serviceType, annotationKeyMatcher);
             addType0(type);
         }
 
         private void addType0(ServiceTypeInfo type) {
-            if (type == null) {
-                throw new NullPointerException("type");
-            }
+            Objects.requireNonNull(type, "type");
+
             // local check
             serviceTypeChecker.check(type.getServiceType(), provider);
             serviceTypeInfos.add(type);
@@ -186,9 +176,8 @@ public class TraceMetadataLoader {
 
         @Override
         public void addAnnotationKey(AnnotationKey annotationKey) {
-            if (annotationKey == null) {
-                throw new NullPointerException("annotationKey");
-            }
+            Objects.requireNonNull(annotationKey, "annotationKey");
+
             // local check
             annotationKeyChecker.check(annotationKey, provider);
             annotationKeys.add(annotationKey);
@@ -214,11 +203,11 @@ public class TraceMetadataLoader {
     }
     
     private class ServiceTypeChecker {
-        private final Map<String, Pair<ServiceType>> serviceTypeNameMap = new HashMap<String, Pair<ServiceType>>();
-        private final Map<Short, Pair<ServiceType>> serviceTypeCodeMap = new HashMap<Short, Pair<ServiceType>>();
+        private final Map<String, Pair<ServiceType>> serviceTypeNameMap = new HashMap<>();
+        private final Map<Short, Pair<ServiceType>> serviceTypeCodeMap = new HashMap<>();
 
         private void check(ServiceType type, TraceMetadataProvider provider) {
-            Pair<ServiceType> pair = new Pair<ServiceType>(type, provider);
+            Pair<ServiceType> pair = new Pair<>(type, provider);
             Pair<ServiceType> prev = serviceTypeNameMap.put(type.getName(), pair);
     
             if (prev != null) {
@@ -246,28 +235,24 @@ public class TraceMetadataLoader {
         private void logResult() {
             logger.info("Finished loading ServiceType:");
 
-            List<Pair<ServiceType>> serviceTypes = new ArrayList<Pair<ServiceType>>(serviceTypeCodeMap.values());
-            Collections.sort(serviceTypes, new Comparator<Pair<ServiceType>>() {
-                @Override
-                public int compare(Pair<ServiceType> o1, Pair<ServiceType> o2) {
-                    short code1 = o1.value.getCode();
-                    short code2 = o2.value.getCode();
-
-                    return Integer.compare(code1, code2);
-                }
-            });
+            List<Pair<ServiceType>> serviceTypes = new ArrayList<>(serviceTypeCodeMap.values());
+            serviceTypes.sort(Comparator.comparingInt(this::getCode));
 
             for (Pair<ServiceType> serviceType : serviceTypes) {
                 logger.info(serviceTypePairToString(serviceType));
             }
         }
+
+        private int getCode(Pair<ServiceType> p) {
+            return p.value.getCode();
+        }
     }
 
     private class AnnotationKeyChecker {
-        private final Map<Integer, Pair<AnnotationKey>> annotationKeyCodeMap = new HashMap<Integer, Pair<AnnotationKey>>();
+        private final Map<Integer, Pair<AnnotationKey>> annotationKeyCodeMap = new HashMap<>();
 
         private void check(AnnotationKey key, TraceMetadataProvider provider) {
-            Pair<AnnotationKey> pair = new Pair<AnnotationKey>(key, provider);
+            Pair<AnnotationKey> pair = new Pair<>(key, provider);
             Pair<AnnotationKey> prev = annotationKeyCodeMap.put(key.getCode(), pair);
     
             if (prev != null) {
@@ -279,20 +264,16 @@ public class TraceMetadataLoader {
         private void logResult() {
             logger.info("Finished loading AnnotationKeys:");
 
-            List<Pair<AnnotationKey>> annotationKeys = new ArrayList<Pair<AnnotationKey>>(annotationKeyCodeMap.values());
-            Collections.sort(annotationKeys, new Comparator<Pair<AnnotationKey>>() {
-                @Override
-                public int compare(Pair<AnnotationKey> o1, Pair<AnnotationKey> o2) {
-                    int code1 = o1.value.getCode();
-                    int code2 = o2.value.getCode();
-
-                    return Integer.compare(code1, code2);
-                }
-            });
+            List<Pair<AnnotationKey>> annotationKeys = new ArrayList<>(annotationKeyCodeMap.values());
+            annotationKeys.sort(Comparator.comparingInt(this::getCode));
 
             for (Pair<AnnotationKey> annotationKey : annotationKeys) {
                 logger.info(annotationKeyPairToString(annotationKey));
             }
+        }
+
+        private int getCode(Pair<AnnotationKey> a) {
+            return a.value.getCode();
         }
     }
 }

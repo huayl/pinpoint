@@ -1,0 +1,246 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.otlp.trace.collector.service;
+
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.navercorp.pinpoint.collector.service.TraceService;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpTraceMapper;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpTraceMapperData;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpUriStatSpan;
+import com.navercorp.pinpoint.uristat.collector.dao.UriStatDao;
+import com.navercorp.pinpoint.uristat.collector.model.UriStat;
+import com.navercorp.pinpoint.otlp.trace.collector.OtlpTraceRejectReason;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import io.opentelemetry.proto.trace.v1.ResourceSpans;
+import io.opentelemetry.proto.trace.v1.ScopeSpans;
+import io.opentelemetry.proto.trace.v1.Span;
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.common.server.uid.FixedServiceUid;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.server.uid.ServiceUidSupplier;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAgentCacheKey;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAgentInfo;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * The uriStat hook is an optional statistics side channel: it must receive the mapper's
+ * collected spans when enabled, do nothing when the bean is absent (flags off), and — the
+ * contract stated on the hook itself — a uriStat insert failure must never fail the trace
+ * export (it is counted and logged only).
+ */
+class OtlpTraceExportServiceTest {
+
+    private static final String INSERT_ERROR_METRIC = "collector.otlptrace.insert.error";
+
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    private static OtlpTraceMapperData dataWithUriStatSpan() {
+        OtlpTraceMapperData data = new OtlpTraceMapperData();
+        data.addUriStatSpan(new OtlpUriStatSpan("svc", "app", "agent", "/a", 1_000L, 100, false));
+        return data;
+    }
+
+    private OtlpTraceExportService newService(OtlpTraceMapperData mapperData, OtlpUriStatService uriStatService) {
+        return newService(mapperData, uriStatService, mock(HbaseOtlpApplicationIndexV2Service.class));
+    }
+
+    private OtlpTraceExportService newService(OtlpTraceMapperData mapperData, OtlpUriStatService uriStatService,
+                                              HbaseOtlpApplicationIndexV2Service applicationIndexV2Service) {
+        OtlpTraceMapper mapper = mock(OtlpTraceMapper.class);
+        when(mapper.map(anyList())).thenReturn(mapperData);
+        return new OtlpTraceExportService(
+                new TraceService[0],
+                mock(HbaseOtlpAgentInfoService.class),
+                applicationIndexV2Service,
+                mapper,
+                Optional.empty(),
+                Optional.ofNullable(uriStatService),
+                Caffeine.newBuilder().maximumSize(16).build(),
+                new OtlpTraceIngestMetrics(meterRegistry),
+                meterRegistry);
+    }
+
+    private double count(String name, String... tags) {
+        return meterRegistry.get(name).tags(tags).counter().count();
+    }
+
+    private static ResourceSpans resourceSpansWithSpans(int spanCount) {
+        ScopeSpans.Builder scope = ScopeSpans.newBuilder();
+        for (int i = 0; i < spanCount; i++) {
+            scope.addSpans(Span.newBuilder().setName("s" + i));
+        }
+        return ResourceSpans.newBuilder().addScopeSpans(scope).build();
+    }
+
+    @Test
+    void ingestMetrics_receivedCountsRawSpans_storedCountsMappedBos_perTransport() {
+        OtlpTraceMapperData mapperData = new OtlpTraceMapperData();
+        mapperData.addSpanBo(new com.navercorp.pinpoint.common.server.bo.SpanBo());
+        mapperData.addSpanBo(new com.navercorp.pinpoint.common.server.bo.SpanBo());
+        mapperData.addSpanChunkBo(new com.navercorp.pinpoint.common.server.bo.SpanChunkBo());
+        OtlpTraceExportService service = newService(mapperData, null);
+
+        // 3 + 4 raw spans over two ResourceSpans, sent over HTTP
+        service.export(List.of(resourceSpansWithSpans(3), resourceSpansWithSpans(4)), OtlpTransport.HTTP);
+
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_RECEIVED, "transport", "http")).isEqualTo(7.0);
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_STORED, "transport", "http", "type", "span")).isEqualTo(2.0);
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_STORED, "transport", "http", "type", "spanChunk")).isEqualTo(1.0);
+        // the other transport stays untouched
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_RECEIVED, "transport", "grpc")).isZero();
+    }
+
+    @Test
+    void ingestMetrics_rejectedSpans_countedPerReason() {
+        OtlpTraceMapperData mapperData = new OtlpTraceMapperData();
+        mapperData.getRejectedSpan().addCount(OtlpTraceRejectReason.INVALID_ID, 2);
+        mapperData.getRejectedSpan().addCount(OtlpTraceRejectReason.ORPHAN, 5);
+        mapperData.getRejectedSpan().addCount(OtlpTraceRejectReason.MAPPING_ERROR, 1);
+        OtlpTraceExportService service = newService(mapperData, null);
+
+        OtlpTraceExportResult result = service.export(List.of(resourceSpansWithSpans(8)), OtlpTransport.GRPC);
+
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_REJECTED, "transport", "grpc", "reason", "invalid_id")).isEqualTo(2.0);
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_REJECTED, "transport", "grpc", "reason", "orphan")).isEqualTo(5.0);
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_REJECTED, "transport", "grpc", "reason", "mapping_error")).isEqualTo(1.0);
+        assertThat(count(OtlpTraceIngestMetrics.SPAN_REJECTED, "transport", "grpc", "reason", "unsampled")).isZero();
+        // the client-facing total is unchanged by the metric split
+        assertThat(result.clientRejected().count()).isEqualTo(8);
+    }
+
+    private double uriStatErrorCount(MeterRegistry registry) {
+        return registry.get(INSERT_ERROR_METRIC).tag("op", "uriStat").counter().count();
+    }
+
+    @Test
+    void uriStatEnabled_receivesMapperCollectedSpans() {
+        List<UriStat> inserted = new ArrayList<>();
+        UriStatDao captureDao = inserted::addAll;
+        OtlpTraceExportService service = newService(dataWithUriStatSpan(),
+                new OtlpUriStatService(captureDao, () -> "tenant1"));
+
+        OtlpTraceExportResult result = service.export(List.of(), OtlpTransport.GRPC);
+
+        assertThat(result.serverErrorCount()).isZero();
+        assertThat(inserted).hasSize(1);
+        assertThat(inserted.get(0).getUri()).isEqualTo("/a");
+        assertThat(uriStatErrorCount(meterRegistry)).isZero();
+    }
+
+    @Test
+    void uriStatInsertFailure_doesNotFailExport_countsAndMovesOn() {
+        UriStatDao throwingDao = data -> {
+            throw new IllegalStateException("kafka down");
+        };
+        OtlpTraceExportService service = newService(dataWithUriStatSpan(),
+                new OtlpUriStatService(throwingDao, () -> "tenant1"));
+
+        OtlpTraceExportResult result = service.export(List.of(), OtlpTransport.GRPC);
+
+        // spans are already stored at this point: the export succeeds and the failure is
+        // NOT counted toward serverErrorCount — only the uriStat error counter moves.
+        assertThat(result.serverErrorCount()).isZero();
+        assertThat(result.serverMessage()).isEmpty();
+        assertThat(uriStatErrorCount(meterRegistry)).isEqualTo(1.0);
+    }
+
+    @Test
+    void uriStatDisabled_absentBean_exportsWithoutTouchingUriStat() {
+        OtlpTraceExportService service = newService(dataWithUriStatSpan(), null);
+
+        OtlpTraceExportResult result = service.export(List.of(), OtlpTransport.GRPC);
+
+        assertThat(result.serverErrorCount()).isZero();
+        assertThat(uriStatErrorCount(meterRegistry)).isZero();
+    }
+
+    private static AgentInfoBo agentInfo(String agentId) {
+        return agentInfo(agentId, 1_000L);
+    }
+
+    private static AgentInfoBo agentInfo(String agentId, long startTime) {
+        AgentInfoBo.Builder builder = new AgentInfoBo.Builder();
+        builder.setAgentId(agentId);
+        builder.setApplicationName("app");
+        builder.setServiceTypeCode(1300);
+        builder.setServiceUid(ServiceUid.DEFAULT);
+        builder.setStartTime(startTime);
+        return builder.build();
+    }
+
+    @Test
+    void agentRegistration_usesTheResourceServiceUid_andDedupsPerService() {
+        HbaseOtlpApplicationIndexV2Service applicationIndex = mock(HbaseOtlpApplicationIndexV2Service.class);
+        ServiceUidSupplier orderTeam = new FixedServiceUid(ServiceUid.of(100001));
+        AgentInfoBo agent = agentInfo("agent-1");
+        OtlpTraceMapperData mapperData = new OtlpTraceMapperData();
+        mapperData.addAgentInfo(new OtlpAgentInfo(orderTeam, agent));
+        // same (service, agent) again → deduplicated
+        mapperData.addAgentInfo(new OtlpAgentInfo(orderTeam, agent));
+        // same agentId under another service → a separate registration
+        mapperData.addAgentInfo(new OtlpAgentInfo(ServiceUidSupplier.DEFAULT, agent));
+
+        newService(mapperData, null, applicationIndex).export(List.of(resourceSpansWithSpans(1)), OtlpTransport.GRPC);
+
+        verify(applicationIndex).insert(eq(orderTeam), eq(agent));
+        verify(applicationIndex).insert(eq(ServiceUidSupplier.DEFAULT), eq(agent));
+        verify(applicationIndex, times(2)).insert(any(), eq(agent));
+    }
+
+    @Test
+    void agentCacheKey_isPerServiceAndAgent_withoutTheStartTime() {
+        AgentInfoBo agent = agentInfo("agent-1", 1_782_864_000_000L);
+        String defaultKey = OtlpTraceExportService.agentCacheKey(new OtlpAgentInfo(ServiceUidSupplier.DEFAULT, agent));
+        String teamKey = OtlpTraceExportService.agentCacheKey(new OtlpAgentInfo(new FixedServiceUid(ServiceUid.of(100001)), agent));
+
+        assertThat(defaultKey).isNotEqualTo(teamKey);
+        assertThat(defaultKey).endsWith("/agent-1");
+        assertThat(teamKey).isEqualTo("t:100001/agent-1");
+        // the metric path registers the same agent in its own key space
+        assertThat(OtlpAgentCacheKey.metric(ServiceUidSupplier.DEFAULT, "agent-1", 1_782_864_000_000L))
+                .isEqualTo("m:0/agent-1@1782864000000")
+                .isNotEqualTo(defaultKey);
+    }
+
+    /** The trace path's start time is usually the span start time, which changes every span: one registration per agent. */
+    @Test
+    void agentRegistration_once_althoughTheStartTimeChanges() {
+        HbaseOtlpApplicationIndexV2Service applicationIndex = mock(HbaseOtlpApplicationIndexV2Service.class);
+        OtlpTraceMapperData mapperData = new OtlpTraceMapperData();
+        for (int i = 0; i < 3; i++) {
+            mapperData.addAgentInfo(new OtlpAgentInfo(ServiceUidSupplier.DEFAULT, agentInfo("agent-1", 1_000L + i)));
+        }
+
+        newService(mapperData, null, applicationIndex).export(List.of(resourceSpansWithSpans(1)), OtlpTransport.GRPC);
+
+        verify(applicationIndex, times(1)).insert(any(), any());
+    }
+}

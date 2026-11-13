@@ -29,7 +29,7 @@ class DefaultServiceType implements ServiceType {
     private final boolean queue;
     private final boolean alias;
 
-    // FIXME record statistics of only rpc call currently. so is it all right to chane into isRecordRpc()
+    // FIXME record statistics of only rpc call currently. so is it all right to change into isRecordRpc()
     private final boolean recordStatistics;
 
     // whether or not print out api including destinationId
@@ -102,7 +102,7 @@ class DefaultServiceType implements ServiceType {
 
     @Override
     public boolean isInternalMethod() {
-        return this == INTERNAL_METHOD;
+        return this.code == INTERNAL_METHOD.getCode();
     }
 
     @Override
@@ -110,7 +110,7 @@ class DefaultServiceType implements ServiceType {
         return ServiceTypeCategory.RPC.contains(code);
     }
 
-    // FIXME record statistics of only rpc call currently. so is it all right to chane into isRecordRpc()
+    // FIXME record statistics of only rpc call currently. so is it all right to change into isRecordRpc()
     @Override
     public boolean isRecordStatistics() {
         return recordStatistics;
@@ -118,13 +118,13 @@ class DefaultServiceType implements ServiceType {
 
     @Override
     public boolean isUnknown() {
-        return this == ServiceType.UNKNOWN; // || this == ServiceType.UNKNOWN_CLOUD;
+        return this.code == ServiceType.UNKNOWN.getCode(); // || this == ServiceType.UNKNOWN_CLOUD;
     }
 
     // return true when the service type is USER or can not be identified
     @Override
     public boolean isUser() {
-        return this == ServiceType.USER;
+        return this.code == ServiceType.USER.getCode();
     }
 
     @Override
@@ -195,7 +195,7 @@ class DefaultServiceType implements ServiceType {
 
     @Override
     public int hashCode() {
-        return (int) code;
+        return code;
     }
 
     public static boolean isWas(final short code) {

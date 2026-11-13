@@ -17,149 +17,122 @@
 package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield;
 
 import com.navercorp.pinpoint.common.server.bo.AnnotationBo;
+import com.navercorp.pinpoint.common.server.bo.ExceptionInfo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
+import java.util.List;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public class SpanEventBitFieldTest {
-    @Test
-    public void isSetHasException() throws Exception {
-
-    }
 
     @Test
-    public void setHasException_shortToByteCasting() throws Exception {
+    public void setHasException_shortToByteCasting() {
         SpanEventBitField field = new SpanEventBitField();
         field.setHasException(true);
 
         byte byteField = (byte) field.getBitField();
 
         SpanEventBitField byteCastField = new SpanEventBitField(byteField);
-        Assert.assertTrue(byteCastField.isSetHasException());
+        Assertions.assertTrue(byteCastField.isSetHasException());
 
 
     }
 
-    @Test
-    public void testRpc_first() throws Exception {
-        SpanEventBo spanEventBo = new SpanEventBo();
-
-        spanEventBo.setRpc("Rpc");
-
-        SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertFalse(bitField.isSetRpc());
-
-    }
 
     @Test
-    public void testEndPoint_first() throws Exception {
+    public void testEndPoint_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
         spanEventBo.setEndPoint("EndPoint");
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetEndPoint());
+        Assertions.assertTrue(bitField.isSetEndPoint());
 
         bitField.setEndPoint(false);
-        Assert.assertFalse(bitField.isSetEndPoint());
+        Assertions.assertFalse(bitField.isSetEndPoint());
 
     }
 
     @Test
-    public void testDestinationId_first() throws Exception {
+    public void testDestinationId_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
         spanEventBo.setDestinationId("DestinationId");
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetDestinationId());
+        Assertions.assertTrue(bitField.isSetDestinationId());
 
         bitField.setDestinationId(false);
-        Assert.assertFalse(bitField.isSetDestinationId());
+        Assertions.assertFalse(bitField.isSetDestinationId());
 
     }
 
 
     @Test
-    public void testNextSpanId_first() throws Exception {
+    public void testNextSpanId_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
         spanEventBo.setNextSpanId(1234);
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetNextSpanId());
+        Assertions.assertTrue(bitField.isSetNextSpanId());
 
         bitField.setNextSpanId(false);
-        Assert.assertFalse(bitField.isSetNextSpanId());
+        Assertions.assertFalse(bitField.isSetNextSpanId());
 
     }
 
     @Test
-    public void testHasException_first() throws Exception {
+    public void testHasException_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
-        spanEventBo.setExceptionInfo(100, "excetpion");
+        spanEventBo.setExceptionInfo(new ExceptionInfo(100, "exception"));
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetHasException());
+        Assertions.assertTrue(bitField.isSetHasException());
 
         bitField.setHasException(false);
-        Assert.assertFalse(bitField.isSetHasException());
+        Assertions.assertFalse(bitField.isSetHasException());
 
     }
 
 
     @Test
-    public void testAnnotation_first() throws Exception {
+    public void testAnnotation_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
-        spanEventBo.setAnnotationBoList(Collections.singletonList(new AnnotationBo(1, "test")));
+        spanEventBo.setAnnotationBoList(List.of(AnnotationBo.of(1, "test")));
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetAnnotation());
+        Assertions.assertTrue(bitField.isSetAnnotation());
 
         bitField.setAnnotation(false);
-        Assert.assertFalse(bitField.isSetAnnotation());
+        Assertions.assertFalse(bitField.isSetAnnotation());
 
     }
 
 
     @Test
-    public void testNextAsyncId_first() throws Exception {
+    public void testNextAsyncId_first() {
         SpanEventBo spanEventBo = new SpanEventBo();
 
         spanEventBo.setNextAsyncId(1234);
 
         SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetNextAsyncId());
+        Assertions.assertTrue(bitField.isSetNextAsyncId());
 
         bitField.setNextAsyncId(false);
-        Assert.assertFalse(bitField.isSetNextAsyncId());
+        Assertions.assertFalse(bitField.isSetNextAsyncId());
 
     }
 
-    @Test
-    public void testAsyncId_first() throws Exception {
-        SpanEventBo spanEventBo = new SpanEventBo();
-
-        spanEventBo.setAsyncId(1234);
-        spanEventBo.setAsyncSequence((short) 1234);
-
-        SpanEventBitField bitField = SpanEventBitField.buildFirst(spanEventBo);
-        Assert.assertTrue(bitField.isSetAsyncId());
-
-        bitField.setAsyncId(false);
-        Assert.assertFalse(bitField.isSetAsyncId());
-
-    }
 
     @Test
-    public void testStartElapsed_equals_next() throws Exception {
+    public void testStartElapsed_equals_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -167,12 +140,12 @@ public class SpanEventBitFieldTest {
         current.setStartElapsed(1234);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getStartElapsedEncodingStrategy(), StartElapsedTimeEncodingStrategy.PREV_EQUALS);
+        Assertions.assertEquals(StartElapsedTimeEncodingStrategy.PREV_EQUALS, bitField.getStartElapsedEncodingStrategy());
 
     }
 
     @Test
-    public void testStartElapsed_delta_next() throws Exception {
+    public void testStartElapsed_delta_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -180,12 +153,12 @@ public class SpanEventBitFieldTest {
         current.setStartElapsed(1235);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getStartElapsedEncodingStrategy(), StartElapsedTimeEncodingStrategy.PREV_DELTA);
+        Assertions.assertEquals(StartElapsedTimeEncodingStrategy.PREV_DELTA, bitField.getStartElapsedEncodingStrategy());
 
     }
 
     @Test
-    public void testSequence_add1_next() throws Exception {
+    public void testSequence_add1_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -193,12 +166,12 @@ public class SpanEventBitFieldTest {
         current.setSequence((short) 11);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getSequenceEncodingStrategy(), SequenceEncodingStrategy.PREV_ADD1);
+        Assertions.assertEquals(SequenceEncodingStrategy.PREV_ADD1, bitField.getSequenceEncodingStrategy());
 
     }
 
     @Test
-    public void testSequence_delta_next() throws Exception {
+    public void testSequence_delta_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -206,12 +179,12 @@ public class SpanEventBitFieldTest {
         current.setSequence((short) 12);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getSequenceEncodingStrategy(), SequenceEncodingStrategy.PREV_DELTA);
+        Assertions.assertEquals(SequenceEncodingStrategy.PREV_DELTA, bitField.getSequenceEncodingStrategy());
 
     }
 
     @Test
-    public void testDepth_equals_next() throws Exception {
+    public void testDepth_equals_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -219,12 +192,12 @@ public class SpanEventBitFieldTest {
         current.setDepth(3);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getDepthEncodingStrategy(), DepthEncodingStrategy.PREV_EQUALS);
+        Assertions.assertEquals(DepthEncodingStrategy.PREV_EQUALS, bitField.getDepthEncodingStrategy());
 
     }
 
     @Test
-    public void testDepth_raw_next() throws Exception {
+    public void testDepth_raw_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -232,12 +205,12 @@ public class SpanEventBitFieldTest {
         current.setDepth(4);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getDepthEncodingStrategy(), DepthEncodingStrategy.RAW);
+        Assertions.assertEquals(DepthEncodingStrategy.RAW, bitField.getDepthEncodingStrategy());
 
     }
 
     @Test
-    public void testServiceType_equals_next() throws Exception {
+    public void testServiceType_equals_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -245,12 +218,12 @@ public class SpanEventBitFieldTest {
         current.setServiceType((short) 2000);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getServiceTypeEncodingStrategy(), ServiceTypeEncodingStrategy.PREV_EQUALS);
+        Assertions.assertEquals(ServiceTypeEncodingStrategy.PREV_EQUALS, bitField.getServiceTypeEncodingStrategy());
 
     }
 
     @Test
-    public void testServiceType_raw_next() throws Exception {
+    public void testServiceType_raw_next() {
         SpanEventBo prev = new SpanEventBo();
         SpanEventBo current = new SpanEventBo();
 
@@ -258,7 +231,7 @@ public class SpanEventBitFieldTest {
         current.setServiceType((short) 2001);
 
         SpanEventBitField bitField = SpanEventBitField.build(current, prev);
-        Assert.assertEquals(bitField.getServiceTypeEncodingStrategy(), ServiceTypeEncodingStrategy.RAW);
+        Assertions.assertEquals(ServiceTypeEncodingStrategy.RAW, bitField.getServiceTypeEncodingStrategy());
 
     }
 

@@ -17,6 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.ResponseTimeBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PResponseTime;
@@ -28,11 +29,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcResponseTimeBoMapper implements GrpcStatMapper {
 
-    public ResponseTimeBo map(final PResponseTime tResponseTime) {
-        final ResponseTimeBo responseTimeBo = new ResponseTimeBo();
-        responseTimeBo.setAvg(tResponseTime.getAvg());
-        responseTimeBo.setMax(tResponseTime.getMax());
-        return responseTimeBo;
+    public ResponseTimeBo map(DataPoint point, final PResponseTime tResponseTime) {
+        return new ResponseTimeBo(point,
+                tResponseTime.getAvg(),
+                tResponseTime.getMax());
     }
 
     @Override
@@ -40,8 +40,9 @@ public class GrpcResponseTimeBoMapper implements GrpcStatMapper {
         // response time
         if (agentStat.hasResponseTime()) {
             final PResponseTime responseTime = agentStat.getResponseTime();
-            final ResponseTimeBo responseTimeBo = this.map(responseTime);
-            builder.addResponseTime(responseTimeBo);
+            DataPoint point = builder.getDataPoint();
+            final ResponseTimeBo responseTimeBo = this.map(point, responseTime);
+            builder.addPoint(responseTimeBo);
         }
     }
 }

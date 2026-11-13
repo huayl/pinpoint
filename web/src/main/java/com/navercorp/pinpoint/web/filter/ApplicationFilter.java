@@ -18,6 +18,7 @@ package com.navercorp.pinpoint.web.filter;
 
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.util.StringUtils;
 import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
 import com.navercorp.pinpoint.web.filter.agent.AgentFilter;
 import com.navercorp.pinpoint.web.filter.agent.AgentFilterFactory;
@@ -28,9 +29,8 @@ import com.navercorp.pinpoint.web.filter.responsetime.ResponseTimeFilterFactory;
 import com.navercorp.pinpoint.web.filter.responsetime.SpanResponseConditionFilter;
 import com.navercorp.pinpoint.web.filter.transaction.NodeContext;
 import com.navercorp.pinpoint.web.filter.transaction.SpanContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.util.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,11 +40,11 @@ import java.util.Objects;
  */
 public class ApplicationFilter implements Filter<List<SpanBo>> {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final List<ServiceType> serviceDescList;
 
-    private final FilterDescriptor.SelfNode selfNode;
+    private final FilterDescriptor.Node selfNode;
 
     private final Filter<SpanBo> spanResponseConditionFilter;
 
@@ -91,7 +91,7 @@ public class ApplicationFilter implements Filter<List<SpanBo>> {
     @Override
     public boolean include(List<SpanBo> spanBoList) {
         SpanContext spanContext = new SpanContext(spanBoList, serviceTypeRegistryService);
-        NodeContext nodeContext = new NodeContext(spanContext, selfNode.getApplicationName(), serviceDescList, agentFilter);
+        NodeContext nodeContext = new NodeContext(spanContext, selfNode.getServiceName(), selfNode.getApplicationName(), serviceDescList, agentFilter);
 
         com.navercorp.pinpoint.web.filter.transaction.ApplicationFilter filter = new com.navercorp.pinpoint.web.filter.transaction.ApplicationFilter(spanResponseConditionFilter, acceptURLFilter);
         return filter.include(nodeContext);

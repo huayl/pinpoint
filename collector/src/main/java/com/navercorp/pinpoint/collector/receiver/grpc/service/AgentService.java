@@ -1,11 +1,11 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,140 +16,145 @@
 
 package com.navercorp.pinpoint.collector.receiver.grpc.service;
 
-import com.google.protobuf.GeneratedMessageV3;
-import com.navercorp.pinpoint.collector.receiver.DispatchHandler;
+import com.navercorp.pinpoint.collector.grpc.lifecycle.PingEventHandler;
+import com.navercorp.pinpoint.collector.grpc.lifecycle.PingSession;
+import com.navercorp.pinpoint.collector.handler.RequestResponseHandler;
+import com.navercorp.pinpoint.common.profiler.logging.ThrottledLogger;
+import com.navercorp.pinpoint.common.server.io.MessageType;
+import com.navercorp.pinpoint.common.server.io.MessageTypes;
+import com.navercorp.pinpoint.grpc.Header;
 import com.navercorp.pinpoint.grpc.MessageFormatUtils;
-import com.navercorp.pinpoint.grpc.StatusError;
-import com.navercorp.pinpoint.grpc.StatusErrors;
-import com.navercorp.pinpoint.grpc.server.lifecycle.PingEventHandler;
+import com.navercorp.pinpoint.grpc.server.ServerContext;
+import com.navercorp.pinpoint.grpc.server.TransportMetadata;
+import com.navercorp.pinpoint.grpc.server.TransportMutableContext;
 import com.navercorp.pinpoint.grpc.trace.AgentGrpc;
 import com.navercorp.pinpoint.grpc.trace.PAgentInfo;
 import com.navercorp.pinpoint.grpc.trace.PPing;
 import com.navercorp.pinpoint.grpc.trace.PResult;
-import com.navercorp.pinpoint.io.header.Header;
-import com.navercorp.pinpoint.io.header.HeaderEntity;
-import com.navercorp.pinpoint.io.header.v2.HeaderV2;
-import com.navercorp.pinpoint.io.request.DefaultMessage;
-import com.navercorp.pinpoint.io.request.Message;
-import com.navercorp.pinpoint.thrift.io.DefaultTBaseLocator;
-
 import io.grpc.Context;
+import io.grpc.Metadata;
+import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author jaehong.kim
  */
 public class AgentService extends AgentGrpc.AgentImplBase {
-    private static final AtomicLong idAllocator = new AtomicLong();
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-    private final boolean isDebug = logger.isDebugEnabled();
-    private final SimpleRequestHandlerAdaptor<GeneratedMessageV3, GeneratedMessageV3> simpleRequestHandlerAdaptor;
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final RequestResponseHandler<PAgentInfo, PResult> handler;
+
     private final PingEventHandler pingEventHandler;
+
+    private final JobRunner jobRunner;
     private final Executor executor;
 
-    public AgentService(DispatchHandler<GeneratedMessageV3, GeneratedMessageV3> dispatchHandler,
-                        PingEventHandler pingEventHandler, Executor executor, ServerRequestFactory serverRequestFactory) {
-        this.simpleRequestHandlerAdaptor = new SimpleRequestHandlerAdaptor<>(this.getClass().getName(), dispatchHandler, serverRequestFactory);
+    public AgentService(RequestResponseHandler<PAgentInfo, PResult> handler,
+                        PingEventHandler pingEventHandler,
+                        Executor executor,
+                        ServerRequestFactory requestFactory,
+                        ServerResponseFactory responseFactory) {
+        this.handler = Objects.requireNonNull(handler, "handler");
         this.pingEventHandler = Objects.requireNonNull(pingEventHandler, "pingEventHandler");
         Objects.requireNonNull(executor, "executor");
+        this.jobRunner = new JobRunner(logger, requestFactory, responseFactory);
         this.executor = Context.currentContextExecutor(executor);
     }
 
     @Override
     public void requestAgentInfo(PAgentInfo agentInfo, StreamObserver<PResult> responseObserver) {
-        if (isDebug) {
+        if (logger.isDebugEnabled()) {
             logger.debug("Request PAgentInfo={}", MessageFormatUtils.debugLog(agentInfo));
         }
 
+        final MessageType messageType = MessageTypes.AGENT_INFO;
+        doExecute(new Runnable() {
+            @Override
+            public void run() {
+                jobRunner.execute(messageType, agentInfo, responseObserver, handler::handleRequest);
+
+                // Update service type in transport context
+                TransportMutableContext transportMutableContext = ServerContext.getTransportMutableContext();
+                transportMutableContext.setServiceType(agentInfo.getServiceType());
+                TransportMetadata transportMetadata = ServerContext.getTransportMetadata();
+                pingEventHandler.update(transportMetadata.getTransportId());
+            }
+        }, messageType);
+    }
+
+    void doExecute(Runnable runnable, MessageType messageType) {
         try {
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    final Message<PAgentInfo> message = newMessage(agentInfo, DefaultTBaseLocator.AGENT_INFO);
-                    simpleRequestHandlerAdaptor.request(message, responseObserver);
-                    // Update service type of PingSession
-                    AgentService.this.pingEventHandler.update((short) agentInfo.getServiceType());
-                }
-            });
+            executor.execute(runnable);
         } catch (RejectedExecutionException ree) {
+            final Header header = ServerContext.getAgentInfo();
             // Defense code
-            logger.warn("Failed to request. Rejected execution, executor={}", executor);
+            logger.warn("Failed to request. Rejected execution, {} {} executor={}", messageType, header, executor);
         }
     }
 
-
     @Override
-    public StreamObserver<PPing> pingSession(final StreamObserver<PPing> responseObserver) {
-        final StreamObserver<PPing> request = new StreamObserver<PPing>() {
-            private final AtomicBoolean first = new AtomicBoolean(false);
-            private final long id = nextSessionId();
+    public StreamObserver<PPing> pingSession(final StreamObserver<PPing> response) {
+        Context context = Context.current();
+        Header header = ServerContext.getAgentInfo(context);
+        TransportMetadata transport = ServerContext.getTransportMetadata(context);
+        TransportMutableContext transportServiceContext = ServerContext.getTransportMutableContext(context);
+        final ServerCallStreamObserver<PPing> responseObserver = (ServerCallStreamObserver<PPing>) response;
+        PingSession pingSession = this.pingEventHandler.newPingSession(transport.getTransportId(), header, transportServiceContext);
+        responseObserver.setOnCancelHandler(() -> disconnect(pingSession));
+
+        return new StreamObserver<>() {
+            private final ThrottledLogger thLogger = ThrottledLogger.getUncountedIntervalLogger(AgentService.this.logger);
+
             @Override
             public void onNext(PPing ping) {
-                if (first.compareAndSet(false, true)) {
-                    // Only first
-                    if (isDebug) {
-                        logger.debug("PingSession:{} start:{}", id, MessageFormatUtils.debugLog(ping));
-                    }
-                    AgentService.this.pingEventHandler.connect();
+                AgentService.this.pingEventHandler.ping(pingSession);
+                if (logger.isDebugEnabled()) {
+                    thLogger.debug("PingSession:{} onNext:PPing", pingSession);
+                }
+                if (responseObserver.isReady()) {
+                    PPing replay = newPing();
+                    responseObserver.onNext(replay);
                 } else {
-                    AgentService.this.pingEventHandler.ping();
+                    thLogger.warn("ping message is ignored: stream is not ready: {}", pingSession.getHeader());
                 }
-                if (isDebug) {
-                    logger.debug("PingSession:{} onNext:{}", id, MessageFormatUtils.debugLog(ping));
-                }
-                PPing replay = newPing();
-                responseObserver.onNext(replay);
             }
 
             private PPing newPing() {
-                PPing.Builder builder = PPing.newBuilder();
-                return builder.build();
+                return PPing.getDefaultInstance();
             }
 
             @Override
             public void onError(Throwable t) {
-                final StatusError statusError = StatusErrors.throwable(t);
-                if (statusError.isSimpleError()) {
-                    logger.info("Failed to ping stream, id={}, cause={}", id, statusError.getMessage());
-                } else {
-                    logger.warn("Failed to ping stream, id={}, cause={}", id, statusError.getMessage(), statusError.getThrowable());
+                final Status status = Status.fromThrowable(t);
+                final Metadata metadata = Status.trailersFromThrowable(t);
+                if (thLogger.isInfoEnabled()) {
+                    thLogger.info("Failed to ping stream, transportId={}, header={}, status={}, metadata={}", pingSession.getTransportId(), header, status, metadata);
                 }
-                disconnect();
+                // responseObserver.onCompleted();
+                disconnect(pingSession);
             }
 
             @Override
             public void onCompleted() {
-                if (isDebug) {
-                    logger.debug("PingSession:{} onCompleted()", id);
+                if (logger.isDebugEnabled()) {
+                    thLogger.debug("PingSession:{} onCompleted()", pingSession);
                 }
                 responseObserver.onCompleted();
-                disconnect();
+                disconnect(pingSession);
             }
-
-            private void disconnect() {
-                AgentService.this.pingEventHandler.close();
-            }
-
         };
-        return request;
     }
 
-    private long nextSessionId() {
-        return idAllocator.getAndIncrement();
+    private void disconnect(PingSession pingSession) {
+        pingEventHandler.close(pingSession);
     }
 
-    private <T> Message<T> newMessage(T requestData, short type) {
-        final Header header = new HeaderV2(Header.SIGNATURE, HeaderV2.VERSION, type);
-        final HeaderEntity headerEntity = new HeaderEntity(Collections.emptyMap());
-        return new DefaultMessage<T>(header, headerEntity, requestData);
-    }
 }

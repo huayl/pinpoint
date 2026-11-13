@@ -16,38 +16,29 @@
 
 package com.navercorp.pinpoint.common.server.util;
 
-import io.netty.handler.ipfilter.IpFilterRuleType;
-import io.netty.handler.ipfilter.IpSubnetFilterRule;
+import inet.ipaddr.IPAddressString;
 
-import java.net.InetSocketAddress;
+import java.net.InetAddress;
 
-/**
- * @author Taejin Koo
- */
 public class CidrAddressFilter {
 
-    private final String ipAddress;
-    private final int cidrPrefix;
-    private final IpSubnetFilterRule ipSubnetFilterRule;
+    private final IPAddressString address;
 
-    CidrAddressFilter(String ipAddress, int cidrPrefix) {
-        this.ipAddress = ipAddress;
-        this.cidrPrefix = cidrPrefix;
-
-        this.ipSubnetFilterRule = new IpSubnetFilterRule(ipAddress, cidrPrefix, IpFilterRuleType.ACCEPT);
+    CidrAddressFilter(String ipAddress) {
+        this.address = new IPAddressString(ipAddress);
     }
 
-    boolean matches(InetSocketAddress remoteAddress) {
-        return ipSubnetFilterRule.matches(remoteAddress);
+    boolean matches(InetAddress remoteAddress) {
+        if (remoteAddress == null) {
+            return false;
+        }
+        return address.contains(new IPAddressString(remoteAddress.getHostAddress()));
     }
-
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("CidrAddressFilter{");
-        sb.append("address='").append(ipAddress).append('/').append(cidrPrefix);
-        sb.append('}');
-        return sb.toString();
+        return "CidrAddressFilter{" +
+                "subnet=" + address +
+                '}';
     }
-
 }

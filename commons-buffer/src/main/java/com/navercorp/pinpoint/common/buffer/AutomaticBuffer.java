@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,8 @@ public class AutomaticBuffer extends FixedBuffer {
         if (remain >= size) {
             return;
         }
-        int length = buffer.length;
+        final int tempEndOffset = getEndOffset();
+        int length = tempEndOffset;
         if (length == 0) {
             length = 1;
         }
@@ -51,7 +52,7 @@ public class AutomaticBuffer extends FixedBuffer {
         final int expandedBufferSize = computeExpandedBufferSize(size, length, remain);
         // allocate buffer
         final byte[] expandedBuffer = new byte[expandedBufferSize];
-        System.arraycopy(buffer, 0, expandedBuffer, 0, buffer.length);
+        System.arraycopy(buffer, 0, expandedBuffer, 0, tempEndOffset);
         buffer = expandedBuffer;
     }
 
@@ -85,15 +86,30 @@ public class AutomaticBuffer extends FixedBuffer {
     }
 
     @Override
+    public void putUnsignedBytePrefixedBytes(byte[] bytes) {
+        if (bytes == null) {
+            checkExpand(1);
+            super.putByte(BYTE_NULL);
+        } else {
+            if (bytes.length > Buffer.UNSIGNED_BYTE_MAX) {
+                throw new IndexOutOfBoundsException("too large bytes length:" + bytes.length);
+            }
+            checkExpand(bytes.length + 1);
+            super.putByte(BytesUtils.toUnsignedByte(bytes.length));
+            super.putBytes(bytes);
+        }
+    }
+
+    @Override
     public void put2PrefixedBytes(final byte[] bytes) {
         if (bytes == null) {
-            checkExpand(BytesUtils.SHORT_BYTE_LENGTH);
+            checkExpand(ByteArrayUtils.SHORT_BYTE_LENGTH);
             super.putShort((short)NULL);
         } else {
             if (bytes.length > Short.MAX_VALUE) {
                 throw new IndexOutOfBoundsException("too large bytes length:" + bytes.length);
             }
-            checkExpand(bytes.length + BytesUtils.SHORT_BYTE_LENGTH);
+            checkExpand(bytes.length + ByteArrayUtils.SHORT_BYTE_LENGTH);
             super.putShort((short)bytes.length);
             super.putBytes(bytes);
         }
@@ -102,10 +118,10 @@ public class AutomaticBuffer extends FixedBuffer {
     @Override
     public void put4PrefixedBytes(final byte[] bytes) {
         if (bytes == null) {
-            checkExpand(BytesUtils.INT_BYTE_LENGTH);
+            checkExpand(ByteArrayUtils.INT_BYTE_LENGTH);
             super.putInt(NULL);
         } else {
-            checkExpand(bytes.length + BytesUtils.INT_BYTE_LENGTH);
+            checkExpand(bytes.length + ByteArrayUtils.INT_BYTE_LENGTH);
             super.putInt(bytes.length);
             super.putBytes(bytes);
         }
@@ -125,6 +141,12 @@ public class AutomaticBuffer extends FixedBuffer {
     }
 
     @Override
+    public void putUnsignedBytePrefixedString(String string) {
+        byte[] bytes = BytesUtils.toBytes(string);
+        this.putUnsignedBytePrefixedBytes(bytes);
+    }
+
+    @Override
     public void put2PrefixedString(final String string) {
         byte[] bytes = BytesUtils.toBytes(string);
         this.put2PrefixedBytes(bytes);
@@ -134,6 +156,16 @@ public class AutomaticBuffer extends FixedBuffer {
     public void put4PrefixedString(final String string) {
         byte[] bytes = BytesUtils.toBytes(string);
         this.put4PrefixedBytes(bytes);
+    }
+
+    @Override
+    public void putNullTerminatedString(final String string) {
+        if (string == null) {
+            throw new NullPointerException("string");
+        }
+        final byte[] bytes = BytesUtils.toBytes(string);
+        checkExpand(bytes.length + 1);
+        super.putNullTerminatedBytes(bytes);
     }
 
     @Override

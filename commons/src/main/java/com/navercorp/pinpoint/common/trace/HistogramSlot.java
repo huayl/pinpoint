@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,25 +16,27 @@
 
 package com.navercorp.pinpoint.common.trace;
 
+import java.util.Objects;
+
 /**
  * @author emeroad
  */
 public class HistogramSlot {
 
+    private final SlotCode slotCode;
     private final short slotTime;
     private final SlotType slotType;
     private final String slotName;
 
-    public HistogramSlot(short slotTime, SlotType slotType, String slotName) {
-        if (slotType == null) {
-            throw new NullPointerException("slotType");
-        }
-        if (slotName == null) {
-            throw new NullPointerException("slotName");
-        }
+    public HistogramSlot(SlotCode slotCode, short slotTime, SlotType slotType, String slotName) {
+        this.slotCode = Objects.requireNonNull(slotCode, "slotCode");
         this.slotTime = slotTime;
-        this.slotType = slotType;
-        this.slotName = slotName;
+        this.slotType = Objects.requireNonNull(slotType, "slotType");
+        this.slotName = Objects.requireNonNull(slotName, "slotName");
+    }
+
+    public SlotCode getSlotCode() {
+        return slotCode;
     }
 
     public short getSlotTime() {
@@ -51,11 +53,11 @@ public class HistogramSlot {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("HistogramSlot{");
-        sb.append("slotTime=").append(slotTime);
-        sb.append(", slotType=").append(slotType);
-        sb.append(", slotName='").append(slotName).append('\'');
-        sb.append('}');
-        return sb.toString();
+        return "HistogramSlot{" +
+               "slotCode=" + slotCode +
+               "slotTime=" + slotTime +
+               ", slotType=" + slotType +
+               ", slotName='" + slotName + '\'' +
+               '}';
     }
 }

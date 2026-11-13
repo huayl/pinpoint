@@ -16,28 +16,27 @@
 
 package com.navercorp.pinpoint.collector.manage.jmx;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-
 import com.navercorp.pinpoint.collector.manage.CollectorManager;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Objects;
 
 /**
  * @author Taejin Koo
  */
 public class JMXCollectorManager {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final PinpointMBeanServer pinpointMBeanServer;
 
-    @Autowired
-    private JMXCollectorManagerList jmxCollectorManagerList;
+    private final JMXCollectorManagerList jmxCollectorManagerList;
     
-    public JMXCollectorManager() {
+    public JMXCollectorManager(JMXCollectorManagerList jmxCollectorManagerList) {
+        this.jmxCollectorManagerList = Objects.requireNonNull(jmxCollectorManagerList, "jmxCollectorManagerList");
         this.pinpointMBeanServer = new PinpointMBeanServer();
     }
 

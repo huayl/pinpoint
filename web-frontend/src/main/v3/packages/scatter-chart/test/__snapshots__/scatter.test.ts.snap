@@ -1,0 +1,931 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Test for Scatter Test for Scatter Method should check data rendered by \`render\` method 1`] = `
+[
+  {
+    "props": {
+      "x": 1,
+      "y": 1,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "scale",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "clearRect",
+  },
+  {
+    "props": {
+      "value": "#ffffff",
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillStyle",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillRect",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": 0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "clearRect",
+  },
+  {
+    "props": {
+      "value": "#ffffff",
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillStyle",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillRect",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": 0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+]
+`;
+
+exports[`Test for Scatter Test for Scatter Method should check data rendered by \`render\` method with append flag is true 1`] = `
+[
+  {
+    "props": {
+      "x": 1,
+      "y": 1,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "scale",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "clearRect",
+  },
+  {
+    "props": {
+      "value": "#ffffff",
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillStyle",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillRect",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": 0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "clearRect",
+  },
+  {
+    "props": {
+      "value": "#ffffff",
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillStyle",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillRect",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": 0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "clearRect",
+  },
+  {
+    "props": {
+      "value": "#ffffff",
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillStyle",
+  },
+  {
+    "props": {
+      "height": 320,
+      "width": 518,
+      "x": 0,
+      "y": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "fillRect",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": -0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+  {
+    "props": {
+      "dHeight": 320,
+      "dWidth": 518,
+      "dx": 0,
+      "dy": 0,
+      "img": <canvas
+        height="320"
+        style="width: 518px; height: 320px;"
+        width="518"
+      />,
+      "sHeight": 320,
+      "sWidth": 518,
+      "sx": 0,
+      "sy": 0,
+    },
+    "transform": [
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+    ],
+    "type": "drawImage",
+  },
+]
+`;

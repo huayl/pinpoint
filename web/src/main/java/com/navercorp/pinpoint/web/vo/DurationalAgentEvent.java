@@ -35,8 +35,16 @@ public class DurationalAgentEvent extends AgentEvent {
     @JsonProperty
     private long durationEndTimestamp = UNKNOWN_TIMESTAMP;
 
+    public DurationalAgentEvent(AgentEventBo agentEventBo, Object eventMessage) {
+        super(agentEventBo.getAgentId(),
+                agentEventBo.getStartTimestamp(), agentEventBo.getEventTimestamp(),
+                agentEventBo.getEventType(), eventMessage);
+    }
+
     public DurationalAgentEvent(AgentEventBo agentEventBo) {
-        super(agentEventBo);
+        super(agentEventBo.getAgentId(),
+                agentEventBo.getStartTimestamp(), agentEventBo.getEventTimestamp(),
+                agentEventBo.getEventType(), null);
     }
 
     public long getDurationStartTimestamp() {
@@ -57,17 +65,16 @@ public class DurationalAgentEvent extends AgentEvent {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("DurationalAgentEvent{");
-        sb.append("agentId=").append(super.getAgentId());
-        sb.append(", eventTimestamp=").append(super.getEventTimestamp());
-        sb.append(", eventTypeCode=").append(super.getEventTypeCode());
-        sb.append(", eventTypeDesc=").append(super.getEventTypeDesc());
-        sb.append(", hasEventMessage=").append(super.hasEventMessage());
-        sb.append(", eventMessage=").append(super.getEventMessage());
-        sb.append(", startTimestamp=").append(super.getStartTimestamp());
-        sb.append(", durationStartTimestamp=").append(durationStartTimestamp);
-        sb.append(", durationEndTimestamp=").append(durationEndTimestamp);
-        sb.append('}');
-        return sb.toString();
+        return "DurationalAgentEvent{" +
+                "agentId=" + super.getAgentId() +
+                ", eventTimestamp=" + super.getEventTimestamp() +
+                ", eventTypeCode=" + super.getEventTypeCode() +
+                ", eventTypeDesc=" + super.getEventTypeDesc() +
+                ", hasEventMessage=" + super.hasEventMessage() +
+                ", eventMessage=" + super.getEventMessage() +
+                ", startTimestamp=" + super.getStartTimestamp() +
+                ", durationStartTimestamp=" + durationStartTimestamp +
+                ", durationEndTimestamp=" + durationEndTimestamp +
+                '}';
     }
 }

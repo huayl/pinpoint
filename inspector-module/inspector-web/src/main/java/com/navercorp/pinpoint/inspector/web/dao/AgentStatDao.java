@@ -1,0 +1,52 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.inspector.web.dao;
+
+import com.navercorp.pinpoint.common.model.TagInformation;
+import com.navercorp.pinpoint.common.timeseries.point.DataPoint;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.inspector.web.dao.model.AgentStatPoint;
+import com.navercorp.pinpoint.inspector.web.definition.metric.field.Field;
+import com.navercorp.pinpoint.inspector.web.model.InspectorDataSearchKey;
+import com.navercorp.pinpoint.metric.common.model.Tag;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+
+/**
+ * @author minwoo.jung
+ */
+public interface AgentStatDao {
+    CompletableFuture<List<DataPoint<Double>>> selectAgentStat(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field);
+
+    CompletableFuture<List<DataPoint<Double>>> selectAgentStatAvg(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field);
+
+    CompletableFuture<List<DataPoint<Double>>> selectAgentStatMax(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field);
+
+    CompletableFuture<List<DataPoint<Double>>> selectAgentStatSum(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field);
+
+    CompletableFuture<List<AgentStatPoint>> selectAgentStatAvgByAgentIds(String tenantId, String serviceName, String applicationName, List<String> agentIds, String metricName, Field field, TimeWindow timeWindow);
+
+    CompletableFuture<List<AgentStatPoint>> selectAgentStatMaxByAgentIds(String tenantId, String serviceName, String applicationName, List<String> agentIds, String metricName, Field field, TimeWindow timeWindow);
+
+    CompletableFuture<List<AgentStatPoint>> selectAgentStatSumByAgentIds(String tenantId, String serviceName, String applicationName, List<String> agentIds, String metricName, Field field, TimeWindow timeWindow);
+
+    List<Tag> getTagInfo(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field);
+
+    TagInformation getTagInfoContainedSpecificTag(InspectorDataSearchKey inspectorDataSearchKey, String metricName, Field field, Tag tag);
+}

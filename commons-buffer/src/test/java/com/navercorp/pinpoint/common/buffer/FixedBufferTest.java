@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,11 @@
 package com.navercorp.pinpoint.common.buffer;
 
 import com.navercorp.pinpoint.common.util.BytesUtils;
-
-import org.apache.commons.lang.StringUtils;
-import org.junit.Assert;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -30,14 +29,48 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Random;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * @author emeroad
  */
 public class FixedBufferTest {
     public static final Charset UTF8_CHARSET = StandardCharsets.UTF_8;
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final Random random = new Random();
+
+    @Test
+    public void testGetByte() {
+        Buffer buffer = new FixedBuffer(8);
+        buffer.putByte((byte) 10);
+        buffer.putByte((byte) 20);
+
+        // does not depend on, nor move, the current position
+        assertThat(buffer.getByte(0)).isEqualTo((byte) 10);
+        assertThat(buffer.getByte(1)).isEqualTo((byte) 20);
+        assertThat(buffer.getOffset()).isEqualTo(2);
+
+        // symmetric with setByte
+        buffer.setByte(0, (byte) 30);
+        assertThat(buffer.getByte(0)).isEqualTo((byte) 30);
+    }
+
+    @Test
+    public void testGetByte_offsetBuffer() {
+        // index 0 is the window's first byte, not the backing array's
+        byte[] backing = {99, 99, 42, 1, 2};
+        Buffer buffer = new OffsetFixedBuffer(backing, 2, 3);
+
+        assertThat(buffer.getByte(0)).isEqualTo((byte) 42);
+        assertThat(buffer.getByte(1)).isEqualTo((byte) 1);
+        // stays stable after reads
+        buffer.readByte();
+        assertThat(buffer.getByte(0)).isEqualTo((byte) 42);
+
+        buffer.setByte(0, (byte) 7);
+        assertThat(backing[2]).isEqualTo((byte) 7);
+    }
 
     @Test
     public void testPutPrefixedBytes() {
@@ -61,10 +94,10 @@ public class FixedBufferTest {
 
         Buffer actual = new FixedBuffer(buffer1);
         String s = actual.readPrefixedString();
-        Assert.assertEquals(test, s);
+        Assertions.assertEquals(test, s);
 
         int i = actual.readInt();
-        Assert.assertEquals(expected, i);
+        Assertions.assertEquals(expected, i);
     }
 
     @Test
@@ -79,10 +112,10 @@ public class FixedBufferTest {
         buffer.putPadBytes(test, TOTAL_LENGTH);
 
         byte[] result = buffer.getBuffer();
-        Assert.assertEquals(result.length, TOTAL_LENGTH);
-        Assert.assertTrue("check data", Arrays.equals(Arrays.copyOfRange(test, 0, TEST_SIZE), Arrays.copyOfRange(result, 0, TEST_SIZE)));
+        assertThat(result).hasSize(TOTAL_LENGTH);
+        Assertions.assertArrayEquals(Arrays.copyOfRange(test, 0, TEST_SIZE), Arrays.copyOfRange(result, 0, TEST_SIZE), "check data");
         byte[] padBytes = new byte[TOTAL_LENGTH - TEST_SIZE];
-        Assert.assertTrue("check pad", Arrays.equals(Arrays.copyOfRange(padBytes, 0, TEST_SIZE), Arrays.copyOfRange(result, TEST_SIZE, TOTAL_LENGTH)));
+        Assertions.assertArrayEquals(Arrays.copyOfRange(padBytes, 0, TEST_SIZE), Arrays.copyOfRange(result, TEST_SIZE, TOTAL_LENGTH), "check pad");
 
     }
 
@@ -96,9 +129,9 @@ public class FixedBufferTest {
 
         Buffer readBuffer = new FixedBuffer(writeBuffer.getBuffer());
         byte[] readPadBytes = readBuffer.readPadBytes(20);
-        Assert.assertArrayEquals(bytes, Arrays.copyOf(readPadBytes, 10));
+        Assertions.assertArrayEquals(bytes, Arrays.copyOf(readPadBytes, 10));
         int readInt = readBuffer.readInt();
-        Assert.assertEquals(255, readInt);
+        Assertions.assertEquals(255, readInt);
     }
 
 
@@ -106,18 +139,14 @@ public class FixedBufferTest {
     public void testPadBytes_Error() {
 
         Buffer buffer1_1 = new FixedBuffer(32);
-        try {
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
             buffer1_1.putPadBytes(new byte[11], 10);
-            Assert.fail("error");
-        } catch (IndexOutOfBoundsException ignore) {
-        }
+        });
 
         Buffer buffer1_2 = new FixedBuffer(32);
-        try {
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
             buffer1_2.putPadBytes(new byte[20], 10);
-            Assert.fail("error");
-        } catch (IndexOutOfBoundsException ignore) {
-        }
+        });
 
         Buffer buffer2 = new FixedBuffer(32);
         buffer2.putPadBytes(new byte[10], 10);
@@ -125,11 +154,11 @@ public class FixedBufferTest {
     }
 
     @Test
-    public void testPadString() throws Exception {
+    public void testPadString() {
         int TOTAL_LENGTH = 20;
         int TEST_SIZE = 10;
         int PAD_SIZE = TOTAL_LENGTH - TEST_SIZE;
-        Buffer buffer= new FixedBuffer(32);
+        Buffer buffer = new FixedBuffer(32);
         String test = StringUtils.repeat("a", TEST_SIZE);
 
         buffer.putPadString(test, TOTAL_LENGTH);
@@ -137,13 +166,13 @@ public class FixedBufferTest {
         byte[] result = buffer.getBuffer();
         String decodedString = new String(result);
         String trimString = decodedString.trim();
-        Assert.assertEquals(result.length, TOTAL_LENGTH);
+        assertThat(result).hasSize(TOTAL_LENGTH);
 
-        Assert.assertEquals("check data", test, trimString);
+        Assertions.assertEquals(test, trimString, "check data");
 
-        String padString = new String(result, TOTAL_LENGTH - TEST_SIZE, PAD_SIZE, UTF8_CHARSET.name());
+        String padString = new String(result, TOTAL_LENGTH - TEST_SIZE, PAD_SIZE, UTF8_CHARSET);
         byte[] padBytes = new byte[TOTAL_LENGTH - TEST_SIZE];
-        Assert.assertEquals("check pad", padString, new String(padBytes, UTF8_CHARSET));
+        Assertions.assertEquals(padString, new String(padBytes, UTF8_CHARSET), "check pad");
 
     }
 
@@ -156,9 +185,9 @@ public class FixedBufferTest {
 
         Buffer readBuffer = new FixedBuffer(writeBuffer.getBuffer());
         String readPadString = readBuffer.readPadString(20);
-        Assert.assertEquals(testString, readPadString.substring(0, 10));
+        Assertions.assertEquals(testString, readPadString.substring(0, 10));
         int readInt = readBuffer.readInt();
-        Assert.assertEquals(255, readInt);
+        Assertions.assertEquals(255, readInt);
     }
 
     @Test
@@ -170,33 +199,144 @@ public class FixedBufferTest {
 
         Buffer readBuffer = new FixedBuffer(writeBuffer.getBuffer());
         String readPadString = readBuffer.readPadStringAndRightTrim(20);
-        Assert.assertEquals(testString, readPadString);
+        Assertions.assertEquals(testString, readPadString);
         int readInt = readBuffer.readInt();
-        Assert.assertEquals(255, readInt);
+        Assertions.assertEquals(255, readInt);
     }
 
     @Test
     public void testPadString_Error() {
 
         Buffer buffer1_1 = new FixedBuffer(32);
-        try {
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
             buffer1_1.putPadString(StringUtils.repeat("a", 11), 10);
-        } catch (IndexOutOfBoundsException ignore) {
-        }
+        });
+
 
         Buffer buffer1_2 = new FixedBuffer(32);
-        try {
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
             buffer1_2.putPadString(StringUtils.repeat("a", 20), 10);
-            Assert.fail("error");
-        } catch (IndexOutOfBoundsException ignore) {
-        }
+        });
 
         Buffer buffer2 = new FixedBuffer(32);
         buffer2.putPadString(StringUtils.repeat("a", 10), 10);
     }
 
     @Test
-    public void testPut2PrefixedBytes() throws Exception {
+    public void testPutUnsignedBytePrefixedBytes() {
+        String repeat = "1".repeat(254);
+        byte[] bytes = repeat.getBytes(UTF8_CHARSET);
+
+        FixedBuffer buffer = new FixedBuffer(255);
+        buffer.putUnsignedBytePrefixedBytes(bytes);
+        buffer.setOffset(0);
+
+        Assertions.assertArrayEquals(bytes, buffer.readUnsignedBytePrefixedBytes());
+
+        buffer.setOffset(0);
+        byte[] abc = "abc".getBytes(StandardCharsets.UTF_8);
+        buffer.putUnsignedBytePrefixedBytes(abc);
+        buffer.setOffset(0);
+        Assertions.assertArrayEquals(abc, buffer.readUnsignedBytePrefixedBytes());
+    }
+
+    @Test
+    public void testPutUnsignedBytePrefixedBytes_overflow() {
+        String repeat = "1".repeat(255);
+
+        FixedBuffer buffer = new FixedBuffer(256);
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
+            buffer.putUnsignedBytePrefixedBytes(repeat.getBytes(UTF8_CHARSET));
+        });
+    }
+
+    @Test
+    public void testPutUnsignedBytePrefixedBytes_null() {
+        FixedBuffer buffer = new FixedBuffer(8);
+        buffer.putUnsignedBytePrefixedBytes(null);
+        buffer.setOffset(0);
+
+        Assertions.assertNull(buffer.readUnsignedBytePrefixedBytes());
+    }
+
+
+    @Test
+    public void testPutUnsignedBytePrefixedString() {
+        String repeat = "1".repeat(254);
+
+        FixedBuffer buffer = new FixedBuffer(255);
+        buffer.putUnsignedBytePrefixedString(repeat);
+        buffer.setOffset(0);
+
+        Assertions.assertEquals(repeat, buffer.readUnsignedBytePrefixedString());
+
+        buffer.setOffset(0);
+        String abc = "abc";
+        buffer.putUnsignedBytePrefixedString(abc);
+        buffer.setOffset(0);
+        Assertions.assertEquals(abc, buffer.readUnsignedBytePrefixedString());
+    }
+
+    @Test
+    public void testPutUnsignedBytePrefixedString_overflow() {
+        String repeat = "1".repeat(255);
+
+        FixedBuffer buffer = new FixedBuffer(256);
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
+            buffer.putUnsignedBytePrefixedString(repeat);
+        });
+    }
+
+    @Test
+    public void testPutUnsignedBytePrefixedString_null() {
+        FixedBuffer buffer = new FixedBuffer(8);
+        buffer.putUnsignedBytePrefixedString(null);
+        buffer.setOffset(0);
+
+        Assertions.assertNull(buffer.readUnsignedBytePrefixedString());
+    }
+
+    @Test
+    public void testNullTerminatedString() {
+        checkNullTerminatedString("test");
+    }
+
+    @Test
+    public void testNullTerminatedString_empty() {
+        checkNullTerminatedString("");
+    }
+
+    @Test
+    public void testNullTerminatedString_null() {
+        Assertions.assertThrows(NullPointerException.class, () -> {
+            checkNullTerminatedString(null);
+        });
+    }
+
+    private void checkNullTerminatedString(String string) {
+        Buffer buffer = new FixedBuffer(1024);
+        buffer.putNullTerminatedString(string);
+        buffer.putInt(1);
+        byte[] buffer1 = buffer.getBuffer();
+
+        Buffer actual = new FixedBuffer(buffer1);
+        String result = actual.readNullTerminatedString();
+        Assertions.assertEquals(string, result);
+
+        int trailingInt = actual.readInt();
+        Assertions.assertEquals(trailingInt, 1);
+    }
+
+    @Test
+    public void testNullTerminatedString_rejectNul() {
+        Buffer buffer = new FixedBuffer(1024);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> buffer.putNullTerminatedString("a\0b"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> buffer.putNullTerminatedString("\0"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> buffer.putNullTerminatedString("trailing\0"));
+    }
+
+    @Test
+    public void testPut2PrefixedBytes() {
         String test = "test";
         int endExpected = 3333;
 
@@ -207,12 +347,10 @@ public class FixedBufferTest {
         byte[] bytes = new byte[Short.MAX_VALUE];
         checkPut2PrefixedBytes(BytesUtils.toString(bytes), endExpected, Short.MAX_VALUE * 2);
 
-        try {
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> {
             byte[] bytes2 = new byte[Short.MAX_VALUE + 1];
             checkPut2PrefixedBytes(BytesUtils.toString(bytes2), endExpected, Short.MAX_VALUE * 2);
-            Assert.fail("too large bytes");
-        } catch (IndexOutOfBoundsException ignore) {
-        }
+        });
 
     }
 
@@ -233,14 +371,14 @@ public class FixedBufferTest {
 
         Buffer actual = new FixedBuffer(buffer1);
         String s = actual.read2PrefixedString();
-        Assert.assertEquals(test, s);
+        Assertions.assertEquals(test, s);
 
         int i = actual.readInt();
-        Assert.assertEquals(expected, i);
+        Assertions.assertEquals(expected, i);
     }
 
     @Test
-    public void testPut4PrefixedBytes() throws Exception {
+    public void testPut4PrefixedBytes() {
         String test = "test";
         int endExpected = 3333;
 
@@ -263,90 +401,88 @@ public class FixedBufferTest {
 
         Buffer actual = new FixedBuffer(buffer1);
         String s = actual.read4PrefixedString();
-        Assert.assertEquals(test, s);
+        Assertions.assertEquals(test, s);
 
         int i = actual.readInt();
-        Assert.assertEquals(expected, i);
+        Assertions.assertEquals(expected, i);
     }
 
     @Test
-    public void testReadByte() throws Exception {
-
-    }
-
-    @Test
-    public void testReadBoolean() throws Exception {
+    public void testReadByte() {
 
     }
 
     @Test
-    public void testReadInt() throws Exception {
+    public void testReadBoolean() {
 
     }
 
     @Test
-    public void testReadLong() throws Exception {
+    public void testReadInt() {
+
+    }
+
+    @Test
+    public void testReadLong() {
 
     }
 
 
-
-
     @Test
-    public void testReadPrefixedString() throws Exception {
+    public void testReadPrefixedString() {
 
     }
 
 
     private byte[] intToByteArray(int intValue) {
         byte[] buffer = new byte[4];
-        BytesUtils.writeInt(intValue, buffer, 0);
+        ByteArrayUtils.writeInt(intValue, buffer, 0);
         return buffer;
     }
 
     @Test
-    public void testRead4PrefixedString() throws Exception {
+    public void testRead4PrefixedString() {
         String value = "test";
 
         byte[] length = intToByteArray(value.length());
         byte[] string = value.getBytes();
-        byte[] result = BytesUtils.merge(length, string);
+        byte[] result = BytesUtils.concat(length, string);
 
 
         Buffer buffer = new FixedBuffer(result);
         String prefixedString = buffer.read4PrefixedString();
-        Assert.assertEquals(prefixedString, value);
+        Assertions.assertEquals(value, prefixedString);
 
     }
 
 
     @Test
-    public void testRead4PrefixedString_Null() throws Exception {
+    public void testRead4PrefixedString_Null() {
         byte[] length = intToByteArray(-1);
 
 
         Buffer buffer = new FixedBuffer(length);
         String prefixedString = buffer.read4PrefixedString();
-        Assert.assertEquals(prefixedString, null);
+        Assertions.assertNull(prefixedString);
 
     }
 
     @Test
-    public void testPut() throws Exception {
+    public void testPut() {
         checkUnsignedByte(255);
 
         checkUnsignedByte(0);
     }
 
     /**
-    * bound 1->0
-    * bound 2->128
-    * bound 3->16384
-    * bound 4->2097152
-    * bound 5->268435456
-    */
+     * bound 1->0
+     * bound 2->128
+     * bound 3->16384
+     * bound 4->2097152
+     * bound 5->268435456
+     */
     @Test
-    public void testPutVInt() throws Exception {
+    public void testPutVInt() {
         checkVInt(Integer.MAX_VALUE, 5);
         checkVInt(25, 1);
         checkVInt(100, 1);
@@ -387,21 +523,21 @@ public class FixedBufferTest {
         final Buffer buffer = new FixedBuffer(bufferSize);
         buffer.putVInt(v);
         if (offset != -1) {
-            Assert.assertEquals(buffer.getOffset(), offset);
+            Assertions.assertEquals(buffer.getOffset(), offset);
         } else {
             logger.debug("{} offsetSize:{}", v, buffer.getOffset());
         }
         buffer.setOffset(0);
         int readV = buffer.readVInt();
-        Assert.assertEquals(readV, v);
+        Assertions.assertEquals(readV, v);
     }
 
     @Test
-    public void testPutSVInt() throws Exception {
+    public void testPutSVInt() {
         // 63 is the boundary for a 1 byte number
         checkSVInt(63, -1);
         // 8191 is the boundary for a 2 byte number
-        checkSVInt((1024*8)-1, -1);
+        checkSVInt((1024 * 8) - 1, -1);
 
         checkSVInt(3, -1);
 
@@ -421,12 +557,11 @@ public class FixedBufferTest {
 
     }
 
-//    @Test
-    public void find_SVInt_errorCode() throws Exception {
-        Random random = new Random();
+    //    @Test
+    public void find_SVInt_errorCode() {
         byte[] bytes = new byte[10];
 
-        while(true) {
+        while (true) {
             random.nextBytes(bytes);
             Buffer buffer = new FixedBuffer(bytes);
             try {
@@ -444,12 +579,11 @@ public class FixedBufferTest {
         }
     }
 
-//    @Test
-    public void find_SVLong_errorCode() throws Exception {
-        Random random = new Random();
+    //    @Test
+    public void find_SVLong_errorCode() {
         byte[] bytes = new byte[10];
 
-        while(true) {
+        while (true) {
             random.nextBytes(bytes);
             Buffer buffer = new FixedBuffer(bytes);
             try {
@@ -469,57 +603,49 @@ public class FixedBufferTest {
 
     @Test
     public void readVInt_errorCase() {
-        byte[] errorCode = new byte[] {-118, -41, -17, -117, -81, -115, -64, -64, -108, -88};
+        byte[] errorCode = new byte[]{-118, -41, -17, -117, -81, -115, -64, -64, -108, -88};
         Buffer buffer = new FixedBuffer(errorCode);
-        try {
-            buffer.readVInt();
-            Assert.fail("invalid VInt");
-        } catch (IllegalArgumentException ignore) {
-        }
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, buffer::readVInt);
 
-        Assert.assertEquals(0, buffer.getOffset());
+        Assertions.assertEquals(0, buffer.getOffset());
     }
 
     @Test
     public void readVLong_errorCase() {
-        byte[] errorCode = new byte[] {-25, -45, -47, -14, -16, -104, -53, -48, -72, -9};
+        byte[] errorCode = new byte[]{-25, -45, -47, -14, -16, -104, -53, -48, -72, -9};
         Buffer buffer = new FixedBuffer(errorCode);
-        try {
-            buffer.readVLong();
-            Assert.fail("invalid VLong");
-        } catch (IllegalArgumentException ignore) {
-        }
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, buffer::readVLong);
 
-        Assert.assertEquals(0, buffer.getOffset());
+        Assertions.assertEquals(0, buffer.getOffset());
     }
 
     private void checkSVInt(int v, int offset) {
         Buffer buffer = new FixedBuffer(32);
         buffer.putSVInt(v);
         if (offset != -1) {
-            Assert.assertEquals(buffer.getOffset(), offset);
+            Assertions.assertEquals(buffer.getOffset(), offset);
         } else {
             logger.debug("{} offsetSize:{}", v, buffer.getOffset());
         }
         buffer.setOffset(0);
         int readV = buffer.readSVInt();
-        Assert.assertEquals(readV, v);
+        Assertions.assertEquals(readV, v);
     }
 
     @Test
-    public void testPutVLong() throws Exception {
+    public void testPutVLong() {
         checkVLong(1);
         checkVLong(-1);
 
         checkVLong(Long.MAX_VALUE);
         checkVLong(Long.MIN_VALUE);
 
-        checkVLong(Long.MAX_VALUE/2);
-        checkVLong(Long.MIN_VALUE/2);
+        checkVLong(Long.MAX_VALUE / 2);
+        checkVLong(Long.MIN_VALUE / 2);
 
-        checkVLong(Long.MAX_VALUE/128);
+        checkVLong(Long.MAX_VALUE / 128);
 
-        checkVLong(Long.MAX_VALUE/102400);
+        checkVLong(Long.MAX_VALUE / 102400);
 
         checkVLong(900719925474L);
         checkVLong(9007199254L);
@@ -552,7 +678,7 @@ public class FixedBufferTest {
 
         buffer.setOffset(0);
         long readV = buffer.readVLong();
-        Assert.assertEquals(readV, v);
+        Assertions.assertEquals(readV, v);
 
         if (logger.isTraceEnabled()) {
             logger.trace("v:{} offset:{}", v, buffer.getOffset());
@@ -566,39 +692,39 @@ public class FixedBufferTest {
 
         Buffer reader = new FixedBuffer(buffer1);
         int i = reader.readUnsignedByte();
-        Assert.assertEquals(value, i);
+        Assertions.assertEquals(value, i);
     }
 
 
     @Test
-    public void testGetBuffer() throws Exception {
+    public void testGetBuffer() {
         Buffer buffer = new FixedBuffer(4);
         buffer.putInt(1);
-        Assert.assertEquals(buffer.getOffset(), 4);
-        Assert.assertEquals(buffer.getBuffer().length, 4);
+        Assertions.assertEquals(4, buffer.getOffset());
+        assertThat(buffer.getBuffer()).hasSize(4);
     }
 
     @Test
-    public void testWrapByteBuffer() throws Exception {
+    public void testWrapByteBuffer() {
         FixedBuffer buffer = new FixedBuffer(8);
         buffer.putInt(1);
         buffer.putInt(2);
 
         final ByteBuffer byteBuffer = buffer.wrapByteBuffer();
-        Assert.assertEquals(byteBuffer.getInt(), 1);
-        Assert.assertEquals(byteBuffer.getInt(), 2);
+        Assertions.assertEquals(1, byteBuffer.getInt());
+        Assertions.assertEquals(2, byteBuffer.getInt());
     }
 
     @Test
-    public void testSliceGetBuffer() throws Exception {
+    public void testSliceGetBuffer() {
         Buffer buffer = new FixedBuffer(5);
         buffer.putInt(1);
-        Assert.assertEquals(buffer.getOffset(), 4);
-        Assert.assertEquals(buffer.getBuffer().length, 4);
+        Assertions.assertEquals(4, buffer.getOffset());
+        assertThat(buffer.getBuffer()).hasSize(4);
 
         byte[] buffer1 = buffer.getBuffer();
         byte[] buffer2 = buffer.getBuffer();
-        Assert.assertTrue(buffer1 != buffer2);
+        Assertions.assertNotSame(buffer1, buffer2);
 
     }
 
@@ -610,43 +736,112 @@ public class FixedBufferTest {
 
         Buffer read = new FixedBuffer(buffer.getBuffer());
         boolean b = read.readBoolean();
-        Assert.assertEquals(true, b);
+        Assertions.assertTrue(b);
 
         boolean c = read.readBoolean();
-        Assert.assertEquals(false, c);
+        Assertions.assertFalse(c);
     }
 
     @Test
-    public void testGetOffset() throws Exception {
+    public void setByte() {
+        Buffer buffer = new FixedBuffer(16);
+        buffer.putByte((byte) 5);
+        buffer.putInt(123);
+        buffer.putLong(456);
+
+        buffer.setByte(0, (byte) buffer.getOffset());
+        buffer.setOffset(0);
+
+        Assertions.assertEquals(13, buffer.readByte());
+        Assertions.assertEquals(123, buffer.readInt());
+        Assertions.assertEquals(456, buffer.readLong());
+    }
+
+    @Test
+    public void setByte1() {
+        Buffer buffer = new FixedBuffer(16);
+        buffer.putByte((byte) 5);
+        buffer.putInt(123);
+        int fixedSizeOffset = buffer.getOffset();
+        buffer.putPrefixedString("abc");
+
+        buffer.setByte(0, (byte) fixedSizeOffset);
+
+        buffer.setOffset(fixedSizeOffset);
+
+        Assertions.assertEquals("abc", buffer.readPrefixedString());
+    }
+
+    @Test
+    public void testGetOffset() {
         Buffer buffer = new FixedBuffer();
-        Assert.assertEquals(buffer.getOffset(), 0);
+        Assertions.assertEquals(0, buffer.getOffset());
 
         buffer.putInt(4);
-        Assert.assertEquals(buffer.getOffset(), 4);
+        Assertions.assertEquals(4, buffer.getOffset());
 
     }
 
 
     @Test
-    public void test_remaining() throws Exception {
+    public void test_remaining() {
         final byte[] bytes = new byte[BytesUtils.INT_BYTE_LENGTH];
         Buffer buffer = new FixedBuffer(bytes);
-        Assert.assertEquals(buffer.remaining(), 4);
-        Assert.assertTrue(buffer.hasRemaining());
+        Assertions.assertEquals(4, buffer.remaining());
+        Assertions.assertTrue(buffer.hasRemaining());
 
         buffer.putInt(1234);
-        Assert.assertEquals(buffer.remaining(), 0);
-        Assert.assertFalse(buffer.hasRemaining());
+        Assertions.assertEquals(0, buffer.remaining());
+        Assertions.assertFalse(buffer.hasRemaining());
 
         buffer.setOffset(0);
-        buffer.putShort((short)12);
-        Assert.assertEquals(buffer.remaining(), 2);
-        Assert.assertTrue(buffer.hasRemaining());
+        buffer.putShort((short) 12);
+        Assertions.assertEquals(2, buffer.remaining());
+        Assertions.assertTrue(buffer.hasRemaining());
 
-        buffer.putByte((byte)1);
-        Assert.assertEquals(buffer.remaining(), 1);
-        Assert.assertTrue(buffer.hasRemaining());
+        buffer.putByte((byte) 1);
+        Assertions.assertEquals(1, buffer.remaining());
+        Assertions.assertTrue(buffer.hasRemaining());
     }
 
 
+    @Test
+    void testBufferLength() {
+        final byte[] bytes = new byte[BytesUtils.INT_BYTE_LENGTH];
+        FixedBuffer buffer = new FixedBuffer(bytes);
+
+        Assertions.assertEquals(0, buffer.getBufferLength());
+
+        buffer.putByte((byte) 1);
+        Assertions.assertEquals(1, buffer.getBufferLength());
+
+        buffer.putByte((byte) 1);
+        Assertions.assertEquals(2, buffer.getBufferLength());
+
+    }
+
+    @Test
+    void skip() {
+        FixedBuffer buffer = new FixedBuffer(BytesUtils.INT_BYTE_LENGTH * 2);
+        buffer.putInt(1);
+        buffer.putInt(2);
+
+        byte[] bytes = buffer.getBuffer();
+
+        Buffer reader = new FixedBuffer(bytes);
+        reader.skip(BytesUtils.INT_BYTE_LENGTH);
+        Assertions.assertEquals(2, reader.readInt());
+    }
+
+    @Test
+    void skip_overflow() {
+        FixedBuffer buffer = new FixedBuffer(BytesUtils.INT_BYTE_LENGTH);
+        buffer.putInt(1);
+
+        byte[] bytes = buffer.getBuffer();
+
+        Buffer reader = new FixedBuffer(bytes);
+        Assertions.assertEquals(1, reader.readInt());
+        Assertions.assertThrowsExactly(IndexOutOfBoundsException.class, () -> reader.skip(BytesUtils.INT_BYTE_LENGTH));
+    }
 }

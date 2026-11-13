@@ -67,9 +67,8 @@ public class StaticFieldLookUp<T> {
     }
 
     public List<T> lookup(Filter<T> filter) {
-        if (filter == null) {
-            throw new NullPointerException("filter");
-        }
+        Objects.requireNonNull(filter, "filter");
+
         final List<T> lookup = new ArrayList<T>();
 
         Field[] declaredFields = targetClazz.getDeclaredFields();
@@ -83,10 +82,10 @@ public class StaticFieldLookUp<T> {
             if (!field.getType().equals(findClazz)) {
                 continue;
             }
-            final Object filedObject = getObject(field);
+            final Object fieldObject = getObject(field);
 
-            if (findClazz.isInstance(filedObject)) {
-                T type = findClazz.cast(filedObject);
+            if (findClazz.isInstance(fieldObject)) {
+                T type = findClazz.cast(fieldObject);
                 if (filter.filter(type) == Filter.FILTERED) {
                     continue;
                 }

@@ -16,17 +16,18 @@
 
 package com.navercorp.pinpoint.web.service;
 
-import com.navercorp.pinpoint.web.vo.AgentDownloadInfo;
-import com.navercorp.pinpoint.web.vo.AgentInfo;
-import com.navercorp.pinpoint.web.vo.AgentInfoFilter;
-import com.navercorp.pinpoint.web.vo.AgentStatus;
-import com.navercorp.pinpoint.web.vo.ApplicationAgentHostList;
-import com.navercorp.pinpoint.web.vo.ApplicationAgentsList;
-import com.navercorp.pinpoint.web.vo.Range;
+import com.navercorp.pinpoint.common.server.bo.SimpleAgentKey;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.web.vo.agent.AgentAndStatus;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfo;
+import com.navercorp.pinpoint.common.server.bo.AgentStatus;
+import com.navercorp.pinpoint.web.vo.agent.AgentStatusQuery;
+import com.navercorp.pinpoint.web.vo.agent.DetailedAgentAndStatus;
 import com.navercorp.pinpoint.web.vo.timeline.inspector.InspectorTimeline;
 
-import java.util.Collection;
-import java.util.Set;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * @author netspider
@@ -34,34 +35,27 @@ import java.util.Set;
  */
 public interface AgentInfoService {
 
-    ApplicationAgentsList getAllApplicationAgentsList(AgentInfoFilter filter, long timestamp);
+    List<DetailedAgentAndStatus> getAgentsStatisticsList(Service service, Range range);
 
-    ApplicationAgentsList getApplicationAgentsList(ApplicationAgentsList.GroupBy key, AgentInfoFilter filter, String applicationName, long timestamp);
+    @Deprecated
+    List<AgentInfo> getAgentInfoByApplicationName(String applicationName, long timestamp);
 
-    ApplicationAgentHostList getApplicationAgentHostList(int offset, int limit);
+    AgentAndStatus findAgentInfoAndStatus(String agentId, long timestamp);
 
-    ApplicationAgentHostList getApplicationAgentHostList(int offset, int limit, int durationDays);
+    DetailedAgentAndStatus findDetailedAgentInfoAndStatus(String agentId, long timestamp);
 
-    Set<AgentInfo> getAgentsByApplicationName(String applicationName, long timestamp);
+    AgentInfo findAgentInfo(String agentId, long timestamp);
 
-    Set<AgentInfo> getAgentsByApplicationNameWithoutStatus(String applicationName, long timestamp);
+    AgentInfo findAgentInfo(String agentId, long fromTimestamp, long toTimestamp);
 
-    Set<AgentInfo> getRecentAgentsByApplicationName(String applicationName, long timestamp, long timeDiff);
+    AgentInfo getAgentInfo(String agentId, long agentStartTime);
 
-    AgentInfo getAgentInfo(String agentId, long timestamp);
+    List<AgentInfo> getAgentInfos(List<SimpleAgentKey> simpleAgentKeyList);
 
-    AgentInfo getAgentInfoNoStatus(String agentId, long agentStartTime, int deltaTimeInMilliseconds);
+    AgentStatus findAgentStatus(String agentId, long timestamp);
 
-    AgentStatus getAgentStatus(String agentId, long timestamp);
+    List<Optional<AgentStatus>> getAgentStatus(AgentStatusQuery query);
 
-    boolean isActiveAgent(String agentId, Range range);
-
-    void populateAgentStatuses(Collection<AgentInfo> agentInfos, long timestamp);
-
-    InspectorTimeline getAgentStatusTimeline(String agentId, Range range, int... excludeAgentEventTypeCodes);
-
-    boolean isExistAgentId(String agentId);
-
-    AgentDownloadInfo getLatestStableAgentDownloadInfo();
+    InspectorTimeline getAgentStatusTimeline(String serviceName, String applicationName, String agentId, Range range, int... excludeAgentEventTypeCodes);
 
 }

@@ -1,0 +1,86 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.collector.heatmap.dao.pinot;
+
+import com.navercorp.pinpoint.collector.heatmap.config.HeatmapProperties;
+import com.navercorp.pinpoint.collector.heatmap.dao.HeatmapDao;
+import com.navercorp.pinpoint.collector.heatmap.vo.HeatmapAgentStat;
+import com.navercorp.pinpoint.collector.heatmap.vo.HeatmapStat;
+import com.navercorp.pinpoint.collector.heatmap.vo.HeatmapStatKey;
+import com.navercorp.pinpoint.collector.heatmap.vo.HeatmapStatRecord;
+import com.navercorp.pinpoint.common.server.metric.dao.TopicNameManager;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+
+/**
+ * @author minwoo-jung
+ */
+@Repository
+public class PinotHeatmapDao implements HeatmapDao {
+
+    private final KafkaTemplate<String, HeatmapStat> kafkaHeatmapStatTemplate;
+    private final KafkaTemplate<String, Object> kafkaHeatmapRecordTemplate;
+    private final TopicNameManager topicNameManager;
+    private final int keyPartitionCount;
+    private final String agentTopic;
+
+    public PinotHeatmapDao(KafkaTemplate<String, HeatmapStat> kafkaHeatmapStatTemplate,
+                           @Qualifier("kafkaHeatmapRecordTemplate") KafkaTemplate<String, Object> kafkaHeatmapRecordTemplate,
+                           HeatmapProperties heatmapProperties) {
+        this.kafkaHeatmapStatTemplate = Objects.requireNonNull(kafkaHeatmapStatTemplate, "kafkaHeatmapStatTemplate");
+        this.kafkaHeatmapRecordTemplate = Objects.requireNonNull(kafkaHeatmapRecordTemplate, "kafkaHeatmapRecordTemplate");
+        this.topicNameManager = new TopicNameManager(heatmapProperties.getHeatmapTopicPrefix(), heatmapProperties.getHeatMapTopicPaddingLength(), heatmapProperties.getHeatmapTopicCount());
+        this.keyPartitionCount = heatmapProperties.getHeatmapKeyPartitionCount();
+        this.agentTopic = Objects.requireNonNull(heatmapProperties.getAgentTopic(), "agentTopic");
+    }
+
+    @Override
+    public CompletableFuture<?> insert(HeatmapStat heatmapStat) {
+        String topic = topicNameManager.getTopicName(heatmapStat.getApplicationName());
+        return kafkaHeatmapStatTemplate.send(topic, heatmapStat.getSortKey() + "#" + randomPartitionSuffix(), heatmapStat);
+    }
+
+    @Override
+    public CompletableFuture<?> insert(HeatmapStatKey key, long count) {
+        HeatmapStatRecord record = HeatmapStatRecord.of(key, count);
+        String topic = topicNameManager.getTopicName(record.applicationName());
+        return kafkaHeatmapRecordTemplate.send(topic, record.sortKey() + "#" + randomPartitionSuffix(), record);
+    }
+
+    private int randomPartitionSuffix() {
+        if (keyPartitionCount <= 1) {
+            return 0;
+        }
+        return ThreadLocalRandom.current().nextInt(keyPartitionCount);
+    }
+
+    @Override
+    public CompletableFuture<?> insertAgentStat(HeatmapAgentStat heatmapAgentStat) {
+        return kafkaHeatmapRecordTemplate.send(agentTopic, heatmapAgentStat.getAgentId(), heatmapAgentStat);
+    }
+
+    @Override
+    public CompletableFuture<?> insertAgentStat(HeatmapStatKey key, long count) {
+        HeatmapAgentStat record = HeatmapAgentStat.of(key, count);
+        return kafkaHeatmapRecordTemplate.send(agentTopic, record.getAgentId(), record);
+    }
+}

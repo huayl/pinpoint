@@ -1,1 +1,0 @@
-This agent plugin works with elasticsearch highlevel rest client

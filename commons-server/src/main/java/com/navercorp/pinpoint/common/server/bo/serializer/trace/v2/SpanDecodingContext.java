@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,62 @@
 
 package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.buffer.StringAllocator;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.ServiceNameFactory;
+import com.navercorp.pinpoint.common.server.uid.ServiceNameSupplier;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+
+import org.eclipse.collections.api.factory.primitive.IntObjectMaps;
+import org.eclipse.collections.api.map.primitive.MutableIntObjectMap;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public class SpanDecodingContext {
 
-//    private AnnotationBo prevAnnotationBo;
+    private final ServerTraceId transactionId;
+
+    //    private AnnotationBo prevAnnotationBo;
     private long collectorAcceptedTime;
-    private TransactionId transactionId;
+
+    private StringAllocator stringAllocator = StringAllocator.DEFAULT_ALLOCATOR;
+
+    private ServiceNameFactory serviceNameFactory = ServiceNameFactory.FALLBACK;
+
+    // Row-local cache: one serviceName supplier per distinct serviceUid (primitive int key,
+    // no boxing), shared by every span/chunk of this row. Lazily allocated — legacy (non-UID)
+    // rows never touch it.
+    // Row-scoped state: unlike collectorAcceptedTime, this survives next() on purpose.
+    private MutableIntObjectMap<ServiceNameSupplier> serviceNameCache;
+
+    public SpanDecodingContext(ServerTraceId transactionId) {
+        this.transactionId = Objects.requireNonNull(transactionId, "transactionId");
+    }
+
+    public void setServiceNameFactory(ServiceNameFactory serviceNameFactory) {
+        this.serviceNameFactory = Objects.requireNonNull(serviceNameFactory, "serviceNameFactory");
+    }
+
+    public ServiceNameSupplier getServiceName(ServiceUid serviceUid) {
+        Objects.requireNonNull(serviceUid, "serviceUid");
+
+        if (serviceUid.getUid() == ServiceUid.DEFAULT_SERVICE_UID_CODE) {
+            // allocation fast path (the factory returns the same constant):
+            // DEFAULT-only rows never allocate the cache map
+            return ServiceNameSupplier.DEFAULT;
+        }
+
+        MutableIntObjectMap<ServiceNameSupplier> cache = this.serviceNameCache;
+        if (cache == null) {
+            cache = IntObjectMaps.mutable.of();
+            this.serviceNameCache = cache;
+        }
+        return cache.getIfAbsentPutWith(serviceUid.getUid(), serviceNameFactory::create, serviceUid);
+    }
 
 //    public AnnotationBo getPrevFirstAnnotationBo() {
 //        return prevAnnotationBo;
@@ -35,7 +81,6 @@ public class SpanDecodingContext {
 //        this.prevAnnotationBo = prevAnnotationBo;
 //    }
 
-
     public void setCollectorAcceptedTime(long collectorAcceptedTime) {
         this.collectorAcceptedTime = collectorAcceptedTime;
     }
@@ -44,14 +89,17 @@ public class SpanDecodingContext {
         return collectorAcceptedTime;
     }
 
-    public void setTransactionId(TransactionId transactionId) {
-        this.transactionId = transactionId;
-    }
-
-    public TransactionId getTransactionId() {
+    public ServerTraceId getTransactionId() {
         return transactionId;
     }
 
+    public String encoding(byte[] bytes) {
+        return stringAllocator.allocate(bytes, 0, bytes.length, StandardCharsets.UTF_8);
+    }
+
+    public void setStringAllocator(StringAllocator stringAllocator) {
+        this.stringAllocator = Objects.requireNonNull(stringAllocator, "stringAllocator");
+    }
 
     public void next() {
     }

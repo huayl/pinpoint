@@ -16,57 +16,93 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
+import com.navercorp.pinpoint.common.server.annotation.BinaryAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.BooleanAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.ByteAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.DataTypeAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.DoubleAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.FloatAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.IntAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.LongAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.NullAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.ObjectAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.ShortAnnotationBo;
+import com.navercorp.pinpoint.common.server.annotation.StringAnnotationBo;
+import com.navercorp.pinpoint.common.util.DataType;
+
 /**
  * @author emeroad
  */
-public class AnnotationBo {
-
-    private int key;
-    private Object value;
-
-    private boolean isAuthorized = true;
-
-    public AnnotationBo() {
+public interface AnnotationBo {
+    static AnnotationBo of(int key, Object value) {
+        return of(key, value, true);
     }
 
-    public AnnotationBo(int key, Object value) {
-        this.key = key;
-        this.value = value;
+    static AnnotationBo of(int key, Object value, boolean isAuthorized) {
+        if (value == null) {
+            return new NullAnnotationBo(key, isAuthorized);
+        } else if (value instanceof String strValue) {
+            return new StringAnnotationBo(key, strValue, isAuthorized);
+        }
+        if (value instanceof Number) {
+            if (value instanceof Long longValue) {
+                return new LongAnnotationBo(key, longValue, isAuthorized);
+            } else if (value instanceof Integer intValue) {
+                return new IntAnnotationBo(key, intValue, isAuthorized);
+            } else if (value instanceof Double doubleValue) {
+                return new DoubleAnnotationBo(key, doubleValue, isAuthorized);
+            } else if (value instanceof Short shortValue) {
+                return new ShortAnnotationBo(key, shortValue, isAuthorized);
+            } else if (value instanceof Byte byteValue){
+                return new ByteAnnotationBo(key, byteValue, isAuthorized);
+            } else if (value instanceof Float floatValue){
+                return new FloatAnnotationBo(key, floatValue, isAuthorized);
+            }
+        } else if (value instanceof Boolean boolValue) {
+            return new BooleanAnnotationBo(key, boolValue, isAuthorized);
+        } else if (value instanceof byte[] byteArray){
+            return new BinaryAnnotationBo(key, byteArray, isAuthorized);
+        } else if (value instanceof DataType dataTypeValue) {
+            return new DataTypeAnnotationBo(key, dataTypeValue, isAuthorized);
+        }
+        return new ObjectAnnotationBo(key, value, isAuthorized);
     }
 
-    public int getKey() {
-        return key;
+    static AnnotationBo of(int key, String value) {
+        return  new StringAnnotationBo(key, value);
+    }
+
+    static AnnotationBo of(int key, long value) {
+        return new LongAnnotationBo(key, value);
+    }
+
+    static AnnotationBo of(int key, int value) {
+        return new IntAnnotationBo(key, value);
+    }
+
+    static AnnotationBo unauthorized(int key, Object value) {
+        return of(key, value, false);
+    }
+
+    static AnnotationBo unauthorized(int key, String value) {
+        return new StringAnnotationBo(key, value, false);
+    }
+
+    static AnnotationBo unauthorized(int key, long value) {
+        return new LongAnnotationBo(key, value, false);
+    }
+
+    static AnnotationBo unauthorized(int key, int value) {
+        return new IntAnnotationBo(key, value, false);
     }
 
 
-    public void setKey(int key) {
-        this.key = key;
-    }
+    int getKey();
 
 
-    public Object getValue() {
-        return value;
-    }
-
-    public void setValue(Object value) {
-        this.value = value;
-    }
-
-    public boolean isAuthorized() {
-        return isAuthorized;
-    }
-
-    public void setAuthorized(boolean isAuthorized) {
-        this.isAuthorized = isAuthorized;
-    }
+    Object getValue();
 
 
-    @Override
-    public String toString() {
-        return "AnnotationBo{" +
-                "key=" + key +
-                ", value=" + value +
-                ", isAuthorized=" + isAuthorized +
-                '}';
-    }
+    boolean isAuthorized();
+
 }

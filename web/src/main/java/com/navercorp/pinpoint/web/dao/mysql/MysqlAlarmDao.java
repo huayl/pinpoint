@@ -15,17 +15,15 @@
  */
 package com.navercorp.pinpoint.web.dao.mysql;
 
-import java.util.List;
-import java.util.Objects;
-
+import com.navercorp.pinpoint.web.alarm.vo.Rule;
+import com.navercorp.pinpoint.web.dao.AlarmDao;
+import com.navercorp.pinpoint.user.vo.UserGroup;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
-import com.navercorp.pinpoint.web.alarm.vo.CheckerResult;
-import com.navercorp.pinpoint.web.alarm.vo.Rule;
-import com.navercorp.pinpoint.web.dao.AlarmDao;
-import com.navercorp.pinpoint.web.vo.UserGroup;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * @author minwoo.jung
@@ -34,7 +32,7 @@ import com.navercorp.pinpoint.web.vo.UserGroup;
 @Repository
 public class MysqlAlarmDao implements AlarmDao {
 
-    private static final String NAMESPACE = AlarmDao.class.getPackage().getName() + "." + AlarmDao.class.getSimpleName() + ".";
+    private static final String NAMESPACE = AlarmDao.class.getName() + ".";
     
     private final SqlSessionTemplate sqlSessionTemplate;
 
@@ -49,6 +47,7 @@ public class MysqlAlarmDao implements AlarmDao {
     }
     
     @Override
+    @Deprecated
     public String insertRuleExceptWebhookSend(Rule rule) {
         sqlSessionTemplate.insert(NAMESPACE + "insertRuleExceptWebhookSend", rule);
         return rule.getRuleId();
@@ -60,18 +59,18 @@ public class MysqlAlarmDao implements AlarmDao {
     }
 
     @Override
-    public void deleteRuleByUserGroupId(String userGroupId) {
-        sqlSessionTemplate.insert(NAMESPACE + "deleteRuleByUserGroupId", userGroupId);
-    }
-
-    @Override
     public List<Rule> selectRuleByUserGroupId(String userGroupId) {
         return sqlSessionTemplate.selectList(NAMESPACE + "selectRuleByUserGroupId", userGroupId);
     }
     
     @Override
-    public List<Rule> selectRuleByApplicationId(String applicationId) {
-        return sqlSessionTemplate.selectList(NAMESPACE + "selectRuleByApplicationId", applicationId);
+    public List<Rule> selectRuleByApplicationName(String applicationName) {
+        return sqlSessionTemplate.selectList(NAMESPACE + "selectRuleByApplicationName", applicationName);
+    }
+
+    @Override
+    public List<String> selectApplicationName() {
+        return sqlSessionTemplate.selectList(NAMESPACE + "selectApplicationName");
     }
 
     @Override
@@ -80,6 +79,7 @@ public class MysqlAlarmDao implements AlarmDao {
     }
     
     @Override
+    @Deprecated
     public void updateRuleExceptWebhookSend(Rule rule) {
         sqlSessionTemplate.update(NAMESPACE + "updateRuleExceptWebhookSend", rule);
     }
@@ -90,18 +90,9 @@ public class MysqlAlarmDao implements AlarmDao {
     }
 
     @Override
-    public List<CheckerResult> selectBeforeCheckerResultList(String applicationId) {
-        return sqlSessionTemplate.selectList(NAMESPACE + "selectBeforeCheckerResultList", applicationId);
-    }
-
-    @Override
     public void deleteCheckerResult(String ruleId) {
         sqlSessionTemplate.delete(NAMESPACE + "deleteCheckerResult", ruleId);
     }
 
-    @Override
-    public void insertCheckerResult(CheckerResult checkerResult) {
-        sqlSessionTemplate.insert(NAMESPACE + "insertCheckerResult", checkerResult);
-    }
 
 }

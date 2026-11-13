@@ -1,0 +1,218 @@
+import React from 'react';
+import {
+  Button,
+  ErrorAnalysisSidebar,
+  ErrorAnalysisChart,
+  ErrorAnalysisErrorDetail,
+  MainHeader,
+  Separator,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  ErrorAnalysisTable,
+  ErrorAnalysisGroupedTable,
+  DatetimePickerChangeHandler,
+  DatetimePicker,
+  LayoutWithContentSidebar,
+  ApplicationCombinedList,
+  ApplicationCombinedListProps,
+} from '../components';
+import { useNavigate } from 'react-router';
+import {
+  convertParamsToQueryString,
+  getErrorAnalysisPath,
+  getTransactionDetailPath,
+  getTransactionDetailQueryString,
+} from '@pinpoint-fe/ui/src/utils';
+import {
+  useConfiguration,
+  useErrorAnalysisSearchParameters,
+  useIsForbiddenPath,
+  useRequestService,
+  useTimezone,
+} from '@pinpoint-fe/ui/src/hooks';
+import { Forbidden403 } from './Forbidden403';
+import { useTranslation } from 'react-i18next';
+import { ErrorAnalysisErrorList, BASE_PATH, APP_SETTING_KEYS } from '@pinpoint-fe/ui/src/constants';
+import { formatInTimeZone } from 'date-fns-tz';
+import { IoMdClose } from 'react-icons/io';
+import { PiBugBeetleDuotone } from 'react-icons/pi';
+import { LuExternalLink } from 'react-icons/lu';
+import { FaChevronRight } from 'react-icons/fa6';
+import { ServerIcon } from '../components/Application/ServerIcon';
+
+export interface ErrorAnalysisPageProps {
+  ApplicationList?: (props: ApplicationCombinedListProps) => React.ReactElement;
+}
+
+export const ErrorAnalysisPage = ({
+  ApplicationList = ApplicationCombinedList,
+}: ErrorAnalysisPageProps) => {
+  const configuration = useConfiguration();
+  const periodMax = configuration?.['periodMax.exceptionTrace'];
+  const periodInterval = configuration?.['periodInterval.exceptionTrace'];
+  const navigate = useNavigate();
+  const [timezone] = useTimezone();
+  // 이 화면의 URL에 실린 service. 화면 안의 이동과, 새 탭으로 여는 transactionDetail에 그대로
+  // 이어 실어 그 탭이 전역 선택값 변화에 흔들리지 않게 한다.
+  const serviceName = useRequestService();
+  const {
+    searchParameters,
+    application,
+    agentId,
+    groupBy,
+    parsedTransactionInfo,
+    openErrorDetail,
+  } = useErrorAnalysisSearchParameters();
+  const isForbidden = useIsForbiddenPath();
+  const [open, setOpen] = React.useState<boolean>(openErrorDetail);
+  const [errorInfo, setErrorInfo] =
+    React.useState<ErrorAnalysisErrorList.ErrorData>(parsedTransactionInfo);
+
+  const { t } = useTranslation();
+
+  const handleChangeDateRagePicker = React.useCallback(
+    (({ formattedDates: formattedDate }) => {
+      navigate(
+        `${getErrorAnalysisPath(application!, undefined, serviceName)}?${convertParamsToQueryString(
+          {
+            ...formattedDate,
+            ...{ agentId, groupBy },
+          },
+        )}`,
+      );
+    }) as DatetimePickerChangeHandler,
+    [application?.applicationName, agentId, groupBy, serviceName],
+  );
+
+  return (
+    <div className="flex flex-col flex-1 h-full">
+      <MainHeader
+        title={
+          <div className="flex items-center gap-2">
+            <PiBugBeetleDuotone /> Error Analysis
+          </div>
+        }
+      >
+        <ApplicationList
+          open={!application}
+          selectedApplication={application}
+          onClickApplication={(application) =>
+            navigate(getErrorAnalysisPath(application, undefined, serviceName))
+          }
+        />
+        <div className="ml-auto">
+          {application && (
+            <DatetimePicker
+              from={searchParameters.from}
+              to={searchParameters.to}
+              onChange={handleChangeDateRagePicker}
+              maxDateRangeDays={periodMax}
+              outOfDateRangeMessage={t('DATE_RANGE_PICKER.MAX_SEARCH_PERIOD', {
+                maxSearchPeriod: periodMax,
+              })}
+              timeUnits={periodInterval}
+            />
+          )}
+        </div>
+      </MainHeader>
+      {/* 이 화면의 API 중 하나가 403을 받았다. **헤더는 남기고 본문만 바꾼다** — 본문을 언마운트해
+          남은 조회들도 함께 멈추고, 사용자는 위의 선택 박스로 다른 대상을 고를 수 있다.
+          (이슈 #10744) */}
+      {isForbidden && <Forbidden403 />}
+      {!isForbidden && application && (
+        <LayoutWithContentSidebar
+          autoSaveId={APP_SETTING_KEYS.ERROR_ANALYSIS_RESIZABLE}
+          // 창이 작아 테이블이 최소 높이(20rem)에 걸리면 내용이 h-full 상자보다 길어진다. 넘친 내용에는
+          // 바깥 스크롤 영역의 아래 padding이 붙지 않아 테이블이 화면 끝에 붙으므로 상자를 내용만큼 늘린다.
+          contentWrapperClassName="min-h-fit"
+        >
+          <ErrorAnalysisSidebar />
+          <>
+            <div className="px-6 py-2 bg-white border rounded h-72 shrink-0">
+              <ErrorAnalysisChart emptyMessage={t('COMMON.NO_DATA')} />
+            </div>
+            {groupBy ? (
+              <ErrorAnalysisGroupedTable className="mt-20" />
+            ) : (
+              <ErrorAnalysisTable
+                onClickRow={(row) => {
+                  setOpen(true);
+                  setErrorInfo(row.original);
+                }}
+              />
+            )}
+          </>
+          {errorInfo && (
+            <Sheet open={open} onOpenChange={setOpen}>
+              <SheetContent
+                className="flex flex-col gap-0 w-3/5 sm:max-w-full px-0 py-4"
+                overlayClassName="bg-transparent backdrop-blur-none"
+                hideClose={true}
+              >
+                <SheetHeader className="px-6">
+                  <SheetTitle className="flex items-center gap-1">
+                    <div className="w-1 h-4 rounded-sm bg-status-fail" />
+                    Error Detail{' '}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="ml-auto border-none shadow-none color-"
+                      onClick={() => setOpen(!open)}
+                    >
+                      <IoMdClose className="w-5 h-5" />
+                    </Button>
+                  </SheetTitle>
+                  <SheetDescription className="space-y-2 font-semibold" asChild>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <ServerIcon className="w-4" application={application} />
+                        <h3 className="text-base font-medium truncate text-foreground">
+                          {application.applicationName}
+                        </h3>
+                        <div className="pr-2 ml-auto text-xs font-medium truncate">
+                          {formatInTimeZone(errorInfo.timestamp, timezone, 'MM.dd HH:mm:ss SSS')}
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="truncate text-foreground">{errorInfo.agentId}</div>
+                        <FaChevronRight className="fill-slate-400 mx-1.5 flex-none" />
+                        <div className="truncate text-foreground">{errorInfo.uriTemplate}</div>
+                        <FaChevronRight className="fill-slate-400 mx-1.5 flex-none" />
+                        <div
+                          className="flex items-center gap-1 truncate cursor-pointer hover:text-primary hover:underline"
+                          onClick={() => {
+                            const path = getTransactionDetailPath(
+                              application,
+                              undefined,
+                              serviceName,
+                            );
+                            window.open(
+                              `${BASE_PATH}${path}?${getTransactionDetailQueryString({
+                                agentId: errorInfo.agentId,
+                                spanId: `${errorInfo.spanId}`,
+                                traceId: errorInfo.transactionId,
+                                focusTimestamp: errorInfo.timestamp,
+                              })}`,
+                            );
+                          }}
+                        >
+                          {errorInfo.transactionId}
+                          <LuExternalLink className="ml-1" />
+                        </div>
+                      </div>
+                    </div>
+                  </SheetDescription>
+                </SheetHeader>
+                <Separator className="mt-[20px]" />
+                <ErrorAnalysisErrorDetail errorInfo={errorInfo} />
+              </SheetContent>
+            </Sheet>
+          )}
+        </LayoutWithContentSidebar>
+      )}
+    </div>
+  );
+};

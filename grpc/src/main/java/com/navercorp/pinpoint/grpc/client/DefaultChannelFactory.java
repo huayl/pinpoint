@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2024 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,29 @@
 
 package com.navercorp.pinpoint.grpc.client;
 
+import com.google.common.util.concurrent.MoreExecutors;
 import com.navercorp.pinpoint.common.profiler.concurrent.PinpointThreadFactory;
 import com.navercorp.pinpoint.grpc.ChannelTypeEnum;
-import com.navercorp.pinpoint.grpc.ExecutorUtils;
 import com.navercorp.pinpoint.grpc.client.config.ClientOption;
+import com.navercorp.pinpoint.grpc.client.config.ClientRetryOption;
 import io.grpc.ClientInterceptor;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.NameResolverProvider;
-import io.grpc.internal.GrpcUtil;
 import io.grpc.netty.InternalNettyChannelBuilder;
+import io.grpc.netty.NegotiationType;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.stub.MetadataUtils;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.WriteBufferWaterMark;
+import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.Future;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -51,7 +54,7 @@ import java.util.concurrent.TimeUnit;
  * @author Woonduk Kang(emeroad)
  */
 public class DefaultChannelFactory implements ChannelFactory {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final String factoryName;
 
@@ -59,6 +62,11 @@ public class DefaultChannelFactory implements ChannelFactory {
     private final HeaderFactory headerFactory;
 
     private final ClientOption clientOption;
+    // nullable
+    private final SslContext sslContext;
+
+    // nullable
+    private final ClientRetryOption clientRetryOption;
 
     private final List<ClientInterceptor> clientInterceptorList;
     private final NameResolverProvider nameResolverProvider;
@@ -69,13 +77,14 @@ public class DefaultChannelFactory implements ChannelFactory {
     private final ExecutorService executorService;
     private final Class<? extends Channel> channelType;
 
-
     DefaultChannelFactory(String factoryName,
                           int executorQueueSize,
                           HeaderFactory headerFactory,
                           NameResolverProvider nameResolverProvider,
                           ClientOption clientOption,
-                          List<ClientInterceptor> clientInterceptorList) {
+                          List<ClientInterceptor> clientInterceptorList,
+                          SslContext sslContext,
+                          ClientRetryOption clientRetryOption) {
         this.factoryName = Objects.requireNonNull(factoryName, "factoryName");
         this.executorQueueSize = executorQueueSize;
         this.headerFactory = Objects.requireNonNull(headerFactory, "headerFactory");
@@ -84,7 +93,12 @@ public class DefaultChannelFactory implements ChannelFactory {
         this.clientOption = Objects.requireNonNull(clientOption, "clientOption");
 
         Objects.requireNonNull(clientInterceptorList, "clientInterceptorList");
-        this.clientInterceptorList = new ArrayList<ClientInterceptor>(clientInterceptorList);
+        this.clientInterceptorList = new ArrayList<>(clientInterceptorList);
+        // nullable
+        this.sslContext = sslContext;
+        // nullable
+        this.clientRetryOption = clientRetryOption;
+
 
         ChannelType channelType = getChannelType();
         this.channelType = channelType.getChannelType();
@@ -113,7 +127,7 @@ public class DefaultChannelFactory implements ChannelFactory {
 
     private ExecutorService newExecutorService(String name, int executorQueueSize) {
         ThreadFactory threadFactory = new PinpointThreadFactory(PinpointThreadFactory.DEFAULT_THREAD_NAME_PREFIX + name, true);
-        BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<Runnable>(executorQueueSize);
+        BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<>(executorQueueSize);
         return new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS,
                 workQueue, threadFactory);
@@ -134,7 +148,6 @@ public class DefaultChannelFactory implements ChannelFactory {
         channelBuilder.eventLoopGroup(eventLoopGroup);
 
         setupInternal(channelBuilder);
-        channelBuilder.defaultLoadBalancingPolicy(GrpcUtil.DEFAULT_LB_POLICY);
 
         addHeader(channelBuilder);
         addClientInterceptor(channelBuilder);
@@ -146,11 +159,21 @@ public class DefaultChannelFactory implements ChannelFactory {
         }
         setupClientOption(channelBuilder);
 
+        if (sslContext != null) {
+            logger.info("{} enable SslContext", channelName);
+            channelBuilder.sslContext(sslContext);
+            channelBuilder.negotiationType(NegotiationType.TLS);
+        }
+
+        // RetryOption
+        if (clientRetryOption != null) {
+            setupRetryOption(channelBuilder);
+        }
+
+
         channelBuilder.maxTraceEvents(clientOption.getMaxTraceEvent());
 
-        final ManagedChannel channel = channelBuilder.build();
-
-        return channel;
+        return channelBuilder.build();
     }
 
     @SuppressWarnings("deprecation")
@@ -188,6 +211,7 @@ public class DefaultChannelFactory implements ChannelFactory {
         channelBuilder.maxInboundMessageSize(clientOption.getMaxInboundMessageSize());
         channelBuilder.flowControlWindow(clientOption.getFlowControlWindow());
         channelBuilder.idleTimeout(clientOption.getIdleTimeoutMillis(), TimeUnit.MILLISECONDS);
+        channelBuilder.defaultLoadBalancingPolicy(clientOption.getDefaultLoadBalancer());
 
         // ChannelOption
         channelBuilder.withOption(ChannelOption.TCP_NODELAY, true);
@@ -200,6 +224,18 @@ public class DefaultChannelFactory implements ChannelFactory {
         }
     }
 
+    private void setupRetryOption(final NettyChannelBuilder channelBuilder) {
+        channelBuilder.enableRetry();
+        channelBuilder.retryBufferSize(clientRetryOption.getRetryBufferSize());
+        channelBuilder.perRpcBufferLimit(clientRetryOption.getPerRpcBufferLimit());
+
+        //channelBuilder.disableServiceConfigLookUp();
+        channelBuilder.defaultServiceConfig(clientRetryOption.getRetryServiceConfig());
+        if (logger.isDebugEnabled()) {
+            logger.debug("Set clientRetryOption {}. name={}", clientRetryOption, factoryName);
+        }
+    }
+
     @Override
     public void close() {
         final Future<?> future = eventLoopGroup.shutdownGracefully();
@@ -209,23 +245,25 @@ public class DefaultChannelFactory implements ChannelFactory {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        ExecutorUtils.shutdownExecutorService(factoryName + "-eventLoopExecutor", eventLoopExecutor);
-        ExecutorUtils.shutdownExecutorService(factoryName + "-executorService", executorService);
+        if (!MoreExecutors.shutdownAndAwaitTermination(eventLoopExecutor, Duration.ofSeconds(3))) {
+            logger.warn("{}-eventLoopExecutor shutdown failed", factoryName);
+        }
+        if (!MoreExecutors.shutdownAndAwaitTermination(executorService, Duration.ofSeconds(3))) {
+            logger.warn("{}-executorService shutdown failed", factoryName);
+        }
     }
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("DefaultChannelFactory{");
-        sb.append("factoryName='").append(factoryName).append('\'');
-        sb.append(", executorQueueSize=").append(executorQueueSize);
-        sb.append(", headerFactory=").append(headerFactory);
-        sb.append(", clientOption=").append(clientOption);
-        sb.append(", clientInterceptorList=").append(clientInterceptorList);
-        sb.append(", nameResolverProvider=").append(nameResolverProvider);
-        sb.append(", eventLoopGroup=").append(eventLoopGroup);
-        sb.append(", eventLoopExecutor=").append(eventLoopExecutor);
-        sb.append(", executorService=").append(executorService);
-        sb.append('}');
-        return sb.toString();
+        return "DefaultChannelFactory{" + "factoryName='" + factoryName + '\'' +
+                ", executorQueueSize=" + executorQueueSize +
+                ", headerFactory=" + headerFactory +
+                ", clientOption=" + clientOption +
+                ", clientInterceptorList=" + clientInterceptorList +
+                ", nameResolverProvider=" + nameResolverProvider +
+                ", eventLoopGroup=" + eventLoopGroup +
+                ", eventLoopExecutor=" + eventLoopExecutor +
+                ", executorService=" + executorService +
+                '}';
     }
 }

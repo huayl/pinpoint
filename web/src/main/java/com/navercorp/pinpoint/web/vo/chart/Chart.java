@@ -16,6 +16,8 @@
 
 package com.navercorp.pinpoint.web.vo.chart;
 
+import com.navercorp.pinpoint.common.timeseries.point.Point;
+
 import java.util.List;
 
 public class Chart<P extends Point> {
@@ -47,9 +49,8 @@ public class Chart<P extends Point> {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("Chart{");
-        sb.append("points=").append(points);
-        sb.append('}');
-        return sb.toString();
+        return "Chart{" +
+                "points=" + points +
+                '}';
     }
 }

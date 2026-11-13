@@ -1,11 +1,11 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,69 +16,92 @@
 
 package com.navercorp.pinpoint.collector.handler.grpc;
 
-import com.google.protobuf.GeneratedMessageV3;
 import com.navercorp.pinpoint.collector.handler.RequestResponseHandler;
 import com.navercorp.pinpoint.collector.service.SqlMetaDataService;
 import com.navercorp.pinpoint.common.server.bo.SqlMetaDataBo;
-import com.navercorp.pinpoint.grpc.Header;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
+import com.navercorp.pinpoint.common.server.io.ServerResponse;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
 import com.navercorp.pinpoint.grpc.MessageFormatUtils;
-import com.navercorp.pinpoint.grpc.server.ServerContext;
 import com.navercorp.pinpoint.grpc.trace.PResult;
 import com.navercorp.pinpoint.grpc.trace.PSqlMetaData;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-import com.navercorp.pinpoint.io.request.ServerResponse;
-import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
  * @author emeroad
  */
 @Service
-public class GrpcSqlMetaDataHandler implements RequestResponseHandler<GeneratedMessageV3, GeneratedMessageV3> {
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+public class GrpcSqlMetaDataHandler implements RequestResponseHandler<PSqlMetaData, PResult> {
+    private final Logger logger = LogManager.getLogger(getClass());
     private final boolean isDebug = logger.isDebugEnabled();
 
-    private final SqlMetaDataService sqlMetaDataService;
+    private final SqlMetaDataService[] sqlMetaDataServices;
 
-    public GrpcSqlMetaDataHandler(SqlMetaDataService sqlMetaDataService) {
-        this.sqlMetaDataService = Objects.requireNonNull(sqlMetaDataService, "sqlMetaDataService");
+    public GrpcSqlMetaDataHandler(SqlMetaDataService[] sqlMetaDataServices) {
+        this.sqlMetaDataServices = Objects.requireNonNull(sqlMetaDataServices, "sqlMetaDataServices");
+        logger.info("SqlMetaDataServices {}", Arrays.toString(sqlMetaDataServices));
     }
-
 
     @Override
-    public void handleRequest(ServerRequest<GeneratedMessageV3> serverRequest, ServerResponse<GeneratedMessageV3> serverResponse) {
-        final GeneratedMessageV3 data = serverRequest.getData();
-        if (data instanceof PSqlMetaData) {
-            PResult result = handleSqlMetaData((PSqlMetaData) data);
-            serverResponse.write(result);
-        } else {
-            logger.warn("Invalid request type. serverRequest={}", serverRequest);
-            throw Status.INTERNAL.withDescription("Bad Request(invalid request type)").asRuntimeException();
-        }
+    public void handleRequest(ServerRequest<PSqlMetaData> serverRequest, ServerResponse<PResult> serverResponse) {
+        final PSqlMetaData sqlMetaData = serverRequest.getData();
+        PResult result = handleSqlMetaData(serverRequest.getHeader(), sqlMetaData);
+        serverResponse.write(result);
     }
 
-    private PResult handleSqlMetaData(PSqlMetaData sqlMetaData) {
+    PResult handleSqlMetaData(ServerHeader header, PSqlMetaData sqlMetaData) {
         if (isDebug) {
             logger.debug("Handle PSqlMetaData={}", MessageFormatUtils.debugLog(sqlMetaData));
         }
 
         try {
-            final Header agentInfo = ServerContext.getAgentInfo();
-            final String agentId = agentInfo.getAgentId();
-            final long agentStartTime = agentInfo.getAgentStartTime();
+            ServiceUid serviceUid = header.getServiceUid().get();
+            if (serviceUid == null || ServiceUid.UNKNOWN.equals(serviceUid) || ServiceUid.ERROR.equals(serviceUid)) {
+                logger.warn("Service not found. serviceName={}, serviceUid={}, applicationName={}, agentId={}",
+                        header.getServiceName(), serviceUid, header.getApplicationName(), header.getAgentId());
+                return PResults.serviceNotFound(header.getServiceName());
+            }
 
-            final SqlMetaDataBo sqlMetaDataBo = new SqlMetaDataBo(agentId, agentStartTime, sqlMetaData.getSqlId());
-            sqlMetaDataBo.setSql(sqlMetaData.getSql());
-            sqlMetaDataService.insert(sqlMetaDataBo);
-            return PResult.newBuilder().setSuccess(true).build();
+            final SqlMetaDataBo sqlMetaDataBo = mapSqlMetaDataBo(header, sqlMetaData, serviceUid);
+
+            boolean result = true;
+            for (SqlMetaDataService sqlMetaDataService : sqlMetaDataServices) {
+                try {
+                    sqlMetaDataService.insert(sqlMetaDataBo);
+                } catch (Exception e) {
+                    // Avoid detailed error messages.
+                    logger.warn("Failed to handle applicationName={}, sqlMetaData={}", header.getApplicationName(), MessageFormatUtils.debugLog(sqlMetaData), e);
+                    result = false;
+                }
+            }
+
+            return newResult(result);
         } catch (Exception e) {
-            logger.warn("Failed to handle sqlMetaData={}", MessageFormatUtils.debugLog(sqlMetaData), e);
-            // Avoid detailed error messages.
-            return PResult.newBuilder().setSuccess(false).setMessage("Internal Server Error").build();
+            logger.warn("Failed to handle applicationName={}, sqlMetaData={}", header.getApplicationName(), MessageFormatUtils.debugLog(sqlMetaData), e);
+            return PResults.INTERNAL_SERVER_ERROR;
+        }
+    }
+
+    private static SqlMetaDataBo mapSqlMetaDataBo(ServerHeader agentInfo, PSqlMetaData sqlMetaData, ServiceUid serviceUid) {
+        final String agentId = agentInfo.getAgentId();
+        final long agentStartTime = agentInfo.getAgentStartTime();
+        final int sqlId = sqlMetaData.getSqlId();
+        final String sql = sqlMetaData.getSql();
+
+        return new SqlMetaDataBo(serviceUid, agentId, agentStartTime, sqlId, sql);
+    }
+
+    private static PResult newResult(boolean success) {
+        if (success) {
+            return PResults.SUCCESS;
+        } else {
+            return PResults.INTERNAL_SERVER_ERROR;
         }
     }
 }

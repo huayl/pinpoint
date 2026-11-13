@@ -19,6 +19,9 @@ package com.navercorp.pinpoint.common.server.bo;
 import com.navercorp.pinpoint.common.buffer.AutomaticBuffer;
 import com.navercorp.pinpoint.common.buffer.Buffer;
 import com.navercorp.pinpoint.common.buffer.FixedBuffer;
+import com.navercorp.pinpoint.common.server.util.ByteUtils;
+
+import java.util.Objects;
 
 /**
  * @author HyunGil Jeong
@@ -26,63 +29,52 @@ import com.navercorp.pinpoint.common.buffer.FixedBuffer;
 public class JvmInfoBo {
 
     private final byte version;
-    private String jvmVersion;
-    private String gcTypeName;
+    private final String jvmVersion;
+    private final String gcTypeName;
 
-    public JvmInfoBo(int version) {
-        if (version < 0 || version > 255) {
-            throw new IllegalArgumentException("version out of range (0~255)");
-        }
-        this.version = (byte) (version & 0xFF);
+    public JvmInfoBo(int version, String jvmVersion, String gcTypeName) {
+        this.version = ByteUtils.toUnsignedByte(version);
+
+        this.jvmVersion = Objects.requireNonNull(jvmVersion, "jvmVersion");
+        this.gcTypeName = Objects.requireNonNull(gcTypeName, "gcTypeName");
     }
 
-    public JvmInfoBo(byte[] serializedJvmInfoBo) {
+    public static JvmInfoBo readJvmInfo(byte[] serializedJvmInfoBo) {
         final Buffer buffer = new FixedBuffer(serializedJvmInfoBo);
-        this.version = buffer.readByte();
-        int version = this.version & 0xFF;
-        switch (version) {
-            case 0:
-                this.jvmVersion = buffer.readPrefixedString();
-                this.gcTypeName = buffer.readPrefixedString();
-                break;
-            default:
-                this.jvmVersion = "";
-                this.gcTypeName = "";
-                break;
+        final int version = Byte.toUnsignedInt(buffer.readByte());
+        if (version == 0) {
+            String jvmVersion = buffer.readPrefixedString();
+            String gcTypeName = buffer.readPrefixedString();
+            return new JvmInfoBo(version, jvmVersion, gcTypeName);
         }
+        return new JvmInfoBo(version, "", "");
     }
 
     public int getVersion() {
-        return version & 0xFF;
+        return Byte.toUnsignedInt(version);
+    }
+
+    public byte getRawVersion() {
+        return version;
     }
 
     public String getJvmVersion() {
         return jvmVersion;
     }
 
-    public void setJvmVersion(String jvmVersion) {
-        this.jvmVersion = jvmVersion;
-    }
 
     public String getGcTypeName() {
         return gcTypeName;
     }
 
-    public void setGcTypeName(String gcTypeName) {
-        this.gcTypeName = gcTypeName;
-    }
 
     public byte[] writeValue() {
         final Buffer buffer = new AutomaticBuffer();
         buffer.putByte(this.version);
-        int version = this.version & 0xFF;
-        switch (version) {
-            case 0:
-                buffer.putPrefixedString(this.jvmVersion);
-                buffer.putPrefixedString(this.gcTypeName);
-                break;
-            default:
-                break;
+        final int version = this.version & 0xFF;
+        if (version == 0) {
+            buffer.putPrefixedString(this.jvmVersion);
+            buffer.putPrefixedString(this.gcTypeName);
         }
         return buffer.getBuffer();
     }

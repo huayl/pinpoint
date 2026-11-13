@@ -50,35 +50,30 @@ public class DefaultExecutionTypeFilter implements ExecutionTypeFilter {
 
     @Override
     public boolean accept(boolean hasError) {
-        switch (executionType) {
-            case ALL: {
-                return SpanVisitor.ACCEPT;
-            }
-            case FAIL_ONLY: {
+        return switch (executionType) {
+            case ALL -> SpanVisitor.ACCEPT;
+            case FAIL_ONLY -> {
                 // is error
                 if (hasError) {
-                    return SpanVisitor.ACCEPT;
+                    yield SpanVisitor.ACCEPT;
                 }
-                return SpanVisitor.REJECT;
+                yield SpanVisitor.REJECT;
             }
-            case SUCCESS_ONLY: {
+            case SUCCESS_ONLY -> {
                 // is success
                 if (hasError == false) {
-                    return SpanVisitor.ACCEPT;
+                    yield SpanVisitor.ACCEPT;
                 }
-                return SpanVisitor.REJECT;
+                yield SpanVisitor.REJECT;
             }
-            default: {
-                throw new UnsupportedOperationException("Unsupported ExecutionType:" + executionType);
-            }
-        }
+            default -> throw new UnsupportedOperationException("Unsupported ExecutionType:" + executionType);
+        };
     }
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("DefaultExecutionErrorFilter{");
-        sb.append("executionType=").append(executionType);
-        sb.append('}');
-        return sb.toString();
+        return "DefaultExecutionErrorFilter{" +
+                "executionType=" + executionType +
+                '}';
     }
 }

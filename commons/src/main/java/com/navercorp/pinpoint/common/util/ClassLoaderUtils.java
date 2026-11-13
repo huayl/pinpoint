@@ -16,17 +16,13 @@
 
 package com.navercorp.pinpoint.common.util;
 
+import java.util.Objects;
+import java.util.function.Supplier;
+
 /**
  * @author emeroad
  */
 public final class ClassLoaderUtils {
-
-    public static final ClassLoaderCallable DEFAULT_CLASS_LOADER_CALLABLE = new ClassLoaderCallable() {
-        @Override
-        public ClassLoader getClassLoader() {
-            return ClassLoaderUtils.class.getClassLoader();
-        }
-    };
 
     private static final ClassLoader SYSTEM_CLASS_LOADER;
     private static final ClassLoader EXT_CLASS_LOADER;
@@ -63,13 +59,11 @@ public final class ClassLoaderUtils {
 //    }
 
     public static ClassLoader getDefaultClassLoader() {
-        return getDefaultClassLoader(DEFAULT_CLASS_LOADER_CALLABLE);
+        return getDefaultClassLoader(ClassLoaderUtils.class::getClassLoader);
     }
 
-    public static ClassLoader getDefaultClassLoader(ClassLoaderCallable defaultClassLoaderCallable) {
-        if (defaultClassLoaderCallable == null) {
-            throw new NullPointerException("defaultClassLoaderCallable");
-        }
+    public static ClassLoader getDefaultClassLoader(Supplier<ClassLoader> defaultClassLoaderCallable) {
+        Objects.requireNonNull(defaultClassLoaderCallable, "defaultClassLoaderCallable");
 
         try {
             final Thread th = Thread.currentThread();
@@ -77,23 +71,17 @@ public final class ClassLoaderUtils {
             if (contextClassLoader != null) {
                 return contextClassLoader;
             }
-        } catch (Throwable ignore) {
+        } catch (Throwable ignored) {
             // skip
         }
         // Timing for security exceptions is different when the ClassLoader is received as an argument
-        return defaultClassLoaderCallable.getClassLoader();
+        return defaultClassLoaderCallable.get();
     }
 
-    public interface ClassLoaderCallable {
-        ClassLoader getClassLoader();
-    }
 
 
     public static boolean isJvmClassLoader(ClassLoader classLoader) {
-        if (BOOT_CLASS_LOADER == classLoader || SYSTEM_CLASS_LOADER == classLoader || EXT_CLASS_LOADER == classLoader) {
-            return true;
-        }
-        return false;
+        return BOOT_CLASS_LOADER == classLoader || SYSTEM_CLASS_LOADER == classLoader || EXT_CLASS_LOADER == classLoader;
     }
 
     public static String dumpStandardClassLoader() {
@@ -110,7 +98,7 @@ public final class ClassLoaderUtils {
         if (classLoader == null) {
             buffer.append("null");
         } else {
-            buffer.append(classLoader.toString());
+            buffer.append(classLoader);
         }
         buffer.append(", ");
     }

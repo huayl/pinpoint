@@ -1,0 +1,22 @@
+package com.navercorp.pinpoint.web.view.id;
+
+import com.navercorp.pinpoint.common.server.bo.Application;
+
+import java.util.Objects;
+
+public record AgentNameView(String agentName) {
+
+    public static AgentNameView of(Application application) {
+        Objects.requireNonNull(application, "application");
+        return new AgentNameView(application.getApplicationName());
+    }
+
+    public AgentNameView(String agentName) {
+        this.agentName = Objects.requireNonNull(agentName, "agentName");
+    }
+
+    @Override
+    public String toString() {
+        return agentName;
+    }
+}

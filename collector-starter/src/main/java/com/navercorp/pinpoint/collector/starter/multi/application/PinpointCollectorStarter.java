@@ -1,0 +1,111 @@
+package com.navercorp.pinpoint.collector.starter.multi.application;
+
+import com.navercorp.pinpoint.agentstatistics.collector.AgentStatisticsCollectorConfig;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.CollectorType;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.CollectorTypeParser;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.CollectorTypeSet;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.FallbackCollectorTypeParser;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.RunCommandCollectorTypeParser;
+import com.navercorp.pinpoint.collector.starter.multi.application.type.SimpleCollectorTypeParser;
+import com.navercorp.pinpoint.common.server.banner.PinpointSpringBanner;
+import com.navercorp.pinpoint.common.server.env.EnvironmentLoggingListener;
+import com.navercorp.pinpoint.common.server.env.ExternalEnvironmentListener;
+import com.navercorp.pinpoint.common.server.env.ProfileResolveListener;
+import com.navercorp.pinpoint.common.server.util.ServerBootLogger;
+import com.navercorp.pinpoint.exceptiontrace.collector.ExceptionTraceCollectorConfig;
+import com.navercorp.pinpoint.inspector.collector.InspectorCollectorConfig;
+import com.navercorp.pinpoint.log.collector.LogCollectorModule;
+import com.navercorp.pinpoint.metric.collector.MetricCollectorApp;
+import com.navercorp.pinpoint.otlp.collector.OtlpMetricCollectorConfig;
+import com.navercorp.pinpoint.otlp.log.collector.OtlpLogCollectorModule;
+import com.navercorp.pinpoint.otlp.trace.collector.OtlpTraceCollectorApp;
+import com.navercorp.pinpoint.redis.RedisPropertySources;
+import com.navercorp.pinpoint.uristat.collector.UriStatCollectorConfig;
+import org.springframework.boot.Banner;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+
+import java.util.Arrays;
+
+@SpringBootConfiguration
+public class PinpointCollectorStarter {
+    private static final ServerBootLogger logger = ServerBootLogger.getLogger(PinpointCollectorStarter.class);
+
+    public static final String EXTERNAL_PROPERTY_SOURCE_NAME = "CollectorExternalEnvironment";
+    public static final String EXTERNAL_CONFIGURATION_KEY = "pinpoint.collector.config.location";
+
+    public static void main(String[] args) {
+        logger.info("args:" + Arrays.toString(args));
+
+        SpringApplicationBuilder builder = new SpringApplicationBuilder();
+
+        builder.sources(PinpointCollectorStarter.class);
+        builder.listeners(new ProfileResolveListener());
+
+
+        CollectorTypeParser parser = new FallbackCollectorTypeParser(
+                new SimpleCollectorTypeParser(),
+                new RunCommandCollectorTypeParser()
+        );
+        CollectorTypeSet types = parser.parse(args);
+        logger.info(String.format("Collector type set: %s", types));
+
+        if (types.hasType(CollectorType.BASIC)) {
+            logger.info(String.format("Start %s collector", CollectorType.BASIC));
+            SpringApplicationBuilder collectorAppBuilder = createAppBuilder(builder, 15400,
+                    BasicCollectorApp.class,
+                    UriStatCollectorConfig.class,
+                    ExceptionTraceCollectorConfig.class,
+                    AgentStatisticsCollectorConfig.class,
+                    InspectorCollectorConfig.class
+            );
+            collectorAppBuilder.build().run(args);
+        }
+
+        if (types.hasType(CollectorType.METRIC)) {
+            logger.info(String.format("Start %s collector", CollectorType.METRIC));
+            SpringApplicationBuilder metricAppBuilder = createAppBuilder(builder, 9995,
+                    MetricCollectorApp.class,
+                    OtlpMetricCollectorConfig.class);
+            metricAppBuilder.build().run(args);
+        }
+
+        // OTLP Trace runs as its own collector type (decoupled from METRIC).
+        // gRPC 9998 is used for OTLP/gRPC ingestion; the servlet port (9997) hosts the OTLP/HTTP
+        // endpoint (POST /v1/traces) and keeps the JVM alive when this app runs standalone.
+        // The OTLP logs receiver (LogsService on the same gRPC servers, POST /v1/logs on 9997) is
+        // co-hosted here because OTLP exporters send every signal to one endpoint. It depends on the
+        // trace module, so it is registered from the starter (like the BASIC storage configs) rather
+        // than imported by OtlpTraceCollectorModule; gated by pinpoint.modules.collector.otlplog.enabled.
+        if (types.hasType(CollectorType.OTLPTRACE)) {
+            logger.info(String.format("Start %s collector", CollectorType.OTLPTRACE));
+            SpringApplicationBuilder otlpTraceAppBuilder = createAppBuilder(builder, 9997,
+                    OtlpTraceCollectorApp.class,
+                    OtlpLogCollectorModule.class
+            );
+            otlpTraceAppBuilder.build().run(args);
+        }
+
+        if (types.hasType(CollectorType.LOG)) {
+            logger.info(String.format("Start %s collector", CollectorType.LOG));
+            SpringApplicationBuilder logAppBuilder = createAppBuilder(builder, 0,
+                    LogCollectorModule.class,
+                    RedisPropertySources.class
+            ).web(WebApplicationType.NONE);
+            logAppBuilder.build().run(args);
+        }
+
+    }
+
+    private static SpringApplicationBuilder createAppBuilder(SpringApplicationBuilder builder, int port, Class<?>... appClass) {
+        return builder.child(appClass)
+                .web(WebApplicationType.SERVLET)
+                .bannerMode(Banner.Mode.OFF)
+                .listeners(new ProfileResolveListener())
+                .listeners(new EnvironmentLoggingListener())
+                .listeners(new ExternalEnvironmentListener(EXTERNAL_PROPERTY_SOURCE_NAME, EXTERNAL_CONFIGURATION_KEY))
+                .listeners(new PinpointSpringBanner())
+                .properties(String.format("server.port:%1s", port));
+    }
+}

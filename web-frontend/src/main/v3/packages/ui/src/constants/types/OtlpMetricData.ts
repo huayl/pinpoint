@@ -1,0 +1,43 @@
+export namespace OtlpMetricData {
+  export interface Body {
+    applicationName: string;
+    metricGroupName: string;
+    agentId?: string;
+    metricName: string;
+    tagGroupList: string[];
+    from: number | string;
+    to: number | string;
+    chartType?: string;
+    aggregationFunction?: string;
+    fieldNameList: string[];
+    primaryForFieldAndTagRelation: 'tag' | 'field';
+  }
+
+  export interface Parameters {
+    applicationName: string;
+    metricGroupName: string;
+    metricName: string;
+    from: number | string;
+    to: number | string;
+    tags?: string;
+    chartType?: string;
+    aggregationFunction?: string;
+    fieldNameList?: string;
+    agentId?: string;
+    samplingInterval?: number;
+  }
+
+  export interface Response {
+    timestamp: number[];
+    chartType: string;
+    unit: string;
+    metricValues: MetricValue[];
+    message?: string;
+  }
+
+  export interface MetricValue {
+    legendName: string;
+    values: number[];
+    version?: string;
+  }
+}

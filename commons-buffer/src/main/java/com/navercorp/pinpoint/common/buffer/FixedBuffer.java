@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,12 @@ package com.navercorp.pinpoint.common.buffer;
 
 import com.navercorp.pinpoint.common.util.BytesUtils;
 
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 
 /**
  * @author emeroad
  */
 public class FixedBuffer implements Buffer {
-    protected static final int NULL = -1;
     protected byte[] buffer;
     protected int offset;
 
@@ -117,6 +115,75 @@ public class FixedBuffer implements Buffer {
     }
 
     @Override
+    public void putUnsignedBytePrefixedString(final String string) {
+        final byte[] bytes = BytesUtils.toBytes(string);
+        if (bytes == null) {
+            putByte(BYTE_NULL);
+            return;
+        }
+        if (bytes.length > UNSIGNED_BYTE_MAX) {
+            throw new IndexOutOfBoundsException("too large String size:" + bytes.length);
+        }
+        putUnsignedBytePrefixedBytes(bytes);
+    }
+
+    @Override
+    public void putNullTerminatedString(final String string) {
+        if (string == null){
+            throw new NullPointerException("string");
+        }
+        final byte[] bytes = BytesUtils.toBytes(string);
+        putNullTerminatedBytes(bytes);
+    }
+
+    protected void putNullTerminatedBytes(final byte[] bytes) {
+        // a NUL would be misread as the terminator by readNullTerminatedString()
+        final int nulIndex = ByteArrayUtils.indexOf(bytes, NUL_DELIMITER, 0, bytes.length);
+        if (nulIndex != -1) {
+            throw new IllegalArgumentException("embedded NUL(0x00) byte at index " + nulIndex + "; not allowed in null-terminated value");
+        }
+        putBytes(bytes);
+        putByte(NUL_DELIMITER);
+    }
+
+    @Override
+    public void putUnsignedBytePrefixedBytes(final byte[] bytes) {
+        if (bytes == null) {
+            putByte(BYTE_NULL);
+        } else {
+            if (bytes.length > UNSIGNED_BYTE_MAX) {
+                throw new IndexOutOfBoundsException("too large bytes length:" + bytes.length);
+            }
+            putByte(BytesUtils.toUnsignedByte(bytes.length));
+            putBytes(bytes);
+        }
+    }
+
+    @Override
+    public String readUnsignedBytePrefixedString() {
+        final int size = readUnsignedByte();
+        if (size == UNSIGNED_BYTE_NULL) {
+            return null;
+        }
+        if (size == 0) {
+            return "";
+        }
+        return readString(size);
+    }
+
+    @Override
+    public byte[] readUnsignedBytePrefixedBytes() {
+        final int size = readUnsignedByte();
+        if (size == UNSIGNED_BYTE_NULL) {
+            return null;
+        }
+        if (size == 0) {
+            return EMPTY;
+        }
+        return readBytes(size);
+    }
+
+    @Override
     public void put2PrefixedString(final String string) {
         final byte[] bytes = BytesUtils.toBytes(string);
         if (bytes == null) {
@@ -157,7 +224,7 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public void putInt(final int v) {
-        this.offset = BytesUtils.writeInt(v, buffer, offset);
+        this.offset = ByteArrayUtils.writeInt(v, buffer, offset);
     }
 
 
@@ -166,7 +233,7 @@ public class FixedBuffer implements Buffer {
         if (v >= 0) {
             putVar32(v);
         } else {
-            putVar64((long) v);
+            putVar64(v);
         }
     }
 
@@ -183,13 +250,13 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public void putShort(final short v) {
-        this.offset = BytesUtils.writeShort(v, buffer, offset);
+        this.offset = ByteArrayUtils.writeShort(v, buffer, offset);
     }
 
 
     @Override
     public void putLong(final long v) {
-        this.offset = BytesUtils.writeLong(v, buffer, offset);
+        this.offset = ByteArrayUtils.writeLong(v, buffer, offset);
     }
 
 
@@ -237,7 +304,15 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public byte getByte(int index) {
-        return this.buffer[offset];
+        return this.buffer[absoluteIndex(index)];
+    }
+
+    /**
+     * Translates an index relative to the buffer's start offset into an
+     * absolute index of the backing array.
+     */
+    private int absoluteIndex(final int index) {
+        return getStartOffset() + index;
     }
 
     @Override
@@ -258,8 +333,8 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public int readInt() {
-        final int i = BytesUtils.bytesToInt(buffer, offset);
-        this.offset = this.offset + 4;
+        final int i = ByteArrayUtils.bytesToInt(buffer, offset);
+        this.offset = this.offset + ByteArrayUtils.INT_BYTE_LENGTH;
         return i;
     }
 
@@ -272,7 +347,7 @@ public class FixedBuffer implements Buffer {
         // See implementation notes for readRawVarint64
         fastpath: {
             int pos = this.offset;
-            final int bufferSize = this.buffer.length;
+            final int bufferSize = getEndOffset();
             if (bufferSize == pos) {
                 break fastpath;
             }
@@ -333,8 +408,8 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public short readShort() {
-        final short i = BytesUtils.bytesToShort(buffer, offset);
-        this.offset = this.offset + 2;
+        final short i = ByteArrayUtils.bytesToShort(buffer, offset);
+        this.offset = this.offset + ByteArrayUtils.SHORT_BYTE_LENGTH;
         return i;
     }
 
@@ -344,8 +419,8 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public long readLong() {
-        final long l = BytesUtils.bytesToLong(buffer, offset);
-        this.offset = this.offset + 8;
+        final long l = ByteArrayUtils.bytesToLong(buffer, offset);
+        this.offset = this.offset + ByteArrayUtils.LONG_BYTE_LENGTH;
         return l;
     }
 
@@ -368,7 +443,7 @@ public class FixedBuffer implements Buffer {
         // accumulated bits with one xor.  We depend on javac to constant fold.
         fastpath: {
             int pos = offset;
-            int bufferSize = this.buffer.length;
+            int bufferSize = getEndOffset();
             if (bufferSize == pos) {
                 break fastpath;
             }
@@ -531,6 +606,17 @@ public class FixedBuffer implements Buffer {
         return readString(size);
     }
 
+    @Override
+    public String readNullTerminatedString() {
+        final int start = this.offset;
+        final int nulIndex = ByteArrayUtils.indexOf(this.buffer, NUL_DELIMITER, start, remaining());
+        if (nulIndex == -1) {
+            throw new IllegalStateException("Delimiter not found");
+        }
+        String s = newString(nulIndex - start);
+        this.offset = nulIndex + 1;
+        return s;
+    }
 
     protected String readString(final int size) {
         final String s = newString(size);
@@ -539,11 +625,12 @@ public class FixedBuffer implements Buffer {
     }
 
     protected String newString(final int size) {
-        try {
-            return new String(buffer, offset, size, UTF8);
-        } catch (UnsupportedEncodingException ue) {
-            return new String(buffer, offset, size, UTF8_CHARSET);
-        }
+        return new String(buffer, offset, size, UTF8_CHARSET);
+    }
+
+    @Override
+    public void setByte(int offset, byte value) {
+        this.buffer[absoluteIndex(offset)] = value;
     }
 
     /**
@@ -553,7 +640,7 @@ public class FixedBuffer implements Buffer {
      */
     @Override
     public byte[] getBuffer() {
-        if (offset == buffer.length) {
+        if (getStartOffset() == 0 && offset == getEndOffset()) {
             return this.buffer;
         } else {
             return copyBuffer();
@@ -562,14 +649,20 @@ public class FixedBuffer implements Buffer {
 
     @Override
     public byte[] copyBuffer() {
-        final byte[] copy = new byte[offset];
-        System.arraycopy(buffer, 0, copy, 0, offset);
+        final int length = getBufferLength();
+        final byte[] copy = new byte[length];
+        System.arraycopy(buffer, getStartOffset(), copy, 0, length);
         return copy;
     }
 
     @Override
     public ByteBuffer wrapByteBuffer() {
-        return ByteBuffer.wrap(this.buffer, 0, offset);
+        final int length = getBufferLength();
+        return ByteBuffer.wrap(this.buffer, getStartOffset(), length);
+    }
+
+    protected int getBufferLength() {
+        return offset - getStartOffset();
     }
 
     /**
@@ -587,17 +680,36 @@ public class FixedBuffer implements Buffer {
     }
 
     @Override
+    public void skip(int skipLength) {
+        int remaining = remaining();
+        if (skipLength > remaining) {
+            throw new IndexOutOfBoundsException("skipLength:" + skipLength + " remaining:" + remaining);
+        }
+        this.offset += skipLength;
+    }
+
+    @Override
     public int getOffset() {
         return offset;
     }
 
     @Override
     public int remaining() {
-        return buffer.length - offset;
+        return getEndOffset() - offset;
     }
 
     @Override
     public boolean hasRemaining() {
-        return offset < buffer.length;
+        return offset < getEndOffset();
+    }
+
+    @Override
+    public int getStartOffset() {
+        return 0;
+    }
+
+    @Override
+    public int getEndOffset() {
+        return this.buffer.length;
     }
 }

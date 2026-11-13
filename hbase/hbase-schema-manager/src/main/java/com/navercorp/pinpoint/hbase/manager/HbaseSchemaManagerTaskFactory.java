@@ -25,8 +25,9 @@ import com.navercorp.pinpoint.hbase.manager.task.ResetTask;
 import com.navercorp.pinpoint.hbase.manager.task.UpdateTask;
 import com.navercorp.pinpoint.hbase.schema.reader.HbaseSchemaReader;
 import com.navercorp.pinpoint.hbase.schema.service.HbaseSchemaService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 /**
  * @author HyunGil Jeong
@@ -34,14 +35,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class HbaseSchemaManagerTaskFactory {
 
-    @Autowired
-    private HbaseSchemaReader hbaseSchemaReader;
+    private final HbaseSchemaReader hbaseSchemaReader;
 
-    @Autowired
-    private HbaseSchemaService hbaseSchemaService;
+    private final HbaseSchemaService hbaseSchemaService;
 
-    @Autowired
-    private XmlFormatter xmlFormatter;
+    private final XmlFormatter xmlFormatter;
+
+    public HbaseSchemaManagerTaskFactory(HbaseSchemaReader hbaseSchemaReader, HbaseSchemaService hbaseSchemaService, XmlFormatter xmlFormatter) {
+        this.hbaseSchemaReader = Objects.requireNonNull(hbaseSchemaReader, "hbaseSchemaReader");
+        this.hbaseSchemaService = Objects.requireNonNull(hbaseSchemaService, "hbaseSchemaService");
+        this.xmlFormatter = Objects.requireNonNull(xmlFormatter, "xmlFormatter");
+    }
 
     public HbaseSchemaManagerTask create(ProgramCommand programCommand, ProgramOptions programOptions) {
         if (programCommand == ProgramCommand.EMPTY) {
@@ -53,32 +57,30 @@ public class HbaseSchemaManagerTaskFactory {
             return new HelpTask();
         }
 
-        switch (command) {
-            case INIT: {
+        return switch (command) {
+            case INIT -> {
                 String namespace = programOptions.getNamespace();
-                return new InitTask(hbaseSchemaService, namespace);
+                yield new InitTask(hbaseSchemaService, namespace);
             }
-            case UPDATE: {
+            case UPDATE -> {
                 String namespace = programOptions.getNamespace();
                 String compression = programOptions.getCompression();
-                return new UpdateTask(hbaseSchemaService, hbaseSchemaReader, namespace, compression);
+                yield new UpdateTask(hbaseSchemaService, hbaseSchemaReader, namespace, compression);
             }
-            case RESET: {
+            case RESET -> {
                 String namespace = programOptions.getNamespace();
-                return new ResetTask(hbaseSchemaService, namespace);
+                yield new ResetTask(hbaseSchemaService, namespace);
             }
-            case SUMMARY: {
+            case SUMMARY -> {
                 String namespace = programOptions.getNamespace();
-                return new PrintSchemaChangeSummaryTask(hbaseSchemaService, namespace);
+                yield new PrintSchemaChangeSummaryTask(hbaseSchemaService, namespace);
             }
-            case LOG: {
+            case LOG -> {
                 String namespace = programOptions.getNamespace();
-                return new PrintSchemaChangeLogTask(hbaseSchemaService, xmlFormatter, namespace);
+                yield new PrintSchemaChangeLogTask(hbaseSchemaService, xmlFormatter, namespace);
             }
-            case HELP:
-                return new HelpTask();
-            default:
-                return new HelpTask();
-        }
+            case HELP -> new HelpTask();
+            default -> new HelpTask();
+        };
     }
 }

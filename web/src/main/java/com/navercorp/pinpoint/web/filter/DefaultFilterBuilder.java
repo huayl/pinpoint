@@ -16,26 +16,23 @@
 
 package com.navercorp.pinpoint.web.filter;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.util.StringUtils;
+import com.navercorp.pinpoint.loader.service.AnnotationKeyRegistryService;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
+
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.navercorp.pinpoint.common.server.bo.SpanBo;
-import com.navercorp.pinpoint.loader.service.AnnotationKeyRegistryService;
-import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 /**
  *
@@ -45,7 +42,7 @@ import org.springframework.util.StringUtils;
 @Component
 public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final ObjectReader filterHintReader;
     private final ObjectReader filterDescriptorReader;
@@ -57,7 +54,7 @@ public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
     public DefaultFilterBuilder(ObjectMapper mapper, ServiceTypeRegistryService serviceTypeRegistryService, AnnotationKeyRegistryService annotationKeyRegistryService) {
         Objects.requireNonNull(mapper, "mapper");
         this.filterHintReader = mapper.readerFor(FilterHint.class);
-        this.filterDescriptorReader = mapper.readerFor(new TypeReference<List<FilterDescriptor>>() {});
+        this.filterDescriptorReader = mapper.readerForListOf(FilterDescriptor.class);
 
         this.serviceTypeRegistryService = Objects.requireNonNull(serviceTypeRegistryService, "serviceTypeRegistryService");
         this.annotationKeyRegistryService = Objects.requireNonNull(annotationKeyRegistryService, "annotationKeyRegistryService");
@@ -101,11 +98,8 @@ public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
         if (value == null) {
             return null;
         }
-        try {
-            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
-            throw new IllegalArgumentException("UTF8 decodeFail. value:" + value);
-        }
+
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
     private Filter<List<SpanBo>> makeFilterFromJson(String jsonFilterText) {
@@ -113,9 +107,7 @@ public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
     }
 
     private Filter<List<SpanBo>> makeFilterFromJson(String jsonFilterText, String jsonFilterHint) {
-        if (StringUtils.isEmpty(jsonFilterText)) {
-            throw new IllegalArgumentException("json string is empty");
-        }
+        Assert.hasLength(jsonFilterText, "jsonFilterText");
 
         final List<FilterDescriptor> filterDescriptorList = readFilterDescriptor(jsonFilterText);
         final FilterHint hint = readFilterHint(jsonFilterHint);
@@ -150,7 +142,7 @@ public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
     private FilterHint readFilterHint(String jsonFilterHint) {
         try {
             return filterHintReader.readValue(jsonFilterHint);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("FilterHint read fail. error:" + e.getMessage(), e);
         }
     }
@@ -158,7 +150,7 @@ public class DefaultFilterBuilder implements FilterBuilder<List<SpanBo>> {
     private List<FilterDescriptor> readFilterDescriptor(String jsonFilterText)  {
         try {
             return filterDescriptorReader.readValue(jsonFilterText);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("FilterDescriptor read fail. error:" + e.getMessage(), e);
         }
     }

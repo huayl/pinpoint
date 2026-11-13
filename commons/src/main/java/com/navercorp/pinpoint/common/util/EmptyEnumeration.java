@@ -22,7 +22,8 @@ import java.util.Enumeration;
  * @author emeroad
  */
 public class EmptyEnumeration<E> implements Enumeration<E> {
-    private static final NullNextElementAction NULL_NEXT_ELEMENT_ACTION = new NullNextElementAction();
+    @SuppressWarnings("rawtypes")
+    private static final NextElementAction NULL_NEXT_ELEMENT_ACTION = new NullNextElementAction();
 
     private final NextElementAction<E> nextElementAction;
 

@@ -16,39 +16,41 @@
 
 package com.navercorp.pinpoint.web.applicationmap.link;
 
+import com.navercorp.pinpoint.applicationmap.link.LinkKey;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataDuplexMap;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
 import com.navercorp.pinpoint.web.applicationmap.nodes.Node;
 import com.navercorp.pinpoint.web.applicationmap.nodes.NodeList;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkData;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkDataDuplexMap;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkDataMap;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.LinkKey;
-import com.navercorp.pinpoint.web.vo.Range;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkData;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataMap;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * @author HyunGil Jeong
  */
 public class LinkListFactory {
 
-    private static final Logger logger = LoggerFactory.getLogger(LinkListFactory.class);
+    private static final Logger logger = LogManager.getLogger(LinkListFactory.class);
 
-    public static LinkList createLinkList(LinkType linkType, NodeList nodeList, LinkDataDuplexMap linkDataDuplexMap, Range range) {
+    public static LinkList createLinkList(NodeList nodeList, LinkDataDuplexMap linkDataDuplexMap, Range range) {
         // don't change
-        LinkList linkList = new LinkList();
-        createSourceLink(linkType, nodeList, linkList, linkDataDuplexMap.getSourceLinkDataMap(), range);
-        logger.debug("link size:{}", linkList.size());
-        createTargetLink(linkType, nodeList, linkList, linkDataDuplexMap.getTargetLinkDataMap(), range);
-        logger.debug("link size:{}", linkList.size());
+        LinkList.Builder linkBuilder = LinkList.newBuilder(linkDataDuplexMap.size());
+        createSourceLink(nodeList, linkBuilder, linkDataDuplexMap.getSourceLinkDataMap(), range);
+        int before = linkBuilder.size();
+        logger.debug("total link (in search) size:{}", before);
+        createTargetLink(nodeList, linkBuilder, linkDataDuplexMap.getTargetLinkDataMap(), range);
+        logger.debug("total link (out search) size:{}->{}", before, linkBuilder.size());
 
+        LinkList linkList = linkBuilder.build();
         for (Link link : linkList.getLinkList()) {
             appendLinkHistogram(link, linkDataDuplexMap);
         }
         return linkList;
     }
 
-    private static void createSourceLink(LinkType linkType, NodeList nodeList, LinkList linkList, LinkDataMap linkDataMap, Range range) {
+    private static void createSourceLink(NodeList nodeList, LinkList.Builder linkList, LinkDataMap linkDataMap, Range range) {
         for (LinkData linkData : linkDataMap.getLinkDataList()) {
             final Application fromApplicationId = linkData.getFromApplication();
             Node fromNode = nodeList.findNode(fromApplicationId);
@@ -65,14 +67,14 @@ public class LinkListFactory {
             // for RPC clients: skip if there is a dest application, convert to "unknown cloud" if not
             // shouldn't really be necessary as rpc client toNodes are converted to unknown nodes beforehand.
             if (toNode.getServiceType().isRpcClient()) {
-                if (!nodeList.containsNode(toNode.getApplication()) || toNode.getServiceType().isAlias()) {
-                    final Link link = addLink(linkType, linkList, fromNode, toNode, CreateType.Source, range);
+                if (!nodeList.contains(toNode.getApplication()) || toNode.getServiceType().isAlias()) {
+                    final Link link = addLink(linkList, fromNode, toNode, LinkDirection.IN_LINK, range);
                     if (link != null) {
                         logger.debug("createRpcSourceLink:{}", link);
                     }
                 }
             } else {
-                final Link link = addLink(linkType, linkList, fromNode, toNode, CreateType.Source, range);
+                final Link link = addLink(linkList, fromNode, toNode, LinkDirection.IN_LINK, range);
                 if (link != null) {
                     logger.debug("createSourceLink:{}", link);
                 }
@@ -80,7 +82,7 @@ public class LinkListFactory {
         }
     }
 
-    private static void createTargetLink(LinkType linkType, NodeList nodeList, LinkList linkList, LinkDataMap linkDataMap, Range range) {
+    private static void createTargetLink(NodeList nodeList, LinkList.Builder linkList, LinkDataMap linkDataMap, Range range) {
         for (LinkData linkData : linkDataMap.getLinkDataList()) {
             final Application fromApplicationId = linkData.getFromApplication();
             Node fromNode = nodeList.findNode(fromApplicationId);
@@ -97,14 +99,14 @@ public class LinkListFactory {
             // for RPC clients: skip if there is a dest application, convert to "unknown cloud" if not
             if (toNode.getServiceType().isRpcClient()) {
                 // check if "to" node exists
-                if (!nodeList.containsNode(toNode.getApplication())) {
-                    final Link link = addLink(linkType, linkList, fromNode, toNode, CreateType.Target, range);
+                if (!nodeList.contains(toNode.getApplication())) {
+                    final Link link = addLink(linkList, fromNode, toNode, LinkDirection.OUT_LINK, range);
                     if (link != null) {
                         logger.debug("createRpcTargetLink:{}", link);
                     }
                 }
             } else {
-                final Link link = addLink(linkType, linkList, fromNode, toNode, CreateType.Target, range);
+                final Link link = addLink(linkList, fromNode, toNode, LinkDirection.OUT_LINK, range);
                 if (link != null) {
                     logger.debug("createTargetLink:{}", link);
                 }
@@ -112,8 +114,8 @@ public class LinkListFactory {
         }
     }
 
-    private static Link addLink(LinkType linkType, LinkList linkList, Node fromNode, Node toNode, CreateType createType, Range range) {
-        final Link link = new Link(linkType, createType, fromNode, toNode, range);
+    private static Link addLink(LinkList.Builder linkList, Node fromNode, Node toNode, LinkDirection direction, Range range) {
+        final Link link = new Link(direction, fromNode, toNode, range);
         if (linkList.addLink(link)) {
             return link;
         } else {
@@ -127,11 +129,11 @@ public class LinkListFactory {
         LinkKey key = link.getLinkKey();
         LinkData sourceLinkData = linkDataDuplexMap.getSourceLinkData(key);
         if (sourceLinkData != null) {
-            link.addSource(sourceLinkData.getLinkCallDataMap());
+            link.addInLink(sourceLinkData.getLinkCallDataMap());
         }
         LinkData targetLinkData = linkDataDuplexMap.getTargetLinkData(key);
         if (targetLinkData != null) {
-            link.addTarget(targetLinkData.getLinkCallDataMap());
+            link.addOutLink(targetLinkData.getLinkCallDataMap());
         }
     }
 }

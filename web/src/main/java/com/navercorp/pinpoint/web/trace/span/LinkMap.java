@@ -1,0 +1,99 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.trace.span;
+
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.util.pair.LongPair;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Predicate;
+
+/**
+ * @author Woonduk Kang(emeroad)
+ */
+public class LinkMap {
+    public static LinkMap buildLinkMap(NodeList nodeList, TraceState traceState, Predicate<SpanBo> focusFilter, ServiceTypeRegistryService serviceTypeRegistryService) {
+        Objects.requireNonNull(focusFilter, "focusFilter");
+
+        final MultiValueMap<LongPair, Node> spanToLinkMap = new LinkedMultiValueMap<>();
+
+        // for performance & remove duplicate span
+        final List<Node> duplicatedNodeList = new ArrayList<>();
+        for (Node node : nodeList) {
+            final SpanBo span = node.getSpanBo();
+            final LongPair spanIdPairKey = new LongPair(span.getParentSpanId(), span.getSpanId());
+            // check duplicated span
+            Node firstNode = spanToLinkMap.getFirst(spanIdPairKey);
+            if (firstNode == null) {
+                spanToLinkMap.add(spanIdPairKey, node);
+            } else {
+                ServiceType serviceType = serviceTypeRegistryService.findServiceType(span.getServiceType());
+                if (serviceType.isQueue() && firstNode.getSpanBo().getServiceType() == serviceType.getCode()) {
+                    spanToLinkMap.add(spanIdPairKey, node);
+                } else {
+                    traceState.progress();
+                    spanToLinkMap.add(spanIdPairKey, node);
+                }
+            }
+        }
+
+        return new LinkMap(spanToLinkMap, duplicatedNodeList);
+    }
+
+    private final MultiValueMap<LongPair, Node> spanToLinkMap;
+    private final MultiValueMap<Long, Node> firstKeyIndex;
+
+    private LinkMap(MultiValueMap<LongPair, Node> spanToLinkMap, List<Node> duplicatedNodeList) {
+        this.spanToLinkMap = Objects.requireNonNull(spanToLinkMap, "spanToLinkMap");
+        this.firstKeyIndex = buildFirstKeyIndex(this.spanToLinkMap);
+    }
+
+    private MultiValueMap<Long, Node> buildFirstKeyIndex(MultiValueMap<LongPair, Node> spanToLinkMap) {
+        MultiValueMap<Long, Node> index = new LinkedMultiValueMap<>();
+        for (Map.Entry<LongPair, List<Node>> entry : spanToLinkMap.entrySet()) {
+            LongPair key = entry.getKey();
+            Long first = key.first();
+            for (Node node : entry.getValue()) {
+                index.add(first, node);
+            }
+        }
+        return index;
+    }
+
+    public List<Node> findNode(Link link) {
+        Objects.requireNonNull(link, "link");
+
+        final LongPair key = new LongPair(link.getSpanId(), link.getNextSpanId());
+        return this.spanToLinkMap.get(key);
+    }
+
+    public List<Node> getFirstKey(long firstKey) {
+        List<Node> nodes = this.firstKeyIndex.get(firstKey);
+        if (CollectionUtils.isEmpty(nodes)) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(nodes);
+    }
+}

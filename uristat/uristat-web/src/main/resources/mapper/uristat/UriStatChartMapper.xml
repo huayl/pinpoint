@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.navercorp.pinpoint.uristat.web.dao.UriStatChartDao">
+
+    <resultMap id="uriHistogramTotalEntity" type="UriHistogramTotalEntity">
+    </resultMap>
+    <resultMap id="uriHistogramFailEntity" type="UriHistogramFailEntity">
+    </resultMap>
+
+    <resultMap id="uriApdexChartEntity" type="UriApdexChartEntity">
+    </resultMap>
+
+    <resultMap id="uriLatencyChartEntity" type="UriLatencyChartEntity">
+    </resultMap>
+
+
+    <select id="selectTotalUriStat" resultMap="uriHistogramTotalEntity" parameterType="UriStatChartQueryParameter">
+        SELECT
+            DATETIME_CONVERT("timestamp", '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH',
+                '#{timePrecision.timeSize}:${timePrecision.timeUnit}') as "timestamp",
+            sum(tot0) as tot0,
+            sum(tot1) as tot1,
+            sum(tot2) as tot2,
+            sum(tot3) as tot3,
+            sum(tot4) as tot4,
+            sum(tot5) as tot5,
+            sum(tot6) as tot6,
+            sum(tot7) as tot7,
+            version
+        FROM uriStat
+        WHERE
+            tenantId = #{tenantId}
+            AND serviceName = #{serviceName}
+            AND applicationName = #{applicationName}
+            <if test="agentId != null">
+                AND agentId = #{agentId}
+            </if>
+            AND uri = #{uri}
+            AND "timestamp" BETWEEN #{range.from} AND #{range.to}
+        GROUP BY "timestamp", version
+        ORDER BY "timestamp" asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectFailedUriStat" resultMap="uriHistogramFailEntity" parameterType="UriStatChartQueryParameter">
+        SELECT
+            DATETIME_CONVERT("timestamp", '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH',
+                '#{timePrecision.timeSize}:${timePrecision.timeUnit}') as "timestamp",
+            sum(fail0) as fail0,
+            sum(fail1) as fail1,
+            sum(fail2) as fail2,
+            sum(fail3) as fail3,
+            sum(fail4) as fail4,
+            sum(fail5) as fail5,
+            sum(fail6) as fail6,
+            sum(fail7) as fail7,
+            version
+        FROM uriStat
+        WHERE
+            tenantId = #{tenantId}
+            AND serviceName = #{serviceName}
+            AND applicationName = #{applicationName}
+            <if test="agentId != null">
+                AND agentId = #{agentId}
+            </if>
+            AND uri = #{uri}
+            AND "timestamp" BETWEEN #{range.from} AND #{range.to}
+        GROUP BY "timestamp", version
+        ORDER BY "timestamp" asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectUriApdex" resultMap="uriApdexChartEntity" parameterType="UriStatChartQueryParameter">
+        SELECT
+            DATETIME_CONVERT("timestamp", '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH',
+                '#{timePrecision.timeSize}:${timePrecision.timeUnit}') as "timestamp",
+            sum(apdexRaw) as apdexRaw,
+            sum("count") as count,
+            version
+        FROM uriStat
+        WHERE
+            tenantId = #{tenantId}
+            AND serviceName = #{serviceName}
+            AND applicationName = #{applicationName}
+            <if test="agentId != null">
+                AND agentId = #{agentId}
+            </if>
+            AND uri = #{uri}
+            AND "timestamp" BETWEEN #{range.from} AND #{range.to}
+        GROUP BY "timestamp", version
+        ORDER BY "timestamp" asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectUriLatency" resultMap="uriLatencyChartEntity" parameterType="UriStatChartQueryParameter">
+        SELECT
+            DATETIME_CONVERT("timestamp", '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH',
+                '#{timePrecision.timeSize}:${timePrecision.timeUnit}') as "timestamp",
+            sum(totalTimeMs) as totalTimeMs,
+            max(maxLatencyMs) as maxLatencyMs,
+            sum("count") as count,
+            version
+        FROM uriStat
+        WHERE
+            tenantId = #{tenantId}
+            AND serviceName = #{serviceName}
+            AND applicationName = #{applicationName}
+            <if test="agentId != null">
+                AND agentId = #{agentId}
+            </if>
+            AND uri = #{uri}
+            AND "timestamp" BETWEEN #{range.from} AND #{range.to}
+        GROUP BY "timestamp", version
+        ORDER BY "timestamp" asc
+        LIMIT ${limit}
+    </select>
+
+</mapper>

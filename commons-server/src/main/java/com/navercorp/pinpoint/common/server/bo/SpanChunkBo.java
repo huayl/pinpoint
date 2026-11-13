@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,33 +16,37 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.server.util.ByteUtils;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.io.SpanVersion;
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public class SpanChunkBo implements BasicSpan {
 
+    private static final int UNDEFINED = ServiceType.UNDEFINED.getCode();
+
     private byte version = 0;
+    @NonNull
+    private final TraceSourceType traceSourceType;
+    private final SpanOwner owner;
 
-    private String agentId;
-    private String agentName;
-    private String applicationId;
-    private long agentStartTime;
-
-    private TransactionId transactionId;
+    private ServerTraceId transactionId;
 
     private long spanId;
     private String endPoint;
 
-    @Deprecated
-    private short serviceType;
-    private Short applicationServiceType;
+    private int applicationServiceType;
 
-    private final List<SpanEventBo> spanEventBoList = new ArrayList<SpanEventBo>();
+    private final List<SpanEventBo> spanEventBoList = new ArrayList<>();
 
     private long collectorAcceptTime;
 
@@ -51,61 +55,76 @@ public class SpanChunkBo implements BasicSpan {
 
 
     public SpanChunkBo() {
+        this(TraceSourceType.PINPOINT, new SpanOwner());
+    }
+
+    public SpanChunkBo(TraceSourceType traceSourceType) {
+        this(traceSourceType, new SpanOwner());
+    }
+
+    public SpanChunkBo(TraceSourceType traceSourceType, SpanOwner owner) {
+        this.traceSourceType = Objects.requireNonNull(traceSourceType, "traceSourceType");
+        this.owner = Objects.requireNonNull(owner, "owner");
     }
 
     @Override
     public int getVersion() {
-        return version & 0xFF;
+        return Byte.toUnsignedInt(version);
     }
 
     public void setVersion(int version) {
-        SpanBo.checkVersion(version);
-        // check range
-        this.version = (byte) (version & 0xFF);
+        this.version = ByteUtils.toUnsignedByte(version);
+    }
+
+    @NonNull
+    @Override
+    public TraceSourceType getTraceSourceType() {
+        return traceSourceType;
+    }
+
+    @Override
+    public SpanOwner getSpanOwner() {
+        return owner;
     }
 
     @Override
     public String getAgentId() {
-        return agentId;
-    }
-
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
+        return owner.getAgentId();
     }
 
     @Override
     public String getAgentName() {
-        return agentName;
+        return owner.getAgentName();
     }
 
-    public void setAgentName(String agentName) {
-        this.agentName = agentName;
+    @NonNull
+    @Override
+    public String getApplicationName() {
+        return owner.getApplicationName();
+    }
+
+    @NonNull
+    @Override
+    public String getServiceName() {
+        return owner.getServiceName();
     }
 
     @Override
-    public String getApplicationId() {
-        return applicationId;
-    }
-
-    public void setApplicationId(String applicationId) {
-        this.applicationId = applicationId;
+    public ServiceUid getServiceUid() {
+        return owner.getServiceUid();
     }
 
     @Override
     public long getAgentStartTime() {
-        return agentStartTime;
-    }
-
-    public void setAgentStartTime(long agentStartTime) {
-        this.agentStartTime = agentStartTime;
+        return owner.getAgentStartTime();
     }
 
     @Override
-    public TransactionId getTransactionId() {
+    public ServerTraceId getTransactionId() {
         return transactionId;
     }
 
-    public void setTransactionId(TransactionId transactionId) {
+    public void setTransactionId(ServerTraceId transactionId) {
         this.transactionId = transactionId;
     }
 
@@ -119,11 +138,27 @@ public class SpanChunkBo implements BasicSpan {
         this.spanId = spanId;
     }
 
-    public long getKeyTime() {
-        return this.keyTime;
+    private TraceTimeAccessor timeAccessor() {
+        return TraceTimeAccessor.ofVersion(this.version);
     }
 
-    public void setKeyTime(long keyTime) {
+    public long getKeyTimeMillis() {
+        return timeAccessor().toMillis(keyTime);
+    }
+
+    public long getKeyTimeNanos() {
+        return timeAccessor().toNanos(keyTime);
+    }
+
+    /**
+     * Sets the span chunk time fields as one versioned unit.
+     * TRACE_V2 uses epoch millis. TRACE_V3 uses epoch nanos.
+     */
+    public void setTraceTime(int version, long keyTime) {
+        if (version != SpanVersion.TRACE_V2 && version != SpanVersion.TRACE_V3) {
+            throw new IllegalArgumentException("span chunk keyTime is only supported for TRACE_V2 or TRACE_V3");
+        }
+        setVersion(version);
         this.keyTime = keyTime;
     }
 
@@ -135,38 +170,29 @@ public class SpanChunkBo implements BasicSpan {
         this.endPoint = endPoint;
     }
 
+    @Override
     public long getCollectorAcceptTime() {
         return collectorAcceptTime;
     }
 
+    @Override
     public void setCollectorAcceptTime(long collectorAcceptTime) {
         this.collectorAcceptTime = collectorAcceptTime;
     }
 
-    public void setApplicationServiceType(Short applicationServiceType) {
+    @Override
+    public void setApplicationServiceType(int applicationServiceType) {
         this.applicationServiceType  = applicationServiceType;
     }
 
-    @Deprecated
-    public short getServiceType() {
-        return serviceType;
+    @Override
+    public int getApplicationServiceType() {
+        return this.applicationServiceType;
     }
 
-    @Deprecated
-    public void setServiceType(short serviceType) {
-        this.serviceType = serviceType;
-    }
-
+    @Override
     public boolean hasApplicationServiceType() {
-        return applicationServiceType != null;
-    }
-
-    public short getApplicationServiceType() {
-        if (hasApplicationServiceType()) {
-            return this.applicationServiceType;
-        } else {
-            return this.serviceType;
-        }
+        return applicationServiceType != 0 && applicationServiceType != UNDEFINED;
     }
 
     public List<SpanEventBo> getSpanEventBoList() {
@@ -178,6 +204,13 @@ public class SpanChunkBo implements BasicSpan {
             return;
         }
         this.spanEventBoList.addAll(spanEventBoList);
+    }
+
+    public void addSpanEvent(SpanEventBo spanEvent) {
+        if (spanEvent == null) {
+            return;
+        }
+        this.spanEventBoList.add(spanEvent);
     }
 
     public boolean isAsyncSpanChunk() {
@@ -196,18 +229,16 @@ public class SpanChunkBo implements BasicSpan {
     public String toString() {
         return "SpanChunkBo{" +
                 "version=" + version +
-                ", agentId='" + agentId + '\'' +
-                ", applicationId='" + applicationId + '\'' +
-                ", agentStartTime=" + agentStartTime +
+                ", traceSourceType=" + traceSourceType +
+                ", owner=" + owner +
                 ", transactionId=" + transactionId +
                 ", spanId=" + spanId +
                 ", endPoint='" + endPoint + '\'' +
-                ", serviceType=" + serviceType +
                 ", applicationServiceType=" + applicationServiceType +
                 ", spanEventBoList=" + spanEventBoList +
                 ", collectorAcceptTime=" + collectorAcceptTime +
                 ", localAsyncId=" + localAsyncId +
-                ", keyTIme=" + keyTime +
+                ", keyTime=" + keyTime +
                 '}';
     }
 }

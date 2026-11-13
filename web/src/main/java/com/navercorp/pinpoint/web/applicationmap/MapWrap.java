@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,20 +19,29 @@ package com.navercorp.pinpoint.web.applicationmap;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.Objects;
+
 /**
  * @author emeroad
  */
 @JsonInclude(content = JsonInclude.Include.NON_NULL)
-public class MapWrap {
-    private final ApplicationMap applicationMap;
+public class MapWrap<T extends MapView> {
+    private final T  mapView;
 
-    public MapWrap(ApplicationMap applicationMap) {
-        this.applicationMap = applicationMap;
+    public MapWrap(T mapView) {
+        this.mapView = Objects.requireNonNull(mapView, "mapView");
+
     }
 
     @JsonProperty("applicationMapData")
-    public ApplicationMap getApplicationMap() {
-        return applicationMap;
+    public T getApplicationMap() {
+        return mapView;
     }
 
+    @Override
+    public String toString() {
+        return "MapWrap{" +
+               ", mapView=" + mapView +
+               '}';
+    }
 }

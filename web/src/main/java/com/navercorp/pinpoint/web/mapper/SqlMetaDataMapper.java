@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,16 @@
 
 package com.navercorp.pinpoint.web.mapper;
 
-import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
 import com.navercorp.pinpoint.common.hbase.RowMapper;
+import com.navercorp.pinpoint.common.hbase.util.CellUtils;
 import com.navercorp.pinpoint.common.server.bo.SqlMetaDataBo;
-
-import com.sematext.hbase.wd.RowKeyDistributorByHashPrefix;
+import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyDecoder;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.MetaDataRowKey;
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.util.Bytes;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,17 +36,15 @@ import java.util.Objects;
  * @author emeroad
  * @author minwoo.jung
  */
-//@Component
+@Component
 public class SqlMetaDataMapper implements RowMapper<List<SqlMetaDataBo>> {
 
-//    @Autowired
-//    @Qualifier("metadataRowKeyDistributor")
-    private RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix;
+    private final static byte[] SQL_METADATA_CQ = HbaseTables.SQL_METADATA_VER2_SQL.QUALIFIER_SQLSTATEMENT;
 
-    private final static String SQL_METADATA_CF_SQL_QUALI_SQLSTATEMENT = Bytes.toString(HbaseColumnFamily.SQL_METADATA_VER2_SQL.QUALIFIER_SQLSTATEMENT);
+    private final RowKeyDecoder<MetaDataRowKey> decoder;
 
-    public SqlMetaDataMapper(RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
-        this.rowKeyDistributorByHashPrefix = Objects.requireNonNull(rowKeyDistributorByHashPrefix, "rowKeyDistributorByHashPrefix");
+    public SqlMetaDataMapper(RowKeyDecoder<MetaDataRowKey> decoder) {
+        this.decoder = Objects.requireNonNull(decoder, "decoder");
     }
 
     @Override
@@ -52,30 +52,28 @@ public class SqlMetaDataMapper implements RowMapper<List<SqlMetaDataBo>> {
         if (result.isEmpty()) {
             return Collections.emptyList();
         }
-        final byte[] rowKey = getOriginalKey(result.getRow());
+        final byte[] rowKey = result.getRow();
 
-        List<SqlMetaDataBo> sqlMetaDataList = new ArrayList<>();
-        Cell[] rawCell = result.rawCells();
-        for (Cell cell : rawCell) {
-            SqlMetaDataBo sqlMetaDataBo = new SqlMetaDataBo();
-            sqlMetaDataBo.readRowKey(rowKey);
-            String sql = Bytes.toString(cell.getQualifierArray(), cell.getQualifierOffset(), cell.getQualifierLength());
+        final MetaDataRowKey key = decoder.decodeRowKey(rowKey);
 
-            if (SQL_METADATA_CF_SQL_QUALI_SQLSTATEMENT.equals(sql)) {
-                sql = Bytes.toString(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
-            }
+        List<SqlMetaDataBo> sqlMetaDataList = new ArrayList<>(result.size());
 
-            sqlMetaDataBo.setSql(sql);
+        for (Cell cell : result.rawCells()) {
+            String sql = readSql(cell);
+
+            SqlMetaDataBo sqlMetaDataBo = new SqlMetaDataBo(key.getServiceUid(), key.getAgentId(), key.getAgentStartTime(), key.getId(), sql);
             sqlMetaDataList.add(sqlMetaDataBo);
         }
         return sqlMetaDataList;
     }
 
-    private byte[] getOriginalKey(byte[] rowKey) {
-        return rowKeyDistributorByHashPrefix.getOriginalKey(rowKey);
+    private String readSql(Cell cell) {
+        if (CellUtil.matchingQualifier(cell, SQL_METADATA_CQ)) {
+            return CellUtils.valueToString(cell);
+        } else {
+            // backward compatibility
+            return CellUtils.qualifierToString(cell);
+        }
     }
 
-    public void setRowKeyDistributorByHashPrefix(RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
-        this.rowKeyDistributorByHashPrefix = rowKeyDistributorByHashPrefix;
-    }
 }

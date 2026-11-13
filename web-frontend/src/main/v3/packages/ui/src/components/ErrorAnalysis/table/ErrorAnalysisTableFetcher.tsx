@@ -1,0 +1,67 @@
+import React from 'react';
+import { Row } from '@tanstack/react-table';
+import { ErrorAnalysisErrorList } from '@pinpoint-fe/ui/src/constants';
+import { useGetErrorAnalysisErrorListData, useTimezone } from '@pinpoint-fe/ui/src/hooks';
+import { DataTable, DataTableCountOfRows } from '../../DataTable';
+import { errorTableColumns } from './errorAnalysisTableColumns';
+import { cn } from '../../../lib';
+import { TooltipProvider } from '../../ui';
+
+export interface ErrorAnalysisTableFetcherProps {
+  className?: string;
+  onClickRow?: (row: Row<ErrorAnalysisErrorList.ErrorData>) => void;
+}
+
+export const ErrorAnalysisTableFetcher = ({
+  className,
+  onClickRow,
+}: ErrorAnalysisTableFetcherProps) => {
+  const [count, setCount] = React.useState(50);
+  const [orderBy, setOrderBy] = React.useState<string>();
+  const [isDesc, setIsDesc] = React.useState<boolean>();
+  const [timezone] = useTimezone();
+  const { data } = useGetErrorAnalysisErrorListData({
+    orderBy,
+    isDesc,
+    count,
+  });
+
+  const columns = errorTableColumns({
+    orderBy,
+    isDesc,
+    timezone,
+    onClickColumnHeader: (key, order) => {
+      if (order === undefined) {
+        if (orderBy === key) {
+          setIsDesc(!isDesc);
+        } else {
+          setIsDesc(true);
+        }
+      } else {
+        setIsDesc(order);
+      }
+
+      setOrderBy(key);
+    },
+  });
+
+  return (
+    <TooltipProvider delayDuration={100}>
+      <DataTableCountOfRows
+        triggerClassName="mt-10 mb-2 shrink-0 bg-white"
+        selectedCount={count}
+        onChange={(c) => setCount(c)}
+      />
+      <div
+        className={cn('max-h-[max(calc(100%-23rem),20rem)] rounded-md border bg-white', className)}
+      >
+        <DataTable
+          tableClassName="[&>tbody]:text-xs"
+          columns={columns}
+          data={data || []}
+          onClickRow={(row) => onClickRow?.(row)}
+        />
+      </div>
+    </TooltipProvider>
+  );
+};

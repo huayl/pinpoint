@@ -17,6 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.JvmGcDetailedBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PJvmGc;
@@ -29,17 +30,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcJvmGcDetailedBoMapper implements GrpcStatMapper {
 
-    public JvmGcDetailedBo map(final PJvmGcDetailed jvmGcDetailed) {
-        final JvmGcDetailedBo jvmGcDetailedBo = new JvmGcDetailedBo();
-        jvmGcDetailedBo.setGcNewCount(jvmGcDetailed.getJvmGcNewCount());
-        jvmGcDetailedBo.setGcNewTime(jvmGcDetailed.getJvmGcNewTime());
-        jvmGcDetailedBo.setCodeCacheUsed(jvmGcDetailed.getJvmPoolCodeCacheUsed());
-        jvmGcDetailedBo.setNewGenUsed(jvmGcDetailed.getJvmPoolNewGenUsed());
-        jvmGcDetailedBo.setOldGenUsed(jvmGcDetailed.getJvmPoolOldGenUsed());
-        jvmGcDetailedBo.setSurvivorSpaceUsed(jvmGcDetailed.getJvmPoolSurvivorSpaceUsed());
-        jvmGcDetailedBo.setPermGenUsed(jvmGcDetailed.getJvmPoolPermGenUsed());
-        jvmGcDetailedBo.setMetaspaceUsed(jvmGcDetailed.getJvmPoolMetaspaceUsed());
-        return jvmGcDetailedBo;
+    public JvmGcDetailedBo map(DataPoint point, final PJvmGcDetailed jvmGcDetailed) {
+        return new JvmGcDetailedBo(point,
+                jvmGcDetailed.getJvmGcNewCount(),
+                jvmGcDetailed.getJvmGcNewTime(),
+                jvmGcDetailed.getJvmPoolCodeCacheUsed(),
+
+                jvmGcDetailed.getJvmPoolNewGenUsed(),
+                jvmGcDetailed.getJvmPoolOldGenUsed(),
+
+                jvmGcDetailed.getJvmPoolSurvivorSpaceUsed(),
+                jvmGcDetailed.getJvmPoolPermGenUsed(),
+                jvmGcDetailed.getJvmPoolMetaspaceUsed());
     }
 
     @Override
@@ -51,8 +53,9 @@ public class GrpcJvmGcDetailedBoMapper implements GrpcStatMapper {
             // jvmGcDetailed
             if (jvmGc.hasJvmGcDetailed()) {
                 final PJvmGcDetailed jvmGcDetailed = jvmGc.getJvmGcDetailed();
-                final JvmGcDetailedBo jvmGcDetailedBo = this.map(jvmGcDetailed);
-                builder.addJvmGcDetailed(jvmGcDetailedBo);
+                DataPoint point = builder.getDataPoint();
+                final JvmGcDetailedBo jvmGcDetailedBo = this.map(point, jvmGcDetailed);
+                builder.addPoint(jvmGcDetailedBo);
             }
         }
     }

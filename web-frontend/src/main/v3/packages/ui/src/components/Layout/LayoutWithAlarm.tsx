@@ -1,0 +1,61 @@
+import { APP_PATH } from '@pinpoint-fe/ui/src/constants';
+import { useConfiguration } from '@pinpoint-fe/ui/src/hooks';
+import { getPagePath } from '@pinpoint-fe/ui/src/utils';
+import { Separator } from '../../components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { t } from 'i18next';
+import React from 'react';
+import { useLocation, useNavigate } from 'react-router';
+export interface LayoutWithAlarmProps {
+  children?: React.ReactNode;
+}
+
+export const LayoutWithAlarm = ({ children }: LayoutWithAlarmProps) => {
+  const configuration = useConfiguration();
+  // The router also matches `/config/alarm/` and `/config/alarm/{serviceName}` to this page.
+  // The tab values are compared exactly, so the raw path matches no tab and the content is empty.
+  const pathname = getPagePath(useLocation().pathname);
+  const navigate = useNavigate();
+
+  const alarmTabs = [
+    { id: 'alarm', text: 'Alarms', path: APP_PATH.CONFIG_ALARM },
+    { id: 'webhook', text: 'Webhook', path: APP_PATH.CONFIG_WEBHOOK },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold">Alarms</h3>
+        <div className="text-sm text-muted-foreground">
+          {t('CONFIGURATION.ALARM.DESC')
+            .split('\n')
+            .map((txt, i) => (
+              <p key={i}>{txt}</p>
+            ))}
+        </div>
+      </div>
+      {configuration?.webhookEnable ? (
+        <Tabs defaultValue={pathname}>
+          <TabsList>
+            {alarmTabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.path} onClick={() => navigate(tab.path)}>
+                {tab.text}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {alarmTabs.map((tab) => (
+            <TabsContent key={tab.id} value={tab.path}>
+              <Separator className="mb-6" />
+              {children}
+            </TabsContent>
+          ))}
+        </Tabs>
+      ) : (
+        <>
+          <Separator className="mb-6" />
+          {children}
+        </>
+      )}
+    </div>
+  );
+};

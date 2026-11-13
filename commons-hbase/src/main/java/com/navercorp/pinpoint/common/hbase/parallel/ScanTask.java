@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,15 +17,20 @@
 package com.navercorp.pinpoint.common.hbase.parallel;
 
 import com.navercorp.pinpoint.common.hbase.TableFactory;
-import com.sematext.hbase.wd.AbstractRowKeyDistributor;
-import com.sematext.hbase.wd.DistributedScanner;
+import com.navercorp.pinpoint.common.hbase.scan.ScanUtils;
+import com.navercorp.pinpoint.common.hbase.util.ScanMetricUtils;
+import com.navercorp.pinpoint.common.hbase.wd.DistributedScanner;
+import com.navercorp.pinpoint.common.hbase.wd.LocalScanner;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.metrics.ScanMetrics;
+import org.springframework.util.Assert;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -33,13 +38,13 @@ import java.util.concurrent.BlockingQueue;
 /**
  * @author HyunGil Jeong
  */
-public class ScanTask implements Runnable {
+public class ScanTask implements Runnable, LocalScanner {
 
     private static final Result END_RESULT = new Result();
 
     private final TableName tableName;
     private final TableFactory tableFactory;
-    private final AbstractRowKeyDistributor rowKeyDistributor;
+    private final int saltKeySize;
 
     private final Scan[] scans;
     private final BlockingQueue<Result> resultQueue;
@@ -48,17 +53,27 @@ public class ScanTask implements Runnable {
     private volatile boolean isQueueClosed = false;
     private volatile boolean isDone = false;
 
+    private Result localBuffer;
+
+    private final ScanMetrics scanMetrics;
+
     public ScanTask(ScanTaskConfig scanTaskConfig, Scan... scans) {
         Objects.requireNonNull(scanTaskConfig, "scanTaskConfig");
-        Objects.requireNonNull(scans, "scans");
-        if (scans.length == 0) {
-            throw new IllegalArgumentException("scans must not be empty");
-        }
+        Assert.notEmpty(scans, "scans");
         this.tableName = scanTaskConfig.getTableName();
         this.tableFactory = scanTaskConfig.getTableFactory();
-        this.rowKeyDistributor = scanTaskConfig.getRowKeyDistributor();
+        this.saltKeySize = scanTaskConfig.getSaltKeySize();
         this.scans = scans;
         this.resultQueue = new ArrayBlockingQueue<>(scanTaskConfig.getScanTaskQueueSize());
+
+        this.scanMetrics = getScanMetrics(scanTaskConfig.isScanMetricsEnabled());
+    }
+
+    private ScanMetrics getScanMetrics(boolean scanMetricsEnabled) {
+        if (scanMetricsEnabled) {
+            return new ScanMetrics();
+        }
+        return null;
     }
 
     @Override
@@ -78,7 +93,10 @@ public class ScanTask implements Runnable {
             } finally {
                 this.isDone = true;
                 this.resultQueue.put(END_RESULT);
-                scanner.close();
+                ScanUtils.closeScanner(scanner);
+                if (scanMetrics != null) {
+                    ScanMetricUtils.sum(scanMetrics, scanner.getScanMetrics());
+                }
             }
         } catch (Throwable th) {
             this.throwable = th;
@@ -94,26 +112,47 @@ public class ScanTask implements Runnable {
             Scan scan = scans[0];
             return table.getScanner(scan);
         } else {
-            ResultScanner[] scanners = new ResultScanner[this.scans.length];
-            for (int i = 0; i < scanners.length; i++) {
-                scanners[i] = table.getScanner(this.scans[i]);
-            }
-            return new DistributedScanner(this.rowKeyDistributor, scanners);
+            ResultScanner[] scanners = ScanUtils.newScanners(table, scans);
+            return new DistributedScanner(saltKeySize, scanners);
         }
     }
 
-    public Result getResult() throws InterruptedException {
+    @Override
+    public Result next() throws IOException {
         if (this.isQueueClosed) {
             return null;
         }
-        Result take = this.resultQueue.take();
+        if (localBuffer != null) {
+            return localBuffer;
+        }
+        Result take = null;
+        try {
+            take = this.resultQueue.take();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            isDone = true;
+            throw new InterruptedIOException("ScanTask Interrupted");
+        }
         if (take == END_RESULT) {
             this.isQueueClosed = true;
+            localBuffer = null;
             return null;
         }
-        return take;
+        localBuffer = take;
+        return localBuffer;
     }
 
+    @Override
+    public void consume() {
+        localBuffer = null;
+    }
+
+    @Override
+    public boolean isExhausted() {
+        return this.isQueueClosed;
+    }
+
+    @Override
     public void close() {
         this.isDone = true;
         // signal threads blocked on resultQueue
@@ -125,4 +164,8 @@ public class ScanTask implements Runnable {
         return this.throwable;
     }
 
+    @Override
+    public ScanMetrics getScanMetrics() {
+        return scanMetrics;
+    }
 }

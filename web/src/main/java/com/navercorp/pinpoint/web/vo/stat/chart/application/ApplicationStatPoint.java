@@ -16,24 +16,24 @@
 
 package com.navercorp.pinpoint.web.vo.stat.chart.application;
 
-import com.navercorp.pinpoint.web.vo.chart.Point;
+import com.navercorp.pinpoint.common.timeseries.point.Point;
 
 import java.util.Objects;
 
 /**
  * @author Taejin Koo
  */
-public abstract class ApplicationStatPoint<Y extends Number> implements Point {
+public class ApplicationStatPoint implements Point {
 
-    private final long xVal;
-    private final Y yValForMin;
+    private final long timestamp;
+    private final double yValForMin;
     private final String agentIdForMin;
-    private final Y yValForMax;
+    private final double yValForMax;
     private final String agentIdForMax;
-    private final Y yValForAvg;
+    private final double yValForAvg;
 
-    public ApplicationStatPoint(long xVal, Y yValForMin, String agentIdForMin, Y yValForMax, String agentIdForMax, Y yValForAvg) {
-        this.xVal = xVal;
+    public ApplicationStatPoint(long timestamp, double yValForMin, String agentIdForMin, double yValForMax, String agentIdForMax, double yValForAvg) {
+        this.timestamp = timestamp;
 
         this.yValForMin = yValForMin;
         this.agentIdForMin = Objects.requireNonNull(agentIdForMin, "agentIdForMin");
@@ -46,11 +46,11 @@ public abstract class ApplicationStatPoint<Y extends Number> implements Point {
 
 
     @Override
-    public long getXVal() {
-        return xVal;
+    public long getTimestamp() {
+        return timestamp;
     }
 
-    public Y getYValForMin() {
+    public double getYValForMin() {
         return yValForMin;
     }
 
@@ -58,7 +58,7 @@ public abstract class ApplicationStatPoint<Y extends Number> implements Point {
         return agentIdForMin;
     }
 
-    public Y getYValForMax() {
+    public double getYValForMax() {
         return yValForMax;
     }
 
@@ -66,14 +66,14 @@ public abstract class ApplicationStatPoint<Y extends Number> implements Point {
         return agentIdForMax;
     }
 
-    public Y getYValForAvg() {
+    public double getYValForAvg() {
         return yValForAvg;
     }
 
     @Override
     public String toString() {
         return "ApplicationStatPoint{" +
-                "xVal=" + xVal +
+                "xVal=" + timestamp +
                 ", yValForMin=" + yValForMin +
                 ", agentIdForMin='" + agentIdForMin + '\'' +
                 ", yValForMax=" + yValForMax +
@@ -81,5 +81,4 @@ public abstract class ApplicationStatPoint<Y extends Number> implements Point {
                 ", yValForAvg=" + yValForAvg +
                 '}';
     }
-
 }

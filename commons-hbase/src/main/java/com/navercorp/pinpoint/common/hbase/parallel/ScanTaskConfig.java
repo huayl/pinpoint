@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,11 @@
 
 package com.navercorp.pinpoint.common.hbase.parallel;
 
-import com.navercorp.pinpoint.common.hbase.HbaseAccessor;
 import com.navercorp.pinpoint.common.hbase.TableFactory;
-import com.sematext.hbase.wd.AbstractRowKeyDistributor;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
 
-import java.nio.charset.Charset;
 import java.util.Objects;
 
 /**
@@ -32,53 +29,53 @@ import java.util.Objects;
 public class ScanTaskConfig {
 
     private final TableName tableName;
-    private final Configuration configuration;
-    private final Charset charset;
     private final TableFactory tableFactory;
 
-    private final AbstractRowKeyDistributor rowKeyDistributor;
+    private final int saltKeySize;
     private final int scanTaskQueueSize;
+    private final boolean scanMetricsEnabled;
 
-    public ScanTaskConfig(TableName tableName, HbaseAccessor hbaseAccessor, AbstractRowKeyDistributor rowKeyDistributor, int scanCaching) {
-        this(tableName, hbaseAccessor.getConfiguration(), hbaseAccessor.getCharset(), hbaseAccessor.getTableFactory(), rowKeyDistributor, scanCaching);
+    public static ScanTaskConfig of(TableName tableName, TableFactory tableFactory, int saltKeySize, int scanCaching, Configuration configuration, boolean scanMetricsEnabled) {
+        int scanTaskQueueSize = scanTaskQueueSize(scanCaching, configuration);
+        return new ScanTaskConfig(tableName, tableFactory, saltKeySize, scanTaskQueueSize, scanMetricsEnabled);
     }
 
-    public ScanTaskConfig(TableName tableName, Configuration configuration, Charset charset, TableFactory tableFactory, AbstractRowKeyDistributor rowKeyDistributor, int scanCaching) {
-        this.tableName = Objects.requireNonNull(tableName, "tableName");
-        this.configuration = configuration;
-        this.charset = charset;
-        this.tableFactory = tableFactory;
-        this.rowKeyDistributor = Objects.requireNonNull(rowKeyDistributor, "rowKeyDistributor");
+    private static int scanTaskQueueSize(int scanCaching, Configuration configuration) {
         if (scanCaching > 0) {
-            this.scanTaskQueueSize = scanCaching;
+            return scanCaching;
         } else {
-            this.scanTaskQueueSize = configuration.getInt(
+            return configuration.getInt(
                     HConstants.HBASE_CLIENT_SCANNER_CACHING,
                     HConstants.DEFAULT_HBASE_CLIENT_SCANNER_CACHING);
         }
+    }
+
+    public ScanTaskConfig(TableName tableName, TableFactory tableFactory, int saltKeySize, int scanTaskQueueSize, boolean scanMetricsEnabled) {
+        this.tableName = Objects.requireNonNull(tableName, "tableName");
+        this.tableFactory = Objects.requireNonNull(tableFactory, "tableFactory");
+        this.saltKeySize = saltKeySize;
+        this.scanTaskQueueSize = scanTaskQueueSize;
+        this.scanMetricsEnabled = scanMetricsEnabled;
     }
 
     public TableName getTableName() {
         return tableName;
     }
 
-    public Configuration getConfiguration() {
-        return configuration;
-    }
-
-    public Charset getCharset() {
-        return charset;
-    }
 
     public TableFactory getTableFactory() {
         return tableFactory;
     }
 
-    public AbstractRowKeyDistributor getRowKeyDistributor() {
-        return rowKeyDistributor;
+    public int getSaltKeySize() {
+        return saltKeySize;
     }
 
     public int getScanTaskQueueSize() {
         return scanTaskQueueSize;
+    }
+
+    public boolean isScanMetricsEnabled() {
+        return scanMetricsEnabled;
     }
 }

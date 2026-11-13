@@ -1,11 +1,11 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,21 +16,20 @@
 
 package com.navercorp.pinpoint.collector.handler.grpc;
 
-import com.google.protobuf.GeneratedMessageV3;
 import com.navercorp.pinpoint.collector.handler.RequestResponseHandler;
 import com.navercorp.pinpoint.collector.service.ApiMetaDataService;
 import com.navercorp.pinpoint.common.server.bo.ApiMetaDataBo;
 import com.navercorp.pinpoint.common.server.bo.MethodTypeEnum;
-import com.navercorp.pinpoint.grpc.Header;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
+import com.navercorp.pinpoint.common.server.io.ServerResponse;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.util.LineNumber;
 import com.navercorp.pinpoint.grpc.MessageFormatUtils;
-import com.navercorp.pinpoint.grpc.server.ServerContext;
 import com.navercorp.pinpoint.grpc.trace.PApiMetaData;
 import com.navercorp.pinpoint.grpc.trace.PResult;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-import com.navercorp.pinpoint.io.request.ServerResponse;
-import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -39,9 +38,9 @@ import java.util.Objects;
  * @author emeroad
  */
 @Service
-public class GrpcApiMetaDataHandler implements RequestResponseHandler<GeneratedMessageV3, GeneratedMessageV3> {
+public class GrpcApiMetaDataHandler implements RequestResponseHandler<PApiMetaData, PResult> {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private final Logger logger = LogManager.getLogger(getClass());
     private final boolean isDebug = logger.isDebugEnabled();
 
     private final ApiMetaDataService apiMetaDataService;
@@ -51,46 +50,42 @@ public class GrpcApiMetaDataHandler implements RequestResponseHandler<GeneratedM
     }
 
     @Override
-    public void handleRequest(ServerRequest<GeneratedMessageV3> serverRequest, ServerResponse<GeneratedMessageV3> serverResponse) {
-        final GeneratedMessageV3 data = serverRequest.getData();
-        if (data instanceof PApiMetaData) {
-            GeneratedMessageV3 result = handleApiMetaData((PApiMetaData) data);
-            serverResponse.write(result);
-        } else {
-            logger.warn("Invalid request type. serverRequest={}", serverRequest);
-            throw Status.INTERNAL.withDescription("Bad Request(invalid request type)").asRuntimeException();
-        }
+    public void handleRequest(ServerRequest<PApiMetaData> serverRequest, ServerResponse<PResult> serverResponse) {
+        final PApiMetaData apiMetaData = serverRequest.getData();
+        final ServerHeader header = serverRequest.getHeader();
+        PResult result = handleApiMetaData(header, apiMetaData);
+        serverResponse.write(result);
     }
 
-    private GeneratedMessageV3 handleApiMetaData(final PApiMetaData apiMetaData) {
+    PResult handleApiMetaData(ServerHeader header, final PApiMetaData apiMetaData) {
         if (isDebug) {
             logger.debug("Handle PApiMetaData={}", MessageFormatUtils.debugLog(apiMetaData));
         }
 
         try {
-            final Header header = ServerContext.getAgentInfo();
+            ServiceUid serviceUid = header.getServiceUid().get();
+            if (serviceUid == null || ServiceUid.UNKNOWN.equals(serviceUid) || ServiceUid.ERROR.equals(serviceUid)) {
+                logger.warn("Service not found. serviceName={}, serviceUid={}, applicationName={}, agentId={}",
+                        header.getServiceName(), serviceUid, header.getApplicationName(), header.getAgentId());
+                return PResults.serviceNotFound(header.getServiceName());
+            }
+
             final String agentId = header.getAgentId();
             final long agentStartTime = header.getAgentStartTime();
+            final int line = LineNumber.defaultLineNumber(apiMetaData.getLine());
 
-            final ApiMetaDataBo apiMetaDataBo = new ApiMetaDataBo(agentId, agentStartTime, apiMetaData.getApiId());
-            apiMetaDataBo.setApiInfo(apiMetaData.getApiInfo());
+            final MethodTypeEnum type = MethodTypeEnum.defaultValueOf(apiMetaData.getType());
 
-            final int line = apiMetaData.getLine();
-            if (line != -1) {
-                apiMetaDataBo.setLineNumber(line);
-            }
-
-            final int type = apiMetaData.getType();
-            if (type != -1) {
-                apiMetaDataBo.setMethodTypeEnum(MethodTypeEnum.valueOf(type));
-            }
+            final ApiMetaDataBo apiMetaDataBo = new ApiMetaDataBo.Builder(serviceUid, agentId, agentStartTime, apiMetaData.getApiId(), line, type, apiMetaData.getApiInfo())
+                    .setLocation(apiMetaData.getLocation())
+                    .build();
 
             this.apiMetaDataService.insert(apiMetaDataBo);
-            return PResult.newBuilder().setSuccess(true).build();
+            return PResults.SUCCESS;
         } catch (Exception e) {
             logger.warn("Failed to handle apiMetaData={}", MessageFormatUtils.debugLog(apiMetaData), e);
             // Avoid detailed error messages.
-            return PResult.newBuilder().setSuccess(false).setMessage("Internal Server Error").build();
+            return PResults.INTERNAL_SERVER_ERROR;
         }
     }
 }

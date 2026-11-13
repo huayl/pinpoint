@@ -16,46 +16,42 @@
 
 package com.navercorp.pinpoint.common.server.bo.stat;
 
-import java.util.EnumSet;
-import java.util.Set;
+import com.navercorp.pinpoint.common.server.util.ByteUtils;
 
 /**
  * @author HyunGil Jeong
  */
 public enum AgentStatType {
-    UNKNOWN(0, "Unknown"),
-    JVM_GC(1, "JVM GC"),
-    JVM_GC_DETAILED(2, "JVM GC Detailed"),
-    CPU_LOAD(3, "Cpu Usage"),
-    TRANSACTION((byte) 4, "Transaction"),
-    ACTIVE_TRACE((byte) 5, "Active Trace"),
-    DATASOURCE((byte) 6, "DataSource"),
-    RESPONSE_TIME((byte) 7, "Response Time"),
-    DEADLOCK((byte) 8, "Deadlock"),
-    FILE_DESCRIPTOR((byte) 9, "FileDescriptor"),
-    DIRECT_BUFFER((byte) 10, "DirectBuffer"),
-    TOTAL_THREAD((byte) 11, "Total Thread Count"),
-    LOADED_CLASS((byte) 12, "Loaded Class"),
-
-    URI((byte) 100, "Agent URI Stat");
+    UNKNOWN(0, "Unknown", null),
+    JVM_GC(1, "JVM GC", "jvmGc"),
+    JVM_GC_DETAILED(2, "JVM GC Detailed", "jvmGcDetailed"),
+    CPU_LOAD(3, "Cpu Usage", "cpuLoad"),
+    TRANSACTION((byte) 4, "Transaction", "transaction"),
+    ACTIVE_TRACE((byte) 5, "Active Trace", "activeTrace"),
+    DATASOURCE((byte) 6, "DataSource", "dataSource"),
+    RESPONSE_TIME((byte) 7, "Response Time", "responseTime"),
+    DEADLOCK((byte) 8, "Deadlock", "deadlock"),
+    FILE_DESCRIPTOR((byte) 9, "FileDescriptor", "fileDescriptor"),
+    DIRECT_BUFFER((byte) 10, "DirectBuffer", "directBuffer"),
+    TOTAL_THREAD((byte) 11, "Total Thread Count", "totalThreadCount"),
+    LOADED_CLASS((byte) 12, "Loaded Class", "loadedClass");
 
     public static final int TYPE_CODE_BYTE_LENGTH = 1;
 
     private final byte typeCode;
     private final String name;
+    private final String chartType;
 
-    private static final Set<AgentStatType> AGENT_STAT_TYPES = EnumSet.allOf(AgentStatType.class);
+    private static final AgentStatType[] AGENT_STAT_TYPES = AgentStatType.values();
 
-    AgentStatType(int typeCode, String name) {
-        if (typeCode < 0 || typeCode > 255) {
-            throw new IllegalArgumentException("type code out of range (0~255)");
-        }
-        this.typeCode = (byte) (typeCode & 0xFF);
+    AgentStatType(int typeCode, String name, String chartType) {
+        this.typeCode = ByteUtils.toUnsignedByte(typeCode);
         this.name = name;
+        this.chartType = chartType;
     }
 
     public int getTypeCode() {
-        return this.typeCode & 0xFF;
+        return Byte.toUnsignedInt(this.typeCode);
     }
 
     public byte getRawTypeCode() {
@@ -64,6 +60,10 @@ public enum AgentStatType {
 
     public String getName() {
         return name;
+    }
+
+    public String getChartType() {
+        return chartType;
     }
 
     @Override

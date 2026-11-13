@@ -17,7 +17,7 @@
 package com.navercorp.pinpoint.common.server.profile;
 
 import com.navercorp.pinpoint.common.server.util.ServerBootLogger;
-import org.springframework.boot.context.config.ConfigFileApplicationListener;
+import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor;
 import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.core.Ordered;
@@ -34,19 +34,20 @@ public class ProfileApplicationListener implements ApplicationListener<Applicati
 
     @Override
     public void onApplicationEvent(ApplicationEnvironmentPreparedEvent event) {
-        logger.info("onApplicationEvent(ApplicationEnvironmentPreparedEvent)");
-        ConfigurableEnvironment environment = event.getEnvironment();
-        ProfileEnvironment profileEnvironment = new ProfileEnvironment();
-        profileEnvironment.processEnvironment(environment);
+        logger.info(String.format("onApplicationEvent(%s)", event.getClass().getSimpleName()));
 
+        ConfigurableEnvironment environment = event.getEnvironment();
+        PinpointProfileEnvironment profileEnvironment = new PinpointProfileEnvironment();
+        profileEnvironment.processEnvironment(environment);
     }
+
     /**
      * @see org.springframework.boot.context.logging.LoggingApplicationListener#DEFAULT_ORDER
-     * @see ConfigFileApplicationListener#DEFAULT_ORDER
+     * @see ConfigDataEnvironmentPostProcessor#ORDER
      */
     @Override
     public int getOrder() {
-        return ConfigFileApplicationListener.DEFAULT_ORDER + 1;
+        return ConfigDataEnvironmentPostProcessor.ORDER + 1;
     }
 
 

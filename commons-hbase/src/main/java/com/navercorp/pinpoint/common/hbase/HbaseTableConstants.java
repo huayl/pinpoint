@@ -33,4 +33,7 @@ public final class HbaseTableConstants {
 
     public static final int APPLICATION_STAT_TIMESPAN_MS = 5 * 60 * 1000;
 
+    // trace index (applicationTraceIndexV2)
+    public static final int TRACE_INDEX_DISTRIBUTOR_MOD = 8;
+
 }

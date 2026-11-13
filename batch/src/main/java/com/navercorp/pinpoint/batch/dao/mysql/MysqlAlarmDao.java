@@ -16,8 +16,8 @@
 
 package com.navercorp.pinpoint.batch.dao.mysql;
 
-import com.navercorp.pinpoint.batch.dao.AlarmDao;
 import com.navercorp.pinpoint.batch.alarm.vo.CheckerResult;
+import com.navercorp.pinpoint.batch.dao.AlarmDao;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 
@@ -29,7 +29,7 @@ import java.util.Objects;
  */
 public class MysqlAlarmDao implements AlarmDao {
 
-    private static final String NAMESPACE = AlarmDao.class.getPackage().getName() + "." + AlarmDao.class.getSimpleName() + ".";
+    private static final String NAMESPACE = AlarmDao.class.getName() + ".";
 
     private final SqlSessionTemplate sqlSessionTemplate;
 
@@ -43,8 +43,8 @@ public class MysqlAlarmDao implements AlarmDao {
     }
 
     @Override
-    public List<CheckerResult> selectBeforeCheckerResultList(String applicationId) {
-        return sqlSessionTemplate.selectList(NAMESPACE + "selectBeforeCheckerResultList", applicationId);
+    public List<CheckerResult> selectBeforeCheckerResultList(String applicationName) {
+        return sqlSessionTemplate.selectList(NAMESPACE + "selectBeforeCheckerResultList", applicationName);
     }
 
 

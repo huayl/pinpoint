@@ -1,0 +1,62 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.collector.dao.hbase.encode;
+
+import com.navercorp.pinpoint.common.hbase.wd.ByteHasher;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.bo.SpanOwner;
+import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
+import com.navercorp.pinpoint.common.server.scatter.TraceIndexRowKeyUtils;
+
+import java.util.Objects;
+
+public class TraceIndexRowKeyEncoder implements RowKeyEncoder<SpanBo> {
+
+    private final ByteHasher hasher;
+
+    public TraceIndexRowKeyEncoder(RowKeyDistributor rowKeyDistributor) {
+        Objects.requireNonNull(rowKeyDistributor, "rowKeyDistributor");
+        this.hasher = rowKeyDistributor.getByteHasher();
+    }
+
+    public byte[] encodeRowKey(int saltKeySize, int serviceUid, String applicationName, int serviceTypeCode, long acceptedTime, String agentId, long spanId, int elapsedTime, int errorCode) {
+        final byte[] rowKey = TraceIndexRowKeyUtils.createRowKeyWithSaltSize(saltKeySize, serviceUid, applicationName, serviceTypeCode, acceptedTime, spanId, elapsedTime, errorCode, agentId);
+        if (saltKeySize == 0) {
+            return rowKey;
+        }
+        return hasher.writeSaltKey(rowKey);
+    }
+
+    @Override
+    public byte[] encodeRowKey(SpanBo span) {
+        final SpanOwner owner = span.getSpanOwner();
+        return encodeRowKey(hasher.getSaltKey().size(),
+                owner.getServiceUid().getUid(), owner.getApplicationName(), span.getApplicationServiceType(),
+                span.getCollectorAcceptTime(), owner.getAgentId(),
+                span.getSpanId(), span.getElapsed(), span.getErrCode());
+    }
+
+    @Override
+    public byte[] encodeRowKey(int saltKeySize, SpanBo span) {
+        final SpanOwner owner = span.getSpanOwner();
+        return encodeRowKey(saltKeySize,
+                owner.getServiceUid().getUid(), owner.getApplicationName(), span.getApplicationServiceType(),
+                span.getCollectorAcceptTime(), owner.getAgentId(),
+                span.getSpanId(), span.getElapsed(), span.getErrCode());
+    }
+}

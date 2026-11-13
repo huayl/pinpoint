@@ -16,7 +16,9 @@
 
 package com.navercorp.pinpoint.batch.alarm.collector;
 
-import com.navercorp.pinpoint.batch.alarm.DataCollectorFactory.DataCollectorCategory;
+import com.navercorp.pinpoint.web.alarm.DataCollectorCategory;
+
+import java.util.Objects;
 
 /**
  * @author minwoo.jung
@@ -26,7 +28,7 @@ public abstract class DataCollector {
     protected final DataCollectorCategory dataCollectorCategory;
     
     public DataCollector(DataCollectorCategory dataCollectorCategory) {
-        this.dataCollectorCategory = dataCollectorCategory;
+        this.dataCollectorCategory = Objects.requireNonNull(dataCollectorCategory, "dataCollectorCategory");
     }
     
     public abstract void collect();

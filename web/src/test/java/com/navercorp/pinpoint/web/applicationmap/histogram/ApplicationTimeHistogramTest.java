@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,22 +16,27 @@
 
 package com.navercorp.pinpoint.web.applicationmap.histogram;
 
+import com.navercorp.pinpoint.applicationmap.histogram.Histogram;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectWriter;
+import com.navercorp.pinpoint.common.server.util.json.Jackson;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.trace.HistogramSchema;
+import com.navercorp.pinpoint.common.trace.HistogramSchemas;
 import com.navercorp.pinpoint.common.trace.ServiceType;
-import com.navercorp.pinpoint.web.applicationmap.histogram.ApplicationTimeHistogram;
-import com.navercorp.pinpoint.web.applicationmap.histogram.ApplicationTimeHistogramBuilder;
-import com.navercorp.pinpoint.web.view.ResponseTimeViewModel;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
-import com.navercorp.pinpoint.web.vo.ResponseTime;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.navercorp.pinpoint.applicationmap.link.LinkKey;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkCallData;
+import com.navercorp.pinpoint.web.applicationmap.view.TimeHistogramView;
+import com.navercorp.pinpoint.web.applicationmap.view.TimeHistogramViewModel;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.applicationmap.vo.ResponseTime;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -39,19 +44,20 @@ import java.util.List;
  */
 public class ApplicationTimeHistogramTest {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson.newMapper();
 
     @Test
     public void testViewModel() throws IOException {
 
         Application app = new Application("test", ServiceType.STAND_ALONE);
-        ApplicationTimeHistogramBuilder builder = new ApplicationTimeHistogramBuilder(app, Range.newRange(0, 10*6000));
+        ApplicationTimeHistogramBuilder builder = new ApplicationTimeHistogramBuilder(app, Range.between(0, 10 * 6000));
         List<ResponseTime> responseHistogramList = createResponseTime(app);
         ApplicationTimeHistogram histogram = builder.build(responseHistogramList);
 
-        List<ResponseTimeViewModel> viewModel = histogram.createViewModel();
+        TimeHistogramView builder1 = TimeHistogramView.TimeseriesHistogram;
+        List<TimeHistogramViewModel> viewModel = builder1.build(histogram);
         logger.debug("{}", viewModel);
         ObjectWriter writer = mapper.writer();
         String s = writer.writeValueAsString(viewModel);
@@ -60,15 +66,76 @@ public class ApplicationTimeHistogramTest {
     }
 
     private List<ResponseTime> createResponseTime(Application app) {
-        List<ResponseTime> responseTimeList = new ArrayList<ResponseTime>();
 
-        ResponseTime one = new ResponseTime(app.getName(), app.getServiceType(), 0);
+        ResponseTime.Builder one = ResponseTime.newBuilder(app.getApplicationName(), app.getServiceType(), 0);
         one.addResponseTime("test", (short) 1000, 1);
-        responseTimeList.add(one);
 
-        ResponseTime two = new ResponseTime(app.getName(), app.getServiceType(), 1000*60);
-        two .addResponseTime("test", (short) 3000, 1);
-        responseTimeList.add(two);
-        return responseTimeList;
+        ResponseTime.Builder two = ResponseTime.newBuilder(app.getApplicationName(), app.getServiceType(), 1000 * 60);
+        two.addResponseTime("test", (short) 3000, 1);
+
+        return List.of(one.build(), two.build());
+    }
+
+    @Test
+    public void testLoadViewModel() {
+        Application app = new Application("test", ServiceType.STAND_ALONE);
+        final long timestamp = System.currentTimeMillis();
+        Range range = Range.between(timestamp, timestamp + 60000);
+
+        ApplicationTimeHistogramBuilder builder = new ApplicationTimeHistogramBuilder(app, range);
+
+        ResponseTime.Builder responseTime = new ResponseTime.Builder(app.getApplicationName(), app.getServiceType(), timestamp);
+        responseTime.addResponseTime("test", (short) 1000, 1);
+
+        List<ResponseTime> responseHistogramList = List.of(responseTime.build());
+
+        ApplicationTimeHistogram histogram = builder.build(responseHistogramList);
+
+        TimeHistogramView histogramBuilder = TimeHistogramView.TimeseriesHistogram;
+        List<TimeHistogramViewModel> viewModelList = histogramBuilder.build(histogram);
+        logger.debug("{}", viewModelList);
+    }
+
+    @Test
+    public void aggregatedLinkDataHandleTest() {
+        final long timestamp = System.currentTimeMillis();
+        final long minute = 60000;
+        final long aggregateTimeStamp = 0;
+        Application app = new Application("test", ServiceType.STAND_ALONE);
+        ApplicationTimeHistogramBuilder builder = new ApplicationTimeHistogramBuilder(app, Range.between(timestamp, timestamp + minute));
+
+        ApplicationTimeHistogram applicationTimeHistogram = builder.build(List.of(createLinkCallData(timestamp), createLinkCallData(timestamp + minute)));
+        ApplicationTimeHistogram aggregatedApplicationTimeHistogram = builder.build(List.of(createLinkCallData(aggregateTimeStamp), createLinkCallData(aggregateTimeStamp)));
+
+        Histogram expect = new Histogram(ServiceType.STAND_ALONE);
+        for (TimeHistogram timeHistogram : applicationTimeHistogram.getHistogramList()) {
+            expect.add(timeHistogram);
+        }
+        Histogram aggregatedResult = new Histogram(ServiceType.STAND_ALONE);
+        for (TimeHistogram timeHistogram : aggregatedApplicationTimeHistogram.getHistogramList()) {
+            aggregatedResult.add(timeHistogram);
+        }
+
+        Assertions.assertEquals(expect.getFastCount(), aggregatedResult.getFastCount());
+        Assertions.assertEquals(expect.getNormalCount(), aggregatedResult.getNormalCount());
+        Assertions.assertEquals(expect.getSlowCount(), aggregatedResult.getSlowCount());
+        Assertions.assertEquals(expect.getTotalErrorCount(), aggregatedResult.getTotalErrorCount());
+        Assertions.assertEquals(expect.getSumElapsed(), aggregatedResult.getSumElapsed());
+        Assertions.assertEquals(expect.getMaxElapsed(), aggregatedResult.getMaxElapsed());
+    }
+
+    private LinkCallData createLinkCallData(long timeStamp) {
+        LinkKey key = LinkKey.of("sourceAgentId", ServiceType.STAND_ALONE, "targetAgentId", ServiceType.STAND_ALONE);
+        LinkCallData linkCallData = new LinkCallData(key);
+
+        final HistogramSchema schema = HistogramSchemas.NORMAL_SCHEMA;
+        linkCallData.addCallData(timeStamp, schema.getFastSlot().getSlotTime(), 1L);
+        linkCallData.addCallData(timeStamp, schema.getNormalSlot().getSlotTime(), 2L);
+        linkCallData.addCallData(timeStamp, schema.getSlowSlot().getSlotTime(), 3L);
+        linkCallData.addCallData(timeStamp, schema.getSlowErrorSlot().getSlotTime(), 4L);
+        linkCallData.addCallData(timeStamp, schema.getSumStatSlot().getSlotTime(), 1000L);
+        linkCallData.addCallData(timeStamp, schema.getMaxStatSlot().getSlotTime(), 2000L);
+
+        return linkCallData;
     }
 }

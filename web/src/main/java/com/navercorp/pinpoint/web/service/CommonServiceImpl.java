@@ -16,28 +16,33 @@
 
 package com.navercorp.pinpoint.web.service;
 
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.server.uid.Service;
+
 import java.util.List;
 import java.util.Objects;
 
-import org.springframework.stereotype.Service;
-
-import com.navercorp.pinpoint.web.dao.ApplicationIndexDao;
-import com.navercorp.pinpoint.web.vo.Application;
-
 /**
  * @author netspider
+ * @author yjqg6666
  */
-@Service
+@org.springframework.stereotype.Service
 public class CommonServiceImpl implements CommonService {
 
-    private final ApplicationIndexDao applicationIndexDao;
+    private final ApplicationIndexService applicationIndexService;
 
-    public CommonServiceImpl(ApplicationIndexDao applicationIndexDao) {
-        this.applicationIndexDao = Objects.requireNonNull(applicationIndexDao, "applicationIndexDao");
+    public CommonServiceImpl(ApplicationIndexService applicationIndexService) {
+        this.applicationIndexService = Objects.requireNonNull(applicationIndexService, "applicationIndexService");
     }
 
     @Override
     public List<Application> selectAllApplicationNames() {
-        return applicationIndexDao.selectAllApplicationNames();
+        return applicationIndexService.selectAllApplications(Service.DEFAULT);
     }
+
+    @Override
+    public List<Application> selectAllApplicationNames(Service service) {
+        return applicationIndexService.selectAllApplications(service);
+    }
+
 }

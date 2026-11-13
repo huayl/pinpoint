@@ -1,0 +1,200 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.navercorp.pinpoint.test.plugin;
+
+import com.navercorp.pinpoint.test.plugin.api.ClassLoading;
+import com.navercorp.pinpoint.test.plugin.api.Dependency;
+import com.navercorp.pinpoint.test.plugin.api.OnClassLoader;
+import com.navercorp.pinpoint.test.plugin.classloader.PluginAgentTestClassLoader;
+import com.navercorp.pinpoint.test.plugin.maven.MavenArtifact;
+import com.navercorp.pinpoint.test.plugin.maven.DependencyResolveException;
+import com.navercorp.pinpoint.test.plugin.maven.DependencyResolver;
+import com.navercorp.pinpoint.test.plugin.maven.DependencyResolverFactory;
+import com.navercorp.pinpoint.test.plugin.maven.DependencyVersionFilter;
+import com.navercorp.pinpoint.test.plugin.shared.PluginSharedInstance;
+import com.navercorp.pinpoint.test.plugin.shared.PluginSharedInstanceFactory;
+import com.navercorp.pinpoint.test.plugin.api.SharedDependency;
+import com.navercorp.pinpoint.test.plugin.api.SharedTestLifeCycleClass;
+import com.navercorp.pinpoint.test.plugin.util.ArrayUtils;
+import com.navercorp.pinpoint.test.plugin.util.ClassLoaderUtils;
+import com.navercorp.pinpoint.test.plugin.util.FileUtils;
+import com.navercorp.pinpoint.test.plugin.util.TestLogger;
+import com.navercorp.pinpoint.test.plugin.util.URLUtils;
+import com.navercorp.pinpoint.test.plugin.util.VersionUtils;
+import org.tinylog.TaggedLogger;
+
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * We have referred OrderedThreadPoolExecutor ParentRunner of JUnit.
+ *
+ * @author Jongho Moon
+ * @author Taejin Koo
+ */
+public class DefaultPluginTestSuite extends AbstractPluginTestSuite {
+    private static final DependencyVersionFilter DEPENDENCY_VERSION_FILTER = new DependencyVersionFilter();
+    private final TaggedLogger logger = TestLogger.getLogger();
+
+    // shared by every suite of the engine: it owns the maven repository system and its session caches.
+    private final DependencyResolverFactory resolverFactory;
+
+    private final ClassLoading classLoading;
+
+    private final String[] dependencies;
+    private final Class<?> sharedClass;
+    private final String[] sharedDependencies;
+    private final String testClassName;
+
+    public DefaultPluginTestSuite(Class<?> testClass, DependencyResolverFactory resolverFactory) {
+        this(testClass, false, resolverFactory);
+    }
+
+    public DefaultPluginTestSuite(Class<?> testClass, boolean sharedProcess, DependencyResolverFactory resolverFactory) {
+        super(testClass);
+        this.resolverFactory = Objects.requireNonNull(resolverFactory, "resolverFactory");
+
+        OnClassLoader onClassLoader = testClass.getAnnotation(OnClassLoader.class);
+        this.classLoading = resolver.getClassLoading(onClassLoader);
+
+        Dependency deps = testClass.getAnnotation(Dependency.class);
+        this.dependencies = resolver.getDependency(deps);
+
+        SharedTestLifeCycleClass sharedTestLifeCycleClass = testClass.getAnnotation(SharedTestLifeCycleClass.class);
+        this.sharedClass = resolver.getSharedTestLifeCycleClass(sharedTestLifeCycleClass);
+
+        SharedDependency sharedDeps = testClass.getAnnotation(SharedDependency.class);
+        this.sharedDependencies = resolver.getSharedDependency(sharedDeps);
+        this.testClassName = testClass.getName();
+    }
+
+    @Override
+    public PluginSharedInstance createSharedInstance(PluginTestContext context) {
+        if (sharedClass == null) {
+            return null;
+        }
+
+        final List<Path> libs = new ArrayList<>();
+        libs.add(context.getTestClassLocation());
+        libs.addAll(FileUtils.toPaths(context.getSharedLibList()));
+
+        if (ArrayUtils.hasLength(sharedDependencies)) {
+            final DependencyResolver resolver = getDependencyResolver(context.getRepositoryUrls());
+            final Map<String, List<MavenArtifact>> dependencyCases = resolver.resolveDependencySets(sharedDependencies);
+
+            for (Map.Entry<String, List<MavenArtifact>> dependencyCase : dependencyCases.entrySet()) {
+                final String testId = dependencyCase.getKey();
+                try {
+                    final List<MavenArtifact> artifactList = dependencyCase.getValue();
+                    libs.addAll(resolveArtifactsAndDependencies(resolver, artifactList));
+                } catch (DependencyResolveException ex) {
+                    logger.info(ex, "Failed to resolve artifacts and dependencies. dependency={}", dependencyCase);
+                }
+            }
+        }
+
+        PluginSharedInstanceFactory factory = new PluginSharedInstanceFactory();
+        try {
+            return factory.create(testClassName, sharedClass.getName(), libs);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    protected List<PluginTestInstance> createTestCases(PluginTestContext context) throws ClassNotFoundException {
+        if (dependencies != null) {
+            return createCasesWithDependencies(context);
+        }
+        return createCasesWithJdkOnly(context);
+    }
+
+    private List<PluginTestInstance> createCasesWithDependencies(PluginTestContext context) throws ClassNotFoundException {
+        final PluginTestInstanceFactory pluginTestInstanceFactory = new PluginTestInstanceFactory(context);
+        final List<PluginTestInstance> pluginTestInstanceList = new ArrayList<>();
+        final DependencyResolver resolver = getDependencyResolver(context.getRepositoryUrls());
+
+        final String pluginsTest = "com.navercorp.pinpoint:pinpoint-plugins-test:" + VersionUtils.VERSION;
+        final Map<String, List<MavenArtifact>> agentDependency = resolver.resolveDependencySets(pluginsTest);
+        final List<Path> agentLibs = new ArrayList<>(16);
+        agentLibs.addAll(FileUtils.toPaths(context.getAgentLibList()));
+
+        for (Map.Entry<String, List<MavenArtifact>> dependencyCase : agentDependency.entrySet()) {
+            try {
+                final List<MavenArtifact> artifactList = dependencyCase.getValue();
+                agentLibs.addAll(resolveArtifactsAndDependencies(resolver, artifactList));
+            } catch (DependencyResolveException e) {
+                logger.info(e, "Failed to resolve artifacts and dependencies. dependency={}", dependencyCase);
+                return pluginTestInstanceList;
+            }
+        }
+
+        final Map<String, List<MavenArtifact>> dependencyCases = resolver.resolveDependencySets(DEPENDENCY_VERSION_FILTER, dependencies);
+        for (Map.Entry<String, List<MavenArtifact>> dependencyCase : dependencyCases.entrySet()) {
+            final String testId = dependencyCase.getKey();
+            final List<Path> libs = new ArrayList<>();
+            try {
+                final List<MavenArtifact> artifactList = dependencyCase.getValue();
+                libs.addAll(resolveArtifactsAndDependencies(resolver, artifactList));
+            } catch (DependencyResolveException e) {
+                logger.info(e, "Failed to resolve artifacts and dependencies. dependency={}", dependencyCase);
+                continue;
+            }
+
+            final URL[] agentUrls = URLUtils.pathToUrls(agentLibs);
+
+            final Thread thread = Thread.currentThread();
+            final ClassLoader currentClassLoader = thread.getContextClassLoader();
+            final PluginAgentTestClassLoader agentClassLoader = new PluginAgentTestClassLoader(agentUrls, currentClassLoader, context.getTransformIncludeList());
+            try {
+                thread.setContextClassLoader(agentClassLoader);
+                final PluginTestInstance pluginTestInstance = pluginTestInstanceFactory.create(currentClassLoader, testId, agentClassLoader,
+                        libs, context.getTransformIncludeList(), classLoading);
+                pluginTestInstanceList.add(pluginTestInstance);
+            } finally {
+                thread.setContextClassLoader(currentClassLoader);
+            }
+        }
+
+        return pluginTestInstanceList;
+    }
+
+    private List<Path> resolveArtifactsAndDependencies(DependencyResolver resolver, List<MavenArtifact> artifacts) throws DependencyResolveException {
+        final List<Path> files = resolver.resolveArtifactsAndDependencies(artifacts);
+        return FileUtils.toAbsolutePath(files);
+    }
+
+    private DependencyResolver getDependencyResolver(List<String> repositoryUrls) {
+        return this.resolverFactory.get(repositoryUrls);
+    }
+
+    private List<PluginTestInstance> createCasesWithJdkOnly(PluginTestContext context) throws ClassNotFoundException {
+        final PluginTestInstanceFactory pluginTestInstanceFactory = new PluginTestInstanceFactory(context);
+        ClassLoader contextClassLoader = ClassLoaderUtils.getContextClassLoader();
+        List<Path> libs = Collections.emptyList();
+        List<String> transformIncludeList = Collections.emptyList();
+        final PluginTestInstance pluginTestInstance = pluginTestInstanceFactory.create(contextClassLoader, "", null, libs, transformIncludeList, classLoading);
+        final List<PluginTestInstance> pluginTestInstanceList = new ArrayList<>();
+        pluginTestInstanceList.add(pluginTestInstance);
+        return pluginTestInstanceList;
+    }
+
+}

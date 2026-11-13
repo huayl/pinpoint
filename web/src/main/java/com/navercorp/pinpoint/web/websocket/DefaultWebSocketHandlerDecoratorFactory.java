@@ -18,13 +18,17 @@ package com.navercorp.pinpoint.web.websocket;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
 
+import org.jspecify.annotations.NonNull;
+
 /**
  * @author minwoo.jung
  */
 public class DefaultWebSocketHandlerDecoratorFactory implements WebSocketHandlerDecoratorFactory {
 
     @Override
-    public WebSocketHandler decorate(WebSocketHandler handler) {
+    @NonNull
+    public WebSocketHandler decorate(@NonNull WebSocketHandler handler) {
         return handler;
     }
+
 }

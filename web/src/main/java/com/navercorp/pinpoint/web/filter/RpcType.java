@@ -16,7 +16,7 @@
 
 package com.navercorp.pinpoint.web.filter;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import com.navercorp.pinpoint.web.filter.deserializer.RpcTypeJsonDeserializer;
 
 import java.util.Objects;
@@ -48,10 +48,9 @@ public class RpcType {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("RpcType{");
-        sb.append("address='").append(address).append('\'');
-        sb.append(", spanEventServiceTypeCode=").append(spanEventServiceTypeCode);
-        sb.append('}');
-        return sb.toString();
+        return "RpcType{" +
+                "address='" + address + '\'' +
+                ", spanEventServiceTypeCode=" + spanEventServiceTypeCode +
+                '}';
     }
 }

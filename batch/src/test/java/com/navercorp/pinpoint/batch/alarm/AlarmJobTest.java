@@ -17,35 +17,33 @@
 package com.navercorp.pinpoint.batch.alarm;
 
 import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobParameter;
-import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.test.JobLauncherTestUtils;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.test.JobOperatorTestUtils;
 import org.springframework.context.support.GenericXmlApplicationContext;
 
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 
 public class AlarmJobTest {
-     
-     public static void main(String[] args) throws Exception{
-          GenericXmlApplicationContext applicationContext = new GenericXmlApplicationContext("/applicationContext-test.xml");
-          JobLauncherTestUtils testLauncher = applicationContext.getBean(JobLauncherTestUtils.class);
-          
-          JobExecution jobExecution = testLauncher.launchJob(getParameters());
-          BatchStatus status = jobExecution.getStatus();
-          assertEquals(BatchStatus.COMPLETED, status);
-          
-          applicationContext.close();
-     }
 
-     private static JobParameters getParameters() {
-          Map<String, JobParameter> parameters = new HashMap<String, JobParameter>();
-          parameters.put("schedule.scheduledFireTime", new JobParameter(new Date()));
-          return new JobParameters(parameters);
-     }
+    public static void main(String[] args) throws Exception {
+        GenericXmlApplicationContext applicationContext = new GenericXmlApplicationContext("/applicationContext-test.xml");
+        JobOperatorTestUtils testLauncher = applicationContext.getBean(JobOperatorTestUtils.class);
+
+        JobExecution jobExecution = testLauncher.startJob(getParameters());
+        BatchStatus status = jobExecution.getStatus();
+        assertEquals(BatchStatus.COMPLETED, status);
+
+        applicationContext.close();
+    }
+
+    private static JobParameters getParameters() {
+        JobParametersBuilder builder = new JobParametersBuilder();
+        builder.addDate("schedule.scheduledFireTime", new Date());
+        return builder.toJobParameters();
+    }
 }

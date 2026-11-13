@@ -18,6 +18,7 @@ package com.navercorp.pinpoint.grpc.server;
 
 import com.navercorp.pinpoint.common.util.Assert;
 import com.navercorp.pinpoint.grpc.ChannelTypeEnum;
+import io.netty.buffer.ByteBufAllocator;
 
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,8 @@ public class ServerOption {
     public static final long DEFAULT_HANDSHAKE_TIMEOUT = TimeUnit.SECONDS.toMillis(120);
     public static final int DEFAULT_RECEIVE_BUFFER_SIZE = 64 * 1024;
 
+    public static final long DEFAULT_GRPC_MAX_TERM_WAIT_TIME_MILLIS = 3000;
+
     public static final String DEFAULT_CHANNEL_TYPE = ChannelTypeEnum.AUTO.name();
 
     // Sets a custom keepalive time, the delay time for sending next keepalive ping.
@@ -53,14 +56,14 @@ public class ServerOption {
     // Specify the most aggressive keep-alive time clients are permitted to configure.
     private final long permitKeepAliveTime;
     // Sets whether to allow clients to send keep-alive HTTP/2 PINGs even if there are no outstanding RPCs on the connection. Defaults to {@code false}.
-    private final boolean permitKeepAliveWithoutCalls = PERMIT_KEEPALIVE_WITHOUT_CALLS_DISABLE;
+    private final boolean permitKeepAliveWithoutCalls;
 
     // Sets a custom max connection idle time, connection being idle for longer than which will be gracefully terminated.
     private final long maxConnectionIdle;
     // Sets a custom max connection age, connection lasting longer than which will be gracefully terminated.
-    private final long maxConnectionAge = DEFAULT_MAX_CONNECTION_AGE;
+    private long maxConnectionAge = DEFAULT_MAX_CONNECTION_AGE;
     // Sets a custom grace time for the graceful connection termination. Once the max connection age is reached, RPCs have the grace time to complete.
-    private final long maxConnectionAgeGrace = DEFAULT_MAX_CONNECTION_AGE_GRACE;
+    private long maxConnectionAgeGrace = DEFAULT_MAX_CONNECTION_AGE_GRACE;
 
     // The maximum number of concurrent calls permitted for each incoming connection. Defaults to no limit.
     private final int maxConcurrentCallsPerConnection;
@@ -76,22 +79,35 @@ public class ServerOption {
     // ChannelOption
     private final int receiveBufferSize;
 
+    private final ByteBufAllocator allocator;
+
+    private final long grpcMaxTermWaitTimeMillis;
+
     public final ChannelTypeEnum channelTypeEnum;
 
-    ServerOption(long keepAliveTime, long keepAliveTimeout, long permitKeepAliveTime, long maxConnectionIdle,
+    ServerOption(long keepAliveTime, long keepAliveTimeout, long permitKeepAliveTime, boolean permitKeepAliveWithoutCalls,
+                 long maxConnectionIdle, long maxConnectionAge, long maxConnectionAgeGrace,
                  int maxConcurrentCallsPerConnection, int maxInboundMessageSize, int maxHeaderListSize,
                  long handshakeTimeout, int flowControlWindow, int receiveBufferSize,
+                 ByteBufAllocator allocator, long grpcMaxTermWaitTimeMillis,
                  ChannelTypeEnum channelTypeEnum) {
         this.keepAliveTime = keepAliveTime;
         this.keepAliveTimeout = keepAliveTimeout;
         this.permitKeepAliveTime = permitKeepAliveTime;
+        this.permitKeepAliveWithoutCalls = permitKeepAliveWithoutCalls;
+
         this.maxConnectionIdle = maxConnectionIdle;
+        this.maxConnectionAge = maxConnectionAge;
+        this.maxConnectionAgeGrace = maxConnectionAgeGrace;
+
         this.maxConcurrentCallsPerConnection = maxConcurrentCallsPerConnection;
         this.maxInboundMessageSize = maxInboundMessageSize;
         this.maxHeaderListSize = maxHeaderListSize;
         this.handshakeTimeout = handshakeTimeout;
         this.flowControlWindow = flowControlWindow;
         this.receiveBufferSize = receiveBufferSize;
+        this.allocator = allocator;
+        this.grpcMaxTermWaitTimeMillis = grpcMaxTermWaitTimeMillis;
         this.channelTypeEnum = Objects.requireNonNull(channelTypeEnum, "channelTypeEnum");
     }
 
@@ -147,29 +163,41 @@ public class ServerOption {
         return receiveBufferSize;
     }
 
+    public ByteBufAllocator getAllocator() {
+        return allocator;
+    }
+
+    public long getGrpcMaxTermWaitTimeMillis() {
+        return grpcMaxTermWaitTimeMillis;
+    }
+
     public ChannelTypeEnum getChannelTypeEnum() {
         return channelTypeEnum;
     }
 
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("ServerOption{");
-        sb.append("keepAliveTime=").append(keepAliveTime);
-        sb.append(", keepAliveTimeout=").append(keepAliveTimeout);
-        sb.append(", permitKeepAliveTime=").append(permitKeepAliveTime);
-        sb.append(", permitKeepAliveWithoutCalls=").append(permitKeepAliveWithoutCalls);
-        sb.append(", maxConnectionIdle=").append(maxConnectionIdle);
-        sb.append(", maxConnectionAge=").append(maxConnectionAge);
-        sb.append(", maxConnectionAgeGrace=").append(maxConnectionAgeGrace);
-        sb.append(", maxConcurrentCallsPerConnection=").append(maxConcurrentCallsPerConnection);
-        sb.append(", maxInboundMessageSize=").append(maxInboundMessageSize);
-        sb.append(", maxHeaderListSize=").append(maxHeaderListSize);
-        sb.append(", handshakeTimeout=").append(handshakeTimeout);
-        sb.append(", flowControlWindow=").append(flowControlWindow);
-        sb.append(", receiveBufferSize=").append(receiveBufferSize);
-        sb.append(", channelTypeEnum=").append(channelTypeEnum);
-        sb.append('}');
-        return sb.toString();
+        return "ServerOption{" +
+                "keepAliveTime=" + keepAliveTime +
+                ", keepAliveTimeout=" + keepAliveTimeout +
+                ", permitKeepAliveTime=" + permitKeepAliveTime +
+                ", permitKeepAliveWithoutCalls=" + permitKeepAliveWithoutCalls +
+                ", maxConnectionIdle=" + maxConnectionIdle +
+                ", maxConnectionAge=" + maxConnectionAge +
+                ", maxConnectionAgeGrace=" + maxConnectionAgeGrace +
+                ", maxConcurrentCallsPerConnection=" + maxConcurrentCallsPerConnection +
+                ", maxInboundMessageSize=" + maxInboundMessageSize +
+                ", maxHeaderListSize=" + maxHeaderListSize +
+                ", handshakeTimeout=" + handshakeTimeout +
+                ", flowControlWindow=" + flowControlWindow +
+                ", receiveBufferSize=" + receiveBufferSize +
+                ", grpcMaxTermWaitTimeMillis=" + grpcMaxTermWaitTimeMillis +
+                ", channelTypeEnum=" + channelTypeEnum +
+                '}';
     }
 
     public static class Builder {
@@ -179,9 +207,14 @@ public class ServerOption {
         private long keepAliveTimeout = DEFAULT_KEEPALIVE_TIMEOUT;
         // Specify the most aggressive keep-alive time clients are permitted to configure.
         private long permitKeepAliveTime = DEFAULT_PERMIT_KEEPALIVE_TIME;
+        // Allow clients to send keep-alive PINGs even with no outstanding RPCs. Defaults to false.
+        private boolean permitKeepAliveWithoutCalls = PERMIT_KEEPALIVE_WITHOUT_CALLS_DISABLE;
 
         // Sets a custom max connection idle time, connection being idle for longer than which will be gracefully terminated.
         private long maxConnectionIdle = DEFAULT_MAX_CONNECTION_IDLE;
+        private long maxConnectionAge = DEFAULT_MAX_CONNECTION_AGE;
+        private long maxConnectionAgeGrace = DEFAULT_MAX_CONNECTION_AGE_GRACE;
+
         // The maximum number of concurrent calls permitted for each incoming connection. Defaults to no limit.
         private int maxConcurrentCallsPerConnection = DEFAULT_MAX_CONCURRENT_CALLS_PER_CONNECTION;
 
@@ -196,13 +229,21 @@ public class ServerOption {
 
         private int receiveBufferSize = DEFAULT_RECEIVE_BUFFER_SIZE;
 
+        private ByteBufAllocator allocator;
+
+        private long grpcMaxTermWaitTimeMillis = DEFAULT_GRPC_MAX_TERM_WAIT_TIME_MILLIS;
+
         private ChannelTypeEnum channelTypeEnum = ChannelTypeEnum.valueOf(DEFAULT_CHANNEL_TYPE);
 
+        private Builder() {
+        }
+
         public ServerOption build() {
-            final ServerOption serverOption = new ServerOption(keepAliveTime, keepAliveTimeout, permitKeepAliveTime,
-                    maxConnectionIdle, maxConcurrentCallsPerConnection, maxInboundMessageSize,
-                    maxHeaderListSize, handshakeTimeout, flowControlWindow, receiveBufferSize, channelTypeEnum);
-            return serverOption;
+            return new ServerOption(keepAliveTime, keepAliveTimeout, permitKeepAliveTime, permitKeepAliveWithoutCalls,
+                    maxConnectionIdle, maxConnectionAge, maxConnectionAgeGrace,
+                    maxConcurrentCallsPerConnection, maxInboundMessageSize,
+                    maxHeaderListSize, handshakeTimeout, flowControlWindow, receiveBufferSize, allocator,
+                    grpcMaxTermWaitTimeMillis, channelTypeEnum);
         }
 
         public void setKeepAliveTime(long keepAliveTime) {
@@ -220,9 +261,23 @@ public class ServerOption {
             this.permitKeepAliveTime = permitKeepAliveTime;
         }
 
+        public void setPermitKeepAliveWithoutCalls(boolean permitKeepAliveWithoutCalls) {
+            this.permitKeepAliveWithoutCalls = permitKeepAliveWithoutCalls;
+        }
+
         public void setMaxConnectionIdle(long maxConnectionIdle) {
             Assert.isTrue(maxConnectionIdle > 0, "maxConnectionIdle " + maxConnectionIdle + " must be positive");
             this.maxConnectionIdle = maxConnectionIdle;
+        }
+
+        public void setMaxConnectionAge(long maxConnectionAge) {
+            Assert.isTrue(maxConnectionAge > 0, "maxConnectionAge " + maxConnectionAge + " must be positive");
+            this.maxConnectionAge = maxConnectionAge;
+        }
+
+        public void setMaxConnectionAgeGrace(long maxConnectionAgeGrace) {
+            Assert.isTrue(maxConnectionAgeGrace > 0, "maxConnectionAgeGrace " + maxConnectionAgeGrace + " must be positive");
+            this.maxConnectionAgeGrace = maxConnectionAgeGrace;
         }
 
         public void setMaxConcurrentCallsPerConnection(int maxConcurrentCallsPerConnection) {
@@ -255,6 +310,15 @@ public class ServerOption {
             this.receiveBufferSize = receiveBufferSize;
         }
 
+        public void setAllocator(ByteBufAllocator allocator) {
+            this.allocator = allocator;
+        }
+
+        public void setGrpcMaxTermWaitTimeMillis(long grpcMaxTermWaitTimeMillis) {
+            Assert.isTrue(grpcMaxTermWaitTimeMillis > 0, "grpcMaxTermWaitTimeMillis " + grpcMaxTermWaitTimeMillis + " must be positive");
+            this.grpcMaxTermWaitTimeMillis = grpcMaxTermWaitTimeMillis;
+        }
+
         public void setChannelTypeEnum(String channelTypeEnum) {
             Objects.requireNonNull(channelTypeEnum, "channelTypeEnum");
             this.channelTypeEnum = ChannelTypeEnum.valueOf(channelTypeEnum);
@@ -262,20 +326,22 @@ public class ServerOption {
 
         @Override
         public String toString() {
-            final StringBuilder sb = new StringBuilder("Builder{");
-            sb.append("keepAliveTime=").append(keepAliveTime);
-            sb.append(", keepAliveTimeout=").append(keepAliveTimeout);
-            sb.append(", permitKeepAliveTime=").append(permitKeepAliveTime);
-            sb.append(", maxConnectionIdle=").append(maxConnectionIdle);
-            sb.append(", maxConcurrentCallsPerConnection=").append(maxConcurrentCallsPerConnection);
-            sb.append(", maxInboundMessageSize=").append(maxInboundMessageSize);
-            sb.append(", maxHeaderListSize=").append(maxHeaderListSize);
-            sb.append(", handshakeTimeout=").append(handshakeTimeout);
-            sb.append(", flowControlWindow=").append(flowControlWindow);
-            sb.append(", receiveBufferSize=").append(receiveBufferSize);
-            sb.append(", channelTypeEnum=").append(channelTypeEnum);
-            sb.append('}');
-            return sb.toString();
+            return "Builder{" +
+                    "keepAliveTime=" + keepAliveTime +
+                    ", keepAliveTimeout=" + keepAliveTimeout +
+                    ", permitKeepAliveTime=" + permitKeepAliveTime +
+                    ", maxConnectionIdle=" + maxConnectionIdle +
+                    ", maxConnectionAge=" + maxConnectionAge +
+                    ", maxConnectionAgeGrace=" + maxConnectionAgeGrace +
+                    ", maxConcurrentCallsPerConnection=" + maxConcurrentCallsPerConnection +
+                    ", maxInboundMessageSize=" + maxInboundMessageSize +
+                    ", maxHeaderListSize=" + maxHeaderListSize +
+                    ", handshakeTimeout=" + handshakeTimeout +
+                    ", flowControlWindow=" + flowControlWindow +
+                    ", receiveBufferSize=" + receiveBufferSize +
+                    ", grpcMaxTermWaitTimeMillis=" + grpcMaxTermWaitTimeMillis +
+                    ", channelTypeEnum=" + channelTypeEnum +
+                    '}';
         }
     }
 }

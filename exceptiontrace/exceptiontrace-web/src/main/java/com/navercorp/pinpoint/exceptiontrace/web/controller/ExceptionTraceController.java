@@ -1,0 +1,232 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.exceptiontrace.web.controller;
+
+import com.google.common.collect.Lists;
+import com.navercorp.pinpoint.common.timeseries.time.ForwardRangeValidator;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.RangeValidator;
+import com.navercorp.pinpoint.common.timeseries.window.TimePrecision;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindowSampler;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindowSlotCentricSampler;
+import com.navercorp.pinpoint.exceptiontrace.web.config.ExceptionTraceProperties;
+import com.navercorp.pinpoint.exceptiontrace.web.mapper.ExceptionModelMapper;
+import com.navercorp.pinpoint.exceptiontrace.web.model.ExceptionGroupSummary;
+import com.navercorp.pinpoint.exceptiontrace.web.service.ExceptionTraceService;
+import com.navercorp.pinpoint.exceptiontrace.web.util.ExceptionTraceQueryParameter;
+import com.navercorp.pinpoint.exceptiontrace.web.util.GroupByAttributes;
+import com.navercorp.pinpoint.exceptiontrace.web.util.TimeSeriesUtils;
+import com.navercorp.pinpoint.exceptiontrace.web.view.ExceptionChartValueView;
+import com.navercorp.pinpoint.exceptiontrace.web.view.ExceptionChartView;
+import com.navercorp.pinpoint.exceptiontrace.web.view.ExceptionDetailView;
+import com.navercorp.pinpoint.exceptiontrace.web.view.ExceptionGroupSummaryView;
+import com.navercorp.pinpoint.pinot.tenant.TenantProvider;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
+import com.navercorp.pinpoint.service.web.resolver.ServiceParam;
+import com.navercorp.pinpoint.service.web.vo.ServiceName;
+import jakarta.validation.constraints.NotBlank;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+/**
+ * @author intr3p1d
+ */
+@RestController
+@RequestMapping(value = "/api/errors")
+@Validated
+public class ExceptionTraceController {
+
+    private static final TimePrecision DETAILED_TIME_PRECISION = TimePrecision.newTimePrecision(TimeUnit.MILLISECONDS, 1);
+    private static final TimeWindowSampler DEFAULT_TIME_WINDOW_SAMPLER = new TimeWindowSlotCentricSampler(30000L, 200);
+    private static final TimeWindowSampler ROUGH_TIME_WINDOW_SAMPLER = new TimeWindowSlotCentricSampler(30000L, 10);
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+
+    private final ExceptionTraceService exceptionTraceService;
+    private final TenantProvider tenantProvider;
+    private final RangeValidator rangeValidator;
+
+    @Value("${pinpoint.modules.web.exceptiontrace.table:exceptionTrace}")
+    private String tableName;
+
+    private final ExceptionModelMapper mapper;
+
+
+    public ExceptionTraceController(
+            ExceptionTraceService exceptionTraceService,
+            TenantProvider tenantProvider,
+            ExceptionTraceProperties exceptionTraceProperties,
+            ExceptionModelMapper mapper
+    ) {
+        this.exceptionTraceService = Objects.requireNonNull(exceptionTraceService, "exceptionTraceService");
+        this.tenantProvider = Objects.requireNonNull(tenantProvider, "tenantProvider");
+        this.mapper = Objects.requireNonNull(mapper, "mapper");
+        Objects.requireNonNull(exceptionTraceProperties, "exceptionTraceProperties");
+        this.rangeValidator = new ForwardRangeValidator(Duration.ofDays(exceptionTraceProperties.getExceptionTracePeriodMax()));
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasExceptionTracePermission(#serviceName.getName(), #applicationName)")
+    @GetMapping("/transactionInfo")
+    public List<ExceptionDetailView> getListOfExceptionMetaDataFromTransactionId(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam("agentId") @NotBlank String agentId,
+            @RequestParam("transactionId") @NotBlank String transactionId,
+            @RequestParam("spanId") long spanId,
+            @RequestParam("exceptionId") long exceptionId
+    ) {
+        ExceptionTraceQueryParameter queryParameter = new ExceptionTraceQueryParameter.Builder()
+                .setTableName(tableName)
+                .setTenantId(tenantProvider.getTenantId())
+                .setServiceName(serviceName.getName())
+                .setApplicationName(applicationName)
+                .setAgentId(agentId)
+                .setTransactionId(transactionId)
+                .setSpanId(spanId)
+                .setExceptionId(exceptionId)
+                .setTimePrecision(DETAILED_TIME_PRECISION)
+                .build();
+        return exceptionTraceService.getDetailExceptions(
+                queryParameter
+        );
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasExceptionTracePermission(#serviceName.getName(), #applicationName)")
+    @GetMapping("/errorList")
+    public List<ExceptionDetailView> getListOfExceptionMetaDataByGivenRange(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "agentId", required = false) String agentId,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+
+            @RequestParam(value = "filters", required = false) List<String> filters,
+            @RequestParam("orderBy") String orderBy,
+            @RequestParam("isDesc") boolean isDesc,
+            @RequestParam("count") int count
+    ) {
+        Range range = Range.between(from, to);
+        rangeValidator.validate(range);
+
+        ExceptionTraceQueryParameter queryParameter = new ExceptionTraceQueryParameter.Builder()
+                .setTableName(tableName)
+                .setTenantId(tenantProvider.getTenantId())
+                .setServiceName(serviceName.getName())
+                .setApplicationName(applicationName)
+                .setAgentId(agentId)
+                .setRange(range)
+                .setHardLimit(count)
+                .addAllFilters(filters)
+                .setOrderBy(orderBy)
+                .setIsDesc(isDesc)
+                .build();
+        return exceptionTraceService.getSummarizedExceptions(
+                queryParameter
+        );
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasExceptionTracePermission(#serviceName.getName(), #applicationName)")
+    @GetMapping("/errorList/groupBy")
+    public List<ExceptionGroupSummaryView> getListOfExceptionMetaDataWithDynamicGroupBy(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "agentId", required = false) String agentId,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+
+            @RequestParam("groupBy") List<String> groupByList
+    ) {
+        Range range = Range.between(from, to);
+        rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range, ROUGH_TIME_WINDOW_SAMPLER);
+
+        ExceptionTraceQueryParameter queryParameter = new ExceptionTraceQueryParameter.Builder()
+                .setTableName(tableName)
+                .setTenantId(tenantProvider.getTenantId())
+                .setServiceName(serviceName.getName())
+                .setApplicationName(applicationName)
+                .setAgentId(agentId)
+                .setRange(Range.between(from, to))
+                .setTimePrecision(TimePrecision.newTimePrecision(TimeUnit.MILLISECONDS, timeWindow.getWindowSlotSize()))
+                .setTimeWindowRangeCount(timeWindow.getWindowRangeCount())
+                .addAllGroupByList(groupByList)
+                .build();
+        List<ExceptionGroupSummary> groupSummaries = exceptionTraceService.getGroupSummaries(queryParameter);
+
+        return Lists.transform(groupSummaries, (e) -> mapper.toSummaryView(e, timeWindow));
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasExceptionTracePermission(#serviceName.getName(), #applicationName)")
+    @GetMapping("/chart")
+    public ExceptionChartView getCollectedExceptionMetaDataByGivenRange(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "agentId", required = false) String agentId,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+
+            @RequestParam(value = "groupBy", required = false) List<String> groupByList
+    ) {
+        String groupName = (groupByList == null) ? "total error occurs" : "top5 error occurs";
+
+        Range range = Range.between(from, to);
+        rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range, DEFAULT_TIME_WINDOW_SAMPLER);
+
+        ExceptionTraceQueryParameter queryParameter = new ExceptionTraceQueryParameter.Builder()
+                .setTableName(tableName)
+                .setTenantId(tenantProvider.getTenantId())
+                .setServiceName(serviceName.getName())
+                .setApplicationName(applicationName)
+                .setAgentId(agentId)
+                .setRange(timeWindow.getWindowRange())
+                .setTimePrecision(TimePrecision.newTimePrecision(TimeUnit.MILLISECONDS, timeWindow.getWindowSlotSize()))
+                .setTimeWindowRangeCount(timeWindow.getWindowRangeCount())
+                .addAllGroupByList(groupByList)
+                .build();
+        List<ExceptionChartValueView> exceptionChartValueViews = exceptionTraceService.getChartViews(
+                queryParameter
+        );
+
+        return TimeSeriesUtils.newChartView(groupName, timeWindow, exceptionChartValueViews);
+    }
+
+    @GetMapping("/groups")
+    public List<String> getGroups() {
+        return Arrays.stream(new GroupByAttributes[]{
+                        GroupByAttributes.ERROR_MESSAGE_LOG_TYPE, GroupByAttributes.ERROR_CLASS_NAME,
+                        GroupByAttributes.STACK_TRACE, GroupByAttributes.URI_TEMPLATE
+                }).map(GroupByAttributes::getName)
+                .collect(Collectors.toList());
+    }
+}

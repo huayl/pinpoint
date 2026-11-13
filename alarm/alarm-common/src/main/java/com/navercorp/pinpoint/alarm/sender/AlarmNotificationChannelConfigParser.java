@@ -1,0 +1,91 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.navercorp.pinpoint.alarm.sender;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+import com.navercorp.pinpoint.alarm.vo.AlarmMethodType;
+import org.springframework.stereotype.Component;
+
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
+
+/**
+ * Parses and validates the JSON stored in {@code alarm_notification_channel.config}.
+ * Unknown fields are intentionally ignored so transport-specific options can be added later.
+ */
+@Component
+public final class AlarmNotificationChannelConfigParser {
+
+    private static final Set<String> SUPPORTED_WEBHOOK_FORMATS = Set.of("DEFAULT", "SLACK");
+
+    private final ObjectReader configReader;
+
+    public AlarmNotificationChannelConfigParser(ObjectMapper objectMapper) {
+        ObjectMapper requiredObjectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.configReader = requiredObjectMapper.readerFor(JsonNode.class)
+                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    }
+
+    public AlarmNotificationChannelConfig parse(AlarmMethodType methodType, String config) {
+        if (config == null || config.isBlank()) {
+            return AlarmNotificationChannelConfig.empty();
+        }
+
+        JsonNode root;
+        try {
+            root = configReader.readValue(config);
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException(
+                    "notification channel config must be a valid JSON object", e);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("notification channel config must be a JSON object");
+        }
+
+        String format = stringField(root, "format");
+        if (format != null) {
+            format = format.toUpperCase(Locale.ROOT);
+            if (!SUPPORTED_WEBHOOK_FORMATS.contains(format)) {
+                throw new IllegalArgumentException(
+                        "notification channel config format must be DEFAULT or SLACK");
+            }
+            if (methodType != AlarmMethodType.WEBHOOK) {
+                throw new IllegalArgumentException(
+                        "notification channel config format is only supported for WEBHOOK channels");
+            }
+        }
+        // A title and a template stored through the API are not used: nobody else can see or
+        // check what a channel sends then. The message is always the default one.
+        return new AlarmNotificationChannelConfig(format, null, null);
+    }
+
+    private String stringField(JsonNode root, String fieldName) {
+        JsonNode field = root.get(fieldName);
+        if (field == null || field.isNull()) {
+            return null;
+        }
+        if (!field.isString()) {
+            throw new IllegalArgumentException(
+                    "notification channel config " + fieldName + " must be a string");
+        }
+        return field.stringValue();
+    }
+}

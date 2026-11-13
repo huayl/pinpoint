@@ -1,34 +1,14 @@
 package com.navercorp.pinpoint.collector;
 
-import com.navercorp.pinpoint.collector.env.CollectorEnvironmentApplicationListener;
-import com.navercorp.pinpoint.common.server.util.ServerBootLogger;
-import org.springframework.boot.Banner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
+import com.navercorp.pinpoint.common.server.starter.BasicStarter;
 
-import java.util.Objects;
+public class CollectorStarter extends BasicStarter {
 
-public class CollectorStarter {
-    private static final ServerBootLogger logger = ServerBootLogger.getLogger(CollectorApp.class);
-
-    private final Class<?>[] sources;
+    public static final String EXTERNAL_PROPERTY_SOURCE_NAME = "CollectorExternalEnvironment";
+    public static final String EXTERNAL_CONFIGURATION_KEY = "pinpoint.collector.config.location";
 
     public CollectorStarter(Class<?>... sources) {
-        this.sources = Objects.requireNonNull(sources, "sources");
-    }
-
-    public void start(String[] args) {
-
-        SpringApplicationBuilder builder = new SpringApplicationBuilder();
-
-        builder.sources(sources);
-        builder.web(WebApplicationType.SERVLET);
-        builder.bannerMode(Banner.Mode.OFF);
-        builder.listeners(new CollectorEnvironmentApplicationListener());
-
-        SpringApplication springApplication = builder.build();
-        springApplication.run(args);
+        super(EXTERNAL_PROPERTY_SOURCE_NAME, EXTERNAL_CONFIGURATION_KEY, sources);
     }
 
 }

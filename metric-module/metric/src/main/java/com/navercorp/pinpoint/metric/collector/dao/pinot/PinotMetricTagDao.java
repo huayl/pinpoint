@@ -1,0 +1,137 @@
+/*
+ * Copyright 2022 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.metric.collector.dao.pinot;
+
+import tools.jackson.databind.ObjectMapper;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import com.navercorp.pinpoint.metric.collector.dao.MetricTagDao;
+import com.navercorp.pinpoint.metric.common.model.MetricTag;
+import com.navercorp.pinpoint.metric.common.model.MetricTagCollection;
+import com.navercorp.pinpoint.metric.common.model.MetricTagKey;
+import com.navercorp.pinpoint.metric.common.mybatis.typehandler.TagListSerializer;
+import com.navercorp.pinpoint.pinot.kafka.util.KafkaCallbacks;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
+
+/**
+ * @author minwoo.jung
+ */
+@Repository
+public class PinotMetricTagDao implements MetricTagDao {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private static final String NAMESPACE = PinotMetricTagDao.class.getName() + ".";
+
+    private final SqlSessionTemplate sqlPinotSessionTemplate;
+    private final KafkaTemplate<String, MetricJsonTag> kafkaTagTemplate;
+    private final TagListSerializer tagListSerializer;
+    private final String topic;
+
+    private final BiConsumer<SendResult<String, MetricJsonTag>, Throwable> resultCallback
+            = KafkaCallbacks.loggingCallback("Kafka(MetricJsonTag)", logger);
+
+    public PinotMetricTagDao(SqlSessionTemplate sqlPinotSessionTemplate,
+                             ObjectMapper objectMapper,
+                             KafkaTemplate<String, MetricJsonTag> kafkaTagTemplate,
+                             @Value("${kafka.systemmetric.tag.topic}") String topic) {
+        this.sqlPinotSessionTemplate = Objects.requireNonNull(sqlPinotSessionTemplate, "sqlPinotSessionTemplate");
+
+        Objects.requireNonNull(objectMapper, "objectMapper");
+        this.tagListSerializer = new TagListSerializer(objectMapper);
+
+        this.kafkaTagTemplate = Objects.requireNonNull(kafkaTagTemplate, "kafkaTagTemplate");
+        this.topic = Objects.requireNonNull(topic, "topic");
+    }
+
+    @Override
+    public void insertMetricTag(MetricTag metricTag) {
+        MetricJsonTag metricJsonTag = convertMetricJsonTag(metricTag);
+        CompletableFuture<SendResult<String, MetricJsonTag>> callBack = kafkaTagTemplate.send(topic, metricTag.getHostName(), metricJsonTag);
+        callBack.whenComplete(resultCallback);
+    }
+
+     MetricJsonTag convertMetricJsonTag(MetricTag metricTag) {
+        String jsonTag = tagListSerializer.serialize(metricTag.getTags());
+        return new MetricJsonTag(metricTag.getTenantId(), metricTag.getHostGroupName(), metricTag.getHostName(), metricTag.getMetricName(), metricTag.getFieldName(), jsonTag, metricTag.getSaveTime());
+    }
+
+    public static class MetricJsonTag {
+
+        private final String tenantId;
+        private final String hostGroupName;
+        private final String hostName;
+        private final String metricName;
+        private final String fieldName;
+        private final String tags;
+        private final long saveTime;
+
+        public MetricJsonTag(String tenantId, String hostGroupName, String hostName, String metricName, String fieldName, String jsonTag, long saveTime) {
+            this.tenantId = StringPrecondition.requireHasLength(tenantId, "tenantId");
+            this.hostGroupName = StringPrecondition.requireHasLength(hostGroupName, "hostGroupName");
+            this.hostName = StringPrecondition.requireHasLength(hostName, "hostName");
+            this.metricName = StringPrecondition.requireHasLength(metricName, "metricName");
+            this.fieldName = StringPrecondition.requireHasLength(fieldName, "fieldName");
+            this.tags = StringPrecondition.requireHasLength(jsonTag, "jsonTag");
+            this.saveTime = saveTime;
+        }
+
+        public String getHostGroupName() {
+            return hostGroupName;
+        }
+
+        public String getHostName() {
+            return hostName;
+        }
+
+        public String getMetricName() {
+            return metricName;
+        }
+
+        public String getFieldName() {
+            return fieldName;
+        }
+
+        public String getTags() {
+            return tags;
+        }
+
+        public long getSaveTime() {
+            return saveTime;
+        }
+
+        public String getTenantId() {
+            return tenantId;
+        }
+
+    }
+
+    @Override
+    public MetricTagCollection selectMetricTag(MetricTagKey metricTagKey) {
+        List<MetricTag> metricTagList = sqlPinotSessionTemplate.selectList(NAMESPACE + "selectMetricTagList", metricTagKey);
+        return new MetricTagCollection(metricTagKey.getTenantId(), metricTagKey.getHostGroupName(), metricTagKey.getHostName(), metricTagKey.getMetricName(), metricTagKey.getFieldName(), metricTagList);
+    }
+}

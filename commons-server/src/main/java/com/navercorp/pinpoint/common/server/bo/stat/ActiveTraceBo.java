@@ -20,45 +20,20 @@ package com.navercorp.pinpoint.common.server.bo.stat;
 /**
  * @author HyunGil Jeong
  */
-public class ActiveTraceBo implements AgentStatDataPoint {
+public class ActiveTraceBo extends AbstractStatDataPoint {
 
     public static final int UNCOLLECTED_ACTIVE_TRACE_COUNT = -1;
 
-    private String agentId;
-    private long startTimestamp;
-    private long timestamp;
-    private short version = 0;
-    private int histogramSchemaType;
-    private ActiveTraceHistogram activeTraceHistogram;
+    private final short version;
+    private final int histogramSchemaType;
+    private final ActiveTraceHistogram activeTraceHistogram;
 
-    @Override
-    public String getAgentId() {
-        return agentId;
-    }
-
-    @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    @Override
-    public long getStartTimestamp() {
-        return startTimestamp;
-    }
-
-    @Override
-    public void setStartTimestamp(long startTimestamp) {
-        this.startTimestamp = startTimestamp;
-    }
-
-    @Override
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    @Override
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
+    public ActiveTraceBo(DataPoint point,
+                         short version, int histogramSchemaType, ActiveTraceHistogram activeTraceHistogram) {
+        super(point);
+        this.version = version;
+        this.histogramSchemaType = histogramSchemaType;
+        this.activeTraceHistogram = activeTraceHistogram;
     }
 
     @Override
@@ -70,61 +45,22 @@ public class ActiveTraceBo implements AgentStatDataPoint {
         return version;
     }
 
-    public void setVersion(short version) {
-        this.version = version;
-    }
-
     public int getHistogramSchemaType() {
         return histogramSchemaType;
-    }
-
-    public void setHistogramSchemaType(int histogramSchemaType) {
-        this.histogramSchemaType = histogramSchemaType;
     }
 
     public ActiveTraceHistogram getActiveTraceHistogram() {
         return activeTraceHistogram;
     }
 
-    public void setActiveTraceHistogram(ActiveTraceHistogram activeTraceHistogram) {
-        this.activeTraceHistogram = activeTraceHistogram;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        ActiveTraceBo that = (ActiveTraceBo) o;
-
-        if (startTimestamp != that.startTimestamp) return false;
-        if (timestamp != that.timestamp) return false;
-        if (version != that.version) return false;
-        if (histogramSchemaType != that.histogramSchemaType) return false;
-        if (agentId != null ? !agentId.equals(that.agentId) : that.agentId != null) return false;
-        return activeTraceHistogram != null ? activeTraceHistogram.equals(that.activeTraceHistogram) : that.activeTraceHistogram == null;
-    }
-
-    @Override
-    public int hashCode() {
-        int result = agentId != null ? agentId.hashCode() : 0;
-        result = 31 * result + (int) (startTimestamp ^ (startTimestamp >>> 32));
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        result = 31 * result + (int) version;
-        result = 31 * result + histogramSchemaType;
-        result = 31 * result + (activeTraceHistogram != null ? activeTraceHistogram.hashCode() : 0);
-        return result;
-    }
-
     @Override
     public String toString() {
         return "ActiveTraceBo{" +
-                "agentId='" + agentId + '\'' +
-                ", startTimestamp=" + startTimestamp +
-                ", timestamp=" + timestamp +
+                "point=" + point +
                 ", version=" + version +
                 ", histogramSchemaType=" + histogramSchemaType +
                 ", activeTraceHistogram=" + activeTraceHistogram +
                 '}';
     }
+
 }

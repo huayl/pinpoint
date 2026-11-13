@@ -15,15 +15,15 @@
 
 package com.navercorp.pinpoint.web.scatter;
 
-import java.util.ArrayList;
+import tools.jackson.databind.annotation.JsonSerialize;
+import com.google.common.collect.Ordering;
+import com.navercorp.pinpoint.web.view.ScatterDataSerializer;
+import org.eclipse.collections.api.map.primitive.LongObjectMap;
+
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.navercorp.pinpoint.web.view.ScatterDataSerializer;
 
 /**
  * @author Taejin Koo
@@ -35,24 +35,19 @@ public class ScatterData {
     private final long to;
 
     private final ScatterAgentMetadataRepository scatterAgentMetadataRepository;
-    private final Map<Long, DotGroups> scatterData;
+    private final LongObjectMap<DotGroups> scatterData;
 
     private final long oldestAcceptedTime;
     private final long latestAcceptedTime;
 
-    private static final Comparator<DotGroups> REVERSE = new Comparator<DotGroups>() {
-        @Override
-        public int compare(DotGroups left, DotGroups right) {
-            return Long.compare(right.getXCoordinates(), left.getXCoordinates());
-        }
-    };
-
+    private static final Comparator<DotGroups> REVERSE = Comparator.comparingLong(DotGroups::getXCoordinates).reversed();
+    private static final Ordering<DotGroups> reverseOrdering = Ordering.from(REVERSE);
 
     public ScatterData(long from,
                        long to,
                        long oldestAcceptedTime,
                        long latestAcceptedTime,
-                       Map<Long, DotGroups> scatterData,
+                       LongObjectMap<DotGroups> scatterData,
                        ScatterAgentMetadataRepository scatterAgentMetadataRepository) {
         if (from <= 0) {
             throw new IllegalArgumentException("from value must be higher than 0");
@@ -77,14 +72,12 @@ public class ScatterData {
         return new ScatterAgentMetaData(scatterAgentMetadataRepository.getDotAgentInfoSet());
     }
 
-    public Map<Long, DotGroups> getScatterDataMap() {
+    public LongObjectMap<DotGroups> getScatterDataMap() {
         return scatterData;
     }
 
     public List<DotGroups> getScatterData() {
-        List<DotGroups> list = new ArrayList<>(scatterData.values());
-        list.sort(REVERSE);
-        return list;
+        return reverseOrdering.sortedCopy(scatterData.values());
     }
 
     public int getDotSize() {

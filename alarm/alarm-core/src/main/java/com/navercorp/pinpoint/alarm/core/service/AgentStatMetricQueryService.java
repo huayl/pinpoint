@@ -1,0 +1,306 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.navercorp.pinpoint.alarm.core.service;
+
+import com.navercorp.pinpoint.alarm.core.agentstat.dao.AgentStatAlarmDao;
+import com.navercorp.pinpoint.alarm.core.agentstat.vo.AgentFieldUsage;
+import com.navercorp.pinpoint.alarm.core.agentstat.vo.AgentUsage;
+import com.navercorp.pinpoint.alarm.core.agentstat.vo.AgentUsageCount;
+import com.navercorp.pinpoint.alarm.core.vo.CoreAlarmDataSource;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryKey;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryResult;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryResult.Detail;
+import com.navercorp.pinpoint.alarm.evaluation.MetricQueryService;
+import com.navercorp.pinpoint.alarm.vo.AlarmCondition;
+import com.navercorp.pinpoint.alarm.vo.AlarmDataSource;
+import com.navercorp.pinpoint.alarm.vo.AlarmFilter;
+import com.navercorp.pinpoint.alarm.vo.AlarmRuleV2;
+import com.navercorp.pinpoint.alarm.vo.AlarmState;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.util.MathUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Comparator;
+import java.util.DoubleSummaryStatistics;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+/**
+ * Reads what the agents of an application reported about themselves.
+ *
+ * <p>Every value here belongs to one agent, and a rule is written against the application. The
+ * aggregation on the condition says how the agents are reduced to the one number a threshold
+ * is compared against: MAX with a ceiling threshold is the v1 alarm, which fired when any one
+ * agent exceeded.
+ */
+public class AgentStatMetricQueryService implements MetricQueryService {
+
+    private static final Logger logger = LogManager.getLogger(AgentStatMetricQueryService.class);
+
+    private static final String METRIC_JVM_GC = "jvmGc";
+    private static final String METRIC_CPU_LOAD = "cpuLoad";
+    private static final String METRIC_FILE_DESCRIPTOR = "fileDescriptor";
+
+    private static final String FIELD_HEAP_USED = "heapUsed";
+    private static final String FIELD_HEAP_MAX = "heapMax";
+    private static final String FIELD_JVM = "jvm";
+    private static final String FIELD_SYSTEM = "system";
+    private static final String FIELD_OPEN_FILE_DESCRIPTOR = "openFileDescriptorCount";
+
+    private static final String METRIC_CONNECTION_POOL_USAGE = "datasource_connection_usage_rate";
+
+    private final AgentStatAlarmDao agentStatAlarmDao;
+    private final RuleApplicationResolver applicationResolver;
+    private final ConnectionPoolUsageReader connectionPoolUsageReader;
+
+    public AgentStatMetricQueryService(AgentStatAlarmDao agentStatAlarmDao,
+                                       RuleApplicationResolver applicationResolver) {
+        this.agentStatAlarmDao = Objects.requireNonNull(agentStatAlarmDao, "agentStatAlarmDao");
+        this.applicationResolver = Objects.requireNonNull(applicationResolver, "applicationResolver");
+        this.connectionPoolUsageReader = new ConnectionPoolUsageReader(agentStatAlarmDao);
+    }
+
+    @Override
+    public AlarmDataSource getDataSource() {
+        return CoreAlarmDataSource.AGENT_STAT;
+    }
+
+    @Override
+    public MetricQueryResult query(AlarmRuleV2 rule, List<AlarmCondition> conditions,
+                                   List<AlarmFilter> filters, AlarmState state) {
+        long nowMs = System.currentTimeMillis();
+        Application application = applicationResolver.resolve(rule);
+        String applicationName = application.getApplicationName();
+
+        AgentQueryResultBuilder result = new AgentQueryResultBuilder();
+        // Two leaves differing only in how they reduce are two keys but one read; the dedup
+        // above is keyed by the whole condition and would issue the query once per each.
+        Map<MetricRead, Read> reads = new HashMap<>();
+        // The summary and the lines name what met one leaf's op and threshold. Leaves that share
+        // a key differ in those, so such a key says only how the agents were reduced.
+        Map<MetricQueryKey, Long> leavesPerKey = conditions.stream()
+                .collect(Collectors.groupingBy(MetricQueryKey::from, Collectors.counting()));
+
+        for (AlarmCondition leaf : conditions) {
+            MetricQueryKey key = MetricQueryKey.from(leaf);
+            if (result.has(key)) {
+                continue;
+            }
+            int windowSec = windowSecOf(rule, leaf);
+            Range window = Range.between(nowMs - windowSec * 1000L, nowMs);
+
+            Read read = reads.computeIfAbsent(
+                    new MetricRead(leaf.getMetric(), windowSec),
+                    metricRead -> readByAgent(metricRead.metric(), applicationName, window));
+            if (read == null) {
+                logger.warn("Unknown {} metric='{}', rule_id={}, skipping",
+                        getDataSource().name(), leaf.getMetric(), rule.getId());
+                continue;
+            }
+            List<AgentReading> readings = read.readings();
+            if (readings.isEmpty()) {
+                // No agent reported in the window. Reporting zero would read as "healthy",
+                // which is the opposite of what an application with no live agent means, so
+                // the metric is left out and the condition sees no value.
+                logger.info("No agent reported {} for application={} in the last {}s, rule_id={}",
+                        leaf.getMetric(), applicationName, windowSec, rule.getId());
+                continue;
+            }
+
+            double value = reduce(readings, leaf.getAggregation());
+            if (leavesPerKey.get(key) == 1) {
+                result.put(key, value, window, summary(leaf, read), lines(rule, leaf, read, window));
+            } else {
+                result.put(key, value, window, reduction(leaf, read, value), List.of());
+            }
+        }
+        return result.result();
+    }
+
+    /**
+     * @return the value per agent -- or per pool of each agent, for the connection metric --
+     *         or null when the metric is not one of this data source's
+     */
+    private Read readByAgent(String metric, String applicationName, Range window) {
+        return switch (metric == null ? "" : metric) {
+            case "heap_usage_rate" -> Read.percent(heapUsageRate(applicationName, window));
+            case "jvm_cpu_usage_rate" -> Read.percent(cpuUsageRate(applicationName, FIELD_JVM, window));
+            case "system_cpu_usage_rate" -> Read.percent(cpuUsageRate(applicationName, FIELD_SYSTEM, window));
+            case "file_descriptor_count" -> Read.count(fileDescriptorCount(applicationName, window));
+            case METRIC_CONNECTION_POOL_USAGE ->
+                    Read.percent(connectionPoolUsageReader.read(applicationName, window));
+            default -> null;
+        };
+    }
+
+    /** Used over max, as a percentage, the way the v1 collector reported it. */
+    private Map<String, Double> heapUsageRate(String applicationName, Range window) {
+        List<AgentFieldUsage> usages = agentStatAlarmDao.selectSumGroupByField(
+                applicationName, METRIC_JVM_GC, List.of(FIELD_HEAP_MAX, FIELD_HEAP_USED), window);
+
+        Map<String, Double> used = new HashMap<>();
+        Map<String, Double> max = new HashMap<>();
+        for (AgentFieldUsage usage : usages) {
+            if (FIELD_HEAP_USED.equals(usage.getFieldName())) {
+                used.put(usage.getAgentId(), usage.getValue());
+            } else if (FIELD_HEAP_MAX.equals(usage.getFieldName())) {
+                max.put(usage.getAgentId(), usage.getValue());
+            }
+        }
+        Map<String, Double> rates = new HashMap<>();
+        for (Map.Entry<String, Double> entry : used.entrySet()) {
+            Double heapMax = max.get(entry.getKey());
+            if (heapMax == null || heapMax <= 0) {
+                // No ceiling, no rate. Recording zero would read as an empty heap and MIN
+                // would pick it every time. Same rule as the connection pools.
+                continue;
+            }
+            rates.put(entry.getKey(), percentOf(entry.getValue(), heapMax));
+        }
+        return rates;
+    }
+
+    /**
+     * The mean load over the window, as a percentage.
+     *
+     * <p>A stored sample is a 0-1 load -- the inspector screen scales it by a hundred to show
+     * it -- so the mean is the summed load over the number of samples, and the percentage is
+     * that times a hundred.
+     *
+     * <p>This does not match what the v1 alarm computed. It divided the summed load by a
+     * hundred times the sample count in integer arithmetic, which is the mean without the
+     * scaling and then truncated: since a mean load is between zero and one, the result was
+     * always zero. Its threshold is an Integer and its comparison a Long, so no entry could
+     * have recovered the lost scale. Copying that to keep the numbers identical would carry
+     * a checker that cannot fire.
+     */
+    private Map<String, Double> cpuUsageRate(String applicationName, String field, Range window) {
+        List<AgentUsageCount> counts =
+                agentStatAlarmDao.selectSumCount(applicationName, METRIC_CPU_LOAD, field, window);
+
+        Map<String, Double> rates = new HashMap<>();
+        for (AgentUsageCount count : counts) {
+            rates.put(count.getAgentId(), MathUtils.average(
+                    Objects.requireNonNullElse(count.getValue(), 0.0),
+                    Objects.requireNonNullElse(count.getCountValue(), 0.0)) * 100.0);
+        }
+        return rates;
+    }
+
+    private Map<String, Double> fileDescriptorCount(String applicationName, Range window) {
+        List<AgentUsage> usages = agentStatAlarmDao.selectAvg(
+                applicationName, METRIC_FILE_DESCRIPTOR, FIELD_OPEN_FILE_DESCRIPTOR, window);
+
+        Map<String, Double> counts = new HashMap<>();
+        for (AgentUsage usage : usages) {
+            counts.put(usage.getAgentId(), Objects.requireNonNullElse(usage.getValue(), 0.0));
+        }
+        return counts;
+    }
+
+    private static double percentOf(Double value, double total) {
+        if (value == null || total == 0) {
+            return 0;
+        }
+        return (value * 100.0) / total;
+    }
+
+    /**
+     * Reduces the agents to one number. MAX is the default because that is what the v1 alarm
+     * compared, and a rule written without an aggregation was written against that behaviour.
+     */
+    private static double reduce(List<AgentReading> readings, AlarmCondition.Aggregation aggregation) {
+        DoubleSummaryStatistics stats = readings.stream()
+                .mapToDouble(AgentReading::value).summaryStatistics();
+        return switch (aggregation != null ? aggregation : AlarmCondition.Aggregation.MAX) {
+            case MIN -> stats.getMin();
+            case AVG -> stats.getAverage();
+            default -> stats.getMax();
+        };
+    }
+
+    /** How many of the agents met the condition, such as "3 of 5 agents > 80.00%". */
+    private static String summary(AlarmCondition leaf, Read read) {
+        long met = read.readings().stream().filter(reading -> leaf.isMetBy(reading.value()))
+                .map(AgentReading::agentId).distinct().count();
+        long agents = read.readings().stream().map(AgentReading::agentId).distinct().count();
+        return String.format("%d of %d agent%s %s %s", met, agents, agents == 1 ? "" : "s",
+                leaf.getOp().symbol(), read.format(leaf.getThreshold()));
+    }
+
+    /** How the agents were reduced, such as "max 92.00% over 5 agents", for a key no one leaf owns. */
+    private static String reduction(AlarmCondition leaf, Read read, double value) {
+        AlarmCondition.Aggregation aggregation =
+                leaf.getAggregation() != null ? leaf.getAggregation() : AlarmCondition.Aggregation.MAX;
+        int count = read.readings().size();
+        String unit = METRIC_CONNECTION_POOL_USAGE.equals(leaf.getMetric()) ? "pool" : "agent";
+        return String.format(Locale.ROOT, "%s %s over %d %s%s", aggregation.name().toLowerCase(Locale.ROOT),
+                read.format(value), count, unit, count == 1 ? "" : "s");
+    }
+
+    /**
+     * The readings that met the condition by their own value, the furthest past the threshold
+     * first. Each pool of an agent is a line of its own, since it is a pool that fills up.
+     */
+    private static List<Detail> lines(AlarmRuleV2 rule, AlarmCondition leaf, Read read, Range window) {
+        Comparator<AgentReading> byValue = Comparator.comparingDouble(AgentReading::value);
+        return read.readings().stream()
+                .filter(reading -> leaf.isMetBy(reading.value()))
+                .sorted(leaf.getOp().isBelow() ? byValue : byValue.reversed())
+                .map(reading -> {
+                    String text = read.format(reading.value());
+                    return AgentQueryResultBuilder.agentLine(rule, reading.agentId(),
+                            reading.pool() != null ? text + " " + reading.pool() : text, window);
+                })
+                .toList();
+    }
+
+    /** What the agents reported for one metric, and the unit its values print with. */
+    private record Read(List<AgentReading> readings, String unit) {
+
+        static Read percent(Map<String, Double> valueByAgent) {
+            return percent(readings(valueByAgent));
+        }
+
+        static Read percent(List<AgentReading> readings) {
+            return new Read(readings, "%");
+        }
+
+        static Read count(Map<String, Double> valueByAgent) {
+            return new Read(readings(valueByAgent), "");
+        }
+
+        private static List<AgentReading> readings(Map<String, Double> valueByAgent) {
+            return valueByAgent.entrySet().stream()
+                    .map(entry -> new AgentReading(entry.getKey(), null, entry.getValue()))
+                    .toList();
+        }
+
+        String format(double value) {
+            return String.format(Locale.ROOT, "%.2f%s", value, unit);
+        }
+    }
+
+    /** What a read is decided by: the same pair asks the store the same question. */
+    private record MetricRead(String metric, int windowSec) {
+    }
+}

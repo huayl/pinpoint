@@ -22,8 +22,8 @@ import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
-import com.navercorp.pinpoint.web.dao.UserDao;
-import com.navercorp.pinpoint.web.vo.User;
+import com.navercorp.pinpoint.user.dao.UserDao;
+import com.navercorp.pinpoint.user.vo.User;
 
 /**
  * @author minwoo.jung
@@ -31,7 +31,7 @@ import com.navercorp.pinpoint.web.vo.User;
 @Repository
 public class MysqlUserDao implements UserDao {
 
-    private static final String NAMESPACE = UserDao.class.getPackage().getName() + "." + UserDao.class.getSimpleName() + ".";
+    private static final String NAMESPACE = UserDao.class.getName() + ".";
 
     private final SqlSessionTemplate sqlSessionTemplate;
 

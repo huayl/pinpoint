@@ -1,0 +1,163 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.authorization.controller;
+
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.service.web.resolver.ServiceParam;
+import com.navercorp.pinpoint.service.web.vo.ServiceName;
+import com.navercorp.pinpoint.web.scatter.ScatterData;
+import com.navercorp.pinpoint.web.scatter.ScatterView;
+import com.navercorp.pinpoint.web.scatter.Status;
+import com.navercorp.pinpoint.web.service.ScatterChartService;
+import com.navercorp.pinpoint.service.service.ServiceModelResolver;
+import com.navercorp.pinpoint.web.util.LimitUtils;
+import com.navercorp.pinpoint.web.view.transactionlist.TransactionMetaDataViewModel;
+import com.navercorp.pinpoint.web.vo.GetTraceInfo;
+import com.navercorp.pinpoint.web.vo.GetTraceInfoParser;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * @author netspider
+ * @author emeroad
+ * @author jaehong.kim
+ */
+@RestController
+@RequestMapping("/api")
+@Validated
+public class ScatterChartController implements AccessDeniedExceptionHandler {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final ScatterChartService scatterChartService;
+    private final ServiceTypeRegistryService serviceTypeRegistryService;
+    private final ServiceModelResolver serviceModelResolver;
+
+    private final GetTraceInfoParser getTraceInfoParser = new GetTraceInfoParser();
+
+    public ScatterChartController(
+            ScatterChartService scatterChartService,
+            ServiceTypeRegistryService serviceTypeRegistryService,
+            ServiceModelResolver serviceModelResolver) {
+        this.scatterChartService = Objects.requireNonNull(scatterChartService, "scatterChartService");
+        this.serviceTypeRegistryService = Objects.requireNonNull(serviceTypeRegistryService, "serviceTypeRegistryService");
+        this.serviceModelResolver = Objects.requireNonNull(serviceModelResolver, "serviceModelResolver");
+    }
+
+
+    /**
+     * selected points from scatter chart data query
+     *
+     * @param requestParam requestParam
+     * @return TransactionMetaDataViewModel
+     */
+    @PostMapping(value = "/transactionmetadata")
+    public TransactionMetaDataViewModel postTransactionMetadata(@ServiceParam ServiceName serviceName, @RequestParam Map<String, String> requestParam) {
+        final List<GetTraceInfo> selectTraceInfoList = this.getTraceInfoParser.parse(requestParam);
+
+        if (CollectionUtils.isEmpty(selectTraceInfoList)) {
+            return new TransactionMetaDataViewModel();
+        }
+
+        final List<SpanBo> metadata = scatterChartService.selectTransactionMetadata(selectTraceInfoList);
+        return new TransactionMetaDataViewModel(metadata, this::findServiceTypeName);
+    }
+
+    /**
+     * @param applicationName applicationName
+     * @param from            from
+     * @param to              to
+     * @param limitParam      max number of data return. if the requested data exceed this limit, we need
+     *                        additional calls to fetch the rest of the data
+     * @return ScatterView.ResultView
+     */
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/getScatterData")
+    public ScatterView.ResultView getScatterData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("application") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Integer serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @RequestParam("xGroupUnit") @Positive int xGroupUnit,
+            @RequestParam("yGroupUnit") @Positive int yGroupUnit,
+            @RequestParam("limit") int limitParam) {
+        final int limit = LimitUtils.checkRange(limitParam);
+
+        // TODO: range check verification exception occurs. "from" is bigger than "to"
+        final Range range = Range.unchecked(from, to);
+        logger.debug(
+                "fetch scatter data. RANGE: {}, X-Group-Unit: {}, Y-Group-Unit: {}, LIMIT: {}",
+                range, xGroupUnit, yGroupUnit, limit
+        );
+
+        final ServiceType serviceType = findServiceType(serviceTypeCode, serviceTypeName);
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        final ScatterData scatterData = scatterChartService.selectScatterDataV2(service, applicationName, serviceType.getCode(), range, xGroupUnit, yGroupUnit, limit);
+        final boolean requestComplete = scatterData.getDotSize() < limit;
+        ScatterView.DotView dotView = new ScatterView.DotView(scatterData, requestComplete);
+        return wrapScatterResultView(range, dotView);
+    }
+
+    private static ScatterView.ResultView wrapScatterResultView(Range range, ScatterView.DotView dotView) {
+        final Status status = new Status(System.currentTimeMillis(), range);
+        return ScatterView.wrapResult(dotView, status);
+    }
+
+    private ServiceType findServiceType(Integer serviceTypeCode, String serviceTypeName) {
+        if (serviceTypeCode != null) {
+            ServiceType serviceTypeFromCode = serviceTypeRegistryService.findServiceType(serviceTypeCode);
+            if (!ServiceType.UNDEFINED.equals(serviceTypeFromCode) && serviceTypeFromCode != null) {
+                return serviceTypeFromCode;
+            }
+        }
+        if (serviceTypeName != null) {
+            ServiceType serviceTypeFromName = serviceTypeRegistryService.findServiceTypeByName(serviceTypeName);
+            if (!ServiceType.UNDEFINED.equals(serviceTypeFromName) && serviceTypeFromName != null) {
+                return serviceTypeFromName;
+            }
+        }
+        throw new IllegalArgumentException("application serviceType not found. code:" + serviceTypeCode + ", name:" + serviceTypeName);
+    }
+
+    private String findServiceTypeName(int serviceTypeCode) {
+        final ServiceType serviceType = serviceTypeRegistryService.findServiceType(serviceTypeCode);
+        if (serviceType == null) {
+            return null;
+        }
+        return serviceType.getName();
+    }
+}

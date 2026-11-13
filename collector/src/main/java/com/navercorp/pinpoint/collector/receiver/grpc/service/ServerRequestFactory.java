@@ -16,16 +16,17 @@
 
 package com.navercorp.pinpoint.collector.receiver.grpc.service;
 
-import com.navercorp.pinpoint.io.request.Message;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-
-import io.grpc.StatusException;
+import com.navercorp.pinpoint.common.server.io.MessageType;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
+import com.navercorp.pinpoint.io.request.UidFetcher;
+import io.grpc.Context;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public interface ServerRequestFactory {
 
-    <T> ServerRequest<T> newServerRequest(Message<T> message) throws StatusException;
+    <T> ServerRequest<T> newServerRequest(Context context, MessageType messageType, T data);
 
+    <T> ServerRequest<T> newServerRequest(Context context, UidFetcher uidFetcher, MessageType messageType, T data);
 }

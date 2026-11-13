@@ -16,13 +16,13 @@
 
 package com.navercorp.pinpoint.common.util;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-
-import static org.junit.Assert.*;
+import java.util.Set;
 
 /**
  * @author Woonduk Kang(emeroad)
@@ -31,34 +31,40 @@ public class StringJoinUtilsTest {
 
     @Test
     public void join1() {
-        List<String> stringList = new ArrayList<String>();
+        List<String> stringList = new ArrayList<>();
         stringList.add("abc");
 
         String join = StringJoinUtils.join(stringList, ",");
-        Assert.assertEquals(join, "abc");
-
+        Assertions.assertEquals(join, "abc");
     }
 
     @Test
     public void join2() {
-        List<String> stringList = new ArrayList<String>();
+        List<String> stringList = new ArrayList<>();
         stringList.add("abc");
         stringList.add("bcd");
 
         String join = StringJoinUtils.join(stringList, ",");
-        Assert.assertEquals(join, "abc,bcd");
-
+        Assertions.assertEquals(join, "abc,bcd");
     }
 
     @Test
     public void join3() {
-        List<String> stringList = new ArrayList<String>();
+        List<String> stringList = new ArrayList<>();
         stringList.add("abc");
         stringList.add("bcd");
         stringList.add("f");
 
         String join = StringJoinUtils.join(stringList, ",");
-        Assert.assertEquals(join, "abc,bcd,f");
+        Assertions.assertEquals(join, "abc,bcd,f");
+    }
 
+    @Test
+    public void collection() {
+        Set<String> stringList = new LinkedHashSet<>();
+        stringList.add("abc");
+
+        String join = StringJoinUtils.join(stringList, ",");
+        Assertions.assertEquals(join, "abc");
     }
 }

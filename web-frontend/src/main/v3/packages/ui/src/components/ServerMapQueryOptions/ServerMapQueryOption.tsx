@@ -1,0 +1,197 @@
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+import { FaSignInAlt, FaSignOutAlt, FaMapSigns } from 'react-icons/fa';
+import { useUpdateEffect } from '@pinpoint-fe/ui/src/hooks';
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Button } from '../ui/button';
+import { Separator } from '../ui/separator';
+import { Checkbox } from '../ui/checkbox';
+import { ButtonGroup, ButtonGroupItem } from '../ui/button-group';
+import { cn } from '../../lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '..';
+
+export interface ServerMapQueryOptionType {
+  inbound?: number;
+  outbound?: number;
+  wasOnly?: boolean;
+  bidirectional?: boolean;
+}
+
+export interface ServerMapQueryOptionProps {
+  queryOption?: ServerMapQueryOptionType;
+  onApply?: (pamas?: ServerMapQueryOptionType) => void;
+}
+
+const boundCount = [1, 2, 3, 4];
+
+export const ServerMapQueryOption = ({ queryOption, onApply }: ServerMapQueryOptionProps) => {
+  const { t } = useTranslation();
+  const [open, setOpen] = React.useState(false);
+  const [inbound, setInbound] = React.useState(queryOption?.inbound || 1);
+  const [outbound, setOutbound] = React.useState(queryOption?.outbound || 1);
+  const [wasOnly, setWasOnly] = React.useState(queryOption?.wasOnly || false);
+  const [bidirectional, setBidirectional] = React.useState(queryOption?.bidirectional || false);
+
+  const setOption = (queryOption?: ServerMapQueryOptionType) => {
+    setInbound(queryOption?.inbound || 1);
+    setOutbound(queryOption?.outbound || 1);
+    setWasOnly(queryOption?.wasOnly || false);
+    setBidirectional(queryOption?.bidirectional || false);
+  };
+
+  useUpdateEffect(() => {
+    setOption(queryOption);
+  }, [queryOption]);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(open) => {
+        setOpen(open);
+
+        if (!open) {
+          setOption(queryOption);
+        }
+      }}
+    >
+      <PopoverTrigger>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                // `h-auto` 로 Button 의 기본 높이(size=default 의 `h-9`)를 끈다. 내용(4칸 × h-10 + 구분선)이
+                // 높이를 정해야 한다. 예전에는 이 자리에 `h-100` 이 있었는데, Tailwind 3 에 없는 값이라
+                // 아무 높이도 만들지 않으면서 tailwind-merge 가 높이 유틸리티로 보고 `h-9` 만 지워
+                // 우연히 동작하고 있었다. Tailwind 4 는 그 값을 400px 로 계산한다.
+                className="flex p-2 text-gray-400 h-auto hover:text-gray-500"
+                asChild
+              >
+                <div className="flex flex-col w-12 text-xs gap-0.5 ">
+                  <div
+                    className={cn('flex flex-col items-center justify-center h-10', {
+                      'text-primary! font-semibold': wasOnly,
+                    })}
+                  >
+                    <div className="tracking-wider">APP</div>
+                    ONLY
+                  </div>
+                  <Separator />
+                  <div
+                    className={cn('flex items-center justify-center h-10 text-lg', {
+                      'text-primary!': bidirectional,
+                    })}
+                  >
+                    <FaMapSigns />
+                  </div>
+                  <Separator />
+                  <div
+                    className={cn('flex items-center justify-center h-10 gap-1', {
+                      'text-foreground! font-semibold': inbound > 1,
+                    })}
+                  >
+                    <span className={cn({ 'text-emerald-400!': inbound > 1 })}>
+                      <FaSignInAlt />
+                    </span>
+                    {inbound}
+                  </div>
+                  <Separator />
+                  <div
+                    className={cn('flex items-center justify-center h-10 gap-1', {
+                      'text-foreground! font-semibold': outbound > 1,
+                    })}
+                  >
+                    <span className={cn({ 'text-emerald-400!': outbound > 1 })}>
+                      <FaSignOutAlt />
+                    </span>
+                    {outbound}
+                  </div>
+                </div>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              <p>{t('SERVER_MAP.QUERY_OPTION.TITLE')}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </PopoverTrigger>
+      <PopoverContent side={'left'} align="start" className="w-90">
+        <div>
+          <div className="mb-1 font-semibold">{t('SERVER_MAP.QUERY_OPTION.TITLE')}</div>
+          <div className="text-sm font-light text-gray-400">
+            {t('SERVER_MAP.QUERY_OPTION.DESC')}
+          </div>
+          <Separator className="mt-2 mb-3" />
+          <div className="grid grid-cols-[120px_auto] text-sm mb-10 h-40 items-center [&>*:nth-child(odd)]:text-right [&>*:nth-child(even)]:ml-5">
+            <div>{t('SERVER_MAP.QUERY_OPTION.APPLICATION_ONLY')}</div>
+            <Checkbox
+              checked={wasOnly}
+              onCheckedChange={(checked) => {
+                setWasOnly(checked as boolean);
+              }}
+            />
+            <div>{t('SERVER_MAP.QUERY_OPTION.BIDIRECTIONAL')}</div>
+            <Checkbox
+              checked={bidirectional}
+              onCheckedChange={(checked) => {
+                setBidirectional(checked as boolean);
+              }}
+            />
+            <div>{t('SERVER_MAP.QUERY_OPTION.INBOUND')}</div>
+            <ButtonGroup
+              defaultValue={`${inbound}`}
+              className="h-7"
+              onValueChange={(value) => {
+                setInbound(parseInt(value, 10));
+              }}
+            >
+              {boundCount.map((count, i) => (
+                <ButtonGroupItem key={i} className="h-6" value={`${count}`}>
+                  {count}
+                </ButtonGroupItem>
+              ))}
+            </ButtonGroup>
+            <div>{t('SERVER_MAP.QUERY_OPTION.OUTBOUND')}</div>
+            <ButtonGroup
+              className="h-7"
+              defaultValue={`${outbound}`}
+              onValueChange={(value) => {
+                setOutbound(parseInt(value, 10));
+              }}
+            >
+              {boundCount.map((count, i) => (
+                <ButtonGroupItem key={i} className="h-6" value={`${count}`}>
+                  {count}
+                </ButtonGroupItem>
+              ))}
+            </ButtonGroup>
+          </div>
+          <div className="flex justify-end gap-2 ">
+            <PopoverClose asChild>
+              <Button className="w-20 font-normal" variant="outline">
+                {t('COMMON.CANCEL')}
+              </Button>
+            </PopoverClose>
+            <PopoverClose asChild>
+              <Button
+                className="w-20 font-normal"
+                onClick={() => {
+                  setTimeout(() => {
+                    onApply?.({
+                      inbound,
+                      outbound,
+                      wasOnly,
+                      bidirectional,
+                    });
+                  }, 100);
+                }}
+              >
+                {t('COMMON.APPLY')}
+              </Button>
+            </PopoverClose>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};

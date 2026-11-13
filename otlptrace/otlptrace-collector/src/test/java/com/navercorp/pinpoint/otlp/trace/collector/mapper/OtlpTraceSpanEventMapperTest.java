@@ -1,0 +1,1343 @@
+package com.navercorp.pinpoint.otlp.trace.collector.mapper;
+
+import tools.jackson.databind.ObjectMapper;
+import com.google.protobuf.ByteString;
+import com.navercorp.pinpoint.common.server.bo.AttributeBo;
+import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
+import com.navercorp.pinpoint.common.trace.AnnotationKey;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.trace.ServiceTypeFactory;
+import com.navercorp.pinpoint.common.trace.attribute.AttributeValue;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.OtlpMessagingTypeResolver;
+import io.opentelemetry.proto.common.v1.InstrumentationScope;
+import io.opentelemetry.proto.common.v1.KeyValue;
+import io.opentelemetry.proto.trace.v1.Span;
+import io.opentelemetry.proto.trace.v1.Status;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.intVal;
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.kv;
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.strVal;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class OtlpTraceSpanEventMapperTest {
+
+    // Stub registry pre-loaded with the client-side RPC ServiceTypes so client/RPC dispatch
+    // tests resolve to the real plugin codes. DB / messaging resolvers fall back gracefully
+    // when their plugin names are absent.
+    private static final ServiceTypeRegistryService TEST_REGISTRY = buildRegistry();
+
+    private static ServiceTypeRegistryService buildRegistry() {
+        Map<String, ServiceType> byName = new HashMap<>();
+        byName.put("GRPC",                   ServiceTypeFactory.of(9160, "GRPC",                   "GRPC"));
+        byName.put("APACHE_DUBBO_CONSUMER",  ServiceTypeFactory.of(9997, "APACHE_DUBBO_CONSUMER",  "APACHE_DUBBO_CONSUMER"));
+        return new ServiceTypeRegistryService() {
+            @Override
+            public ServiceType findServiceType(int serviceType) {
+                return byName.values().stream()
+                        .filter(t -> t.getCode() == serviceType)
+                        .findFirst()
+                        .orElse(ServiceType.UNDEFINED);
+            }
+
+            @Override
+            public ServiceType findServiceTypeByName(String typeName) {
+                return byName.getOrDefault(typeName, ServiceType.UNDEFINED);
+            }
+
+            @Override
+            public List<ServiceType> findDesc(String desc) {
+                return List.of();
+            }
+        };
+    }
+
+    private OtlpTraceSpanEventMapper mapper;
+
+    @BeforeEach
+    void setUp() {
+        mapper = new OtlpTraceSpanEventMapper(
+                new OtlpTraceEventMapper(new ObjectMapper(), 8192),
+                new OtlpTraceLinkMapper(new ObjectMapper(), 8192),
+                TEST_REGISTRY,
+                new OtlpMessagingTypeResolver(TEST_REGISTRY),
+                new OtlpClientTypeResolver(TEST_REGISTRY),
+                new OtlpEnvoyRecorder(),
+                new OtlpExceptionInfoResolver(),
+                new OtlpAttributeBoMapper(8192),
+                8192);
+    }
+
+    // =======================================================================
+    // getDbSystem
+    // =======================================================================
+
+    @Test
+    void getDbSystem_dbSystemName_preferred() {
+        Map<String, AttributeValue> attrs = new HashMap<>();
+        attrs.put(OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, AttributeValue.of("postgresql"));
+        attrs.put(OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("mysql"));
+
+        assertThat(mapper.getDbSystem(attrs)).isEqualTo("postgresql");
+    }
+
+    @Test
+    void getDbSystem_fallbackToDbSystem_whenDbSystemNameAbsent() {
+        Map<String, AttributeValue> attrs = new HashMap<>();
+        attrs.put(OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("mysql"));
+
+        assertThat(mapper.getDbSystem(attrs)).isEqualTo("mysql");
+    }
+
+    @Test
+    void getDbSystem_returnsNull_whenBothAbsent() {
+        assertThat(mapper.getDbSystem(Map.of())).isNull();
+    }
+
+    // =======================================================================
+    // isDatabase
+    // =======================================================================
+
+    @Test
+    void isDatabase_true_whenDbSystemPresent() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("mysql")
+        );
+        assertThat(mapper.isDatabase(attrs)).isTrue();
+    }
+
+    @Test
+    void isDatabase_true_whenDbSystemNamePresent() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, AttributeValue.of("postgresql")
+        );
+        assertThat(mapper.isDatabase(attrs)).isTrue();
+    }
+
+    @Test
+    void isDatabase_false_whenNeitherPresent() {
+        assertThat(mapper.isDatabase(Map.of())).isFalse();
+    }
+
+    // =======================================================================
+    // isDatabaseExecuteQuery
+    // =======================================================================
+
+    @Test
+    void isDatabaseExecuteQuery_true_whenDbQueryTextPresent() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_QUERY_TEXT, AttributeValue.of("SELECT 1")
+        );
+        assertThat(mapper.isDatabaseExecuteQuery(attrs)).isTrue();
+    }
+
+    @Test
+    void isDatabaseExecuteQuery_true_whenDbStatementPresent() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_STATEMENT, AttributeValue.of("SELECT 1")
+        );
+        assertThat(mapper.isDatabaseExecuteQuery(attrs)).isTrue();
+    }
+
+    @Test
+    void isDatabaseExecuteQuery_false_whenNeitherPresent() {
+        assertThat(mapper.isDatabaseExecuteQuery(Map.of())).isFalse();
+    }
+
+    // =======================================================================
+    // getClientSpanDbStatement
+    // =======================================================================
+
+    @Test
+    void getClientSpanDbStatement_prefersDbQueryText() {
+        Map<String, AttributeValue> attrs = new HashMap<>();
+        attrs.put(OtlpTraceConstants.ATTRIBUTE_KEY_DB_QUERY_TEXT, AttributeValue.of("SELECT 1"));
+        attrs.put(OtlpTraceConstants.ATTRIBUTE_KEY_DB_STATEMENT, AttributeValue.of("SELECT 2"));
+
+        assertThat(mapper.getClientSpanDbStatement(attrs)).isEqualTo("SELECT 1");
+    }
+
+    @Test
+    void getClientSpanDbStatement_fallbackToDbStatement() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_STATEMENT, AttributeValue.of("SELECT 2")
+        );
+        assertThat(mapper.getClientSpanDbStatement(attrs)).isEqualTo("SELECT 2");
+    }
+
+    @Test
+    void getClientSpanDbStatement_returnsNull_whenBothAbsent() {
+        assertThat(mapper.getClientSpanDbStatement(Map.of())).isNull();
+    }
+
+    // =======================================================================
+    // getClientSpanToEndPoint
+    // =======================================================================
+
+    @Test
+    void getClientSpanToEndPoint_serverAddressWithPort() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("db.example.com"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(5432L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("db.example.com:5432");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_fallsBackToNetworkPeerAddress() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, AttributeValue.of("10.0.0.1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, AttributeValue.of(5432L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("10.0.0.1:5432");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_serverAddressPreferredOverNetworkPeer() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("db.example.com"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(5432L),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, AttributeValue.of("10.0.0.1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, AttributeValue.of(9999L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("db.example.com:5432");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_fallsBackToUpstreamAddress() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_UPSTREAM_ADDRESS, AttributeValue.of("proxy:9000")
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("proxy:9000");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_fallsBackToNetPeerName() {
+        // Legacy semconv client (e.g. otel-js gRPC) emits only net.peer.name/net.peer.port —
+        // previously resolved to null, dropping the ServerMap node.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, AttributeValue.of("cart"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, AttributeValue.of(7070L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("cart:7070");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_netPeerNameWithoutPort() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, AttributeValue.of("cart")
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("cart");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_serverAddressPreferredOverNetPeerName() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("cart.svc"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(7070L),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, AttributeValue.of("cart"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, AttributeValue.of(9999L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("cart.svc:7070");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_fallsBackToHttpUrl() {
+        // Legacy HTTP client emitting only http.url (seen from python-requests instrumentations).
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_HTTP_URL, AttributeValue.of("http://frontend-proxy:8080/api/cart")
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("frontend-proxy:8080");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_urlFullPreferredOverHttpUrl() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_URL_FULL, AttributeValue.of("https://api.example.com/users?id=1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_HTTP_URL, AttributeValue.of("http://legacy.example.com/users")
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("api.example.com");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_urlPreferredOverSocketAddress() {
+        // URL-derived logical host groups the ServerMap better than the socket IP.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_URL_FULL, AttributeValue.of("http://api.example.com:8080/v1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, AttributeValue.of("10.0.0.1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, AttributeValue.of(8080L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("api.example.com:8080");
+    }
+
+    @Test
+    void getClientSpanToEndPoint_hostlessUrl_fallsThrough() {
+        // A malformed URL with no extractable host must not shadow later fallbacks.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_URL_FULL, AttributeValue.of("https://"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, AttributeValue.of("10.0.0.1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, AttributeValue.of(8080L)
+        );
+        assertThat(mapper.getClientSpanToEndPoint(attrs, new HashSet<>())).isEqualTo("10.0.0.1:8080");
+    }
+
+    // =======================================================================
+    // getClientSpanToDestinationId
+    // =======================================================================
+
+    @Test
+    void getClientSpanToDestinationId_prefersDbNamespace() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAMESPACE, AttributeValue.of("shop_db"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAME, AttributeValue.of("legacy_db"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("postgresql")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("shop_db");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_fallsBackToDbName() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAME, AttributeValue.of("legacy_db"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("mysql")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("legacy_db");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_namespacelessDb_usesDbSystemName() {
+        // Redis-style DB with no namespace — group ServerMap node by system.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, AttributeValue.of("redis"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("cache-01.example.com"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(6379L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("redis");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_namespacelessDb_fallsBackToDbSystem() {
+        // 1.x semconv key still works as a fallback when 2.x key is absent.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("elasticsearch")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("elasticsearch");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_redis_skipsDbNamespace() {
+        // OTel Redis semconv uses db.namespace as the numeric DB index (0-15).
+        // Treating that as destinationId would produce useless labels ("15") on the
+        // ServerMap — instead, fall through to db.system so all Redis traffic groups
+        // under a single "redis" node.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, AttributeValue.of("redis"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAMESPACE, AttributeValue.of("15"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("cache-01.example.com"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(6379L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("redis");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_redis_skipsLegacyDbName() {
+        // 1.x SDKs may emit db.name = "0" for the Redis DB index. Skip that too.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("redis"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAME, AttributeValue.of("0")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("redis");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_redis_caseInsensitiveSystem() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM_NAME, AttributeValue.of("Redis"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_NAMESPACE, AttributeValue.of("0")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("Redis");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_fallsBackToServerAddress_whenNoDbAttributes() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_ADDRESS, AttributeValue.of("svc.example.com"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_SERVER_PORT, AttributeValue.of(8080L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("svc.example.com:8080");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_fallsBackToNetworkPeerAddress() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_IP, AttributeValue.of("10.0.0.1"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NETWORK_PEER_PORT, AttributeValue.of(5432L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("10.0.0.1:5432");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_fallsBackToNetPeerName() {
+        // Legacy semconv gRPC client — destinationId mirrors the endPoint fallback.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, AttributeValue.of("cart"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, AttributeValue.of(7070L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("cart:7070");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_fallsBackToUrl() {
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_HTTP_URL, AttributeValue.of("http://frontend-proxy:8080/api/cart")
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("frontend-proxy:8080");
+    }
+
+    @Test
+    void getClientSpanToDestinationId_dbSystemPreferredOverNetPeerName() {
+        // DB destination grouping (db.system) must not be shadowed by the new fallbacks.
+        Map<String, AttributeValue> attrs = Map.of(
+                OtlpTraceConstants.ATTRIBUTE_KEY_DB_SYSTEM, AttributeValue.of("redis"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_NAME, AttributeValue.of("cache-01"),
+                OtlpTraceConstants.ATTRIBUTE_KEY_NET_PEER_PORT, AttributeValue.of(6379L)
+        );
+        assertThat(mapper.getClientSpanToDestinationId(attrs, new HashSet<>())).isEqualTo("redis");
+    }
+
+    // =======================================================================
+    // map() — producer / internal endPoint & destinationId resolution
+    // =======================================================================
+
+    private static final byte[] TRACE_ID = {
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    };
+    private static final byte[] SPAN_ID = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    private static Span span(Span.SpanKind kind, KeyValue... attrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(kind.getNumber());
+        for (KeyValue attr : attrs) {
+            builder.addAttributes(attr);
+        }
+        return builder.build();
+    }
+
+    private SpanEventBo mapSingle(Span span) {
+        return mapper.map(0L, span, InstrumentationScope.getDefaultInstance()).get(0);
+    }
+
+    private SpanEventBo mapSingle(Span span, InstrumentationScope scope) {
+        return mapper.map(0L, span, scope).get(0);
+    }
+
+    private static List<String> attributeKeys(SpanEventBo event) {
+        return event.getAttributeBoList().stream()
+                .map(AttributeBo::getKey)
+                .toList();
+    }
+
+    private static Object findAnnotation(SpanEventBo event, int code) {
+        return event.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == code)
+                .map(com.navercorp.pinpoint.common.server.bo.AnnotationBo::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static final int HTTP_STATUS_CODE =
+            com.navercorp.pinpoint.common.trace.AnnotationKey.HTTP_STATUS_CODE.getCode();
+    private static final int HTTP_URL =
+            com.navercorp.pinpoint.common.trace.AnnotationKey.HTTP_URL.getCode();
+
+    private static final int OPENTELEMETRY_SCOPE =
+            com.navercorp.pinpoint.common.trace.AnnotationKey.OPENTELEMETRY_SCOPE.getCode();
+
+    // =======================================================================
+    // map() — OPENTELEMETRY_SCOPE annotation
+    // =======================================================================
+
+    @Test
+    void map_scope_nameAndVersion_recordsScopeAnnotation() {
+        InstrumentationScope scope = InstrumentationScope.newBuilder()
+                .setName("io.opentelemetry.jdbc")
+                .setVersion("2.5.0")
+                .build();
+        SpanEventBo event = mapSingle(span(Span.SpanKind.SPAN_KIND_CLIENT), scope);
+        assertThat(findAnnotation(event, OPENTELEMETRY_SCOPE)).isEqualTo("io.opentelemetry.jdbc@2.5.0");
+    }
+
+    @Test
+    void map_scope_nameOnly_omitsVersionSuffix() {
+        InstrumentationScope scope = InstrumentationScope.newBuilder()
+                .setName("my-custom-tracer")
+                .build();
+        SpanEventBo event = mapSingle(span(Span.SpanKind.SPAN_KIND_CLIENT), scope);
+        assertThat(findAnnotation(event, OPENTELEMETRY_SCOPE)).isEqualTo("my-custom-tracer");
+    }
+
+    @Test
+    void map_scope_unset_noScopeAnnotation() {
+        SpanEventBo event = mapSingle(span(Span.SpanKind.SPAN_KIND_CLIENT));
+        assertThat(findAnnotation(event, OPENTELEMETRY_SCOPE)).isNull();
+    }
+
+    @Test
+    void map_client_legacyGrpc_netPeerName_setsEndPointAndDestinationId_andFiltersRawKeys() {
+        // End-to-end: a legacy-semconv gRPC client span (net.peer.name/net.peer.port only, as
+        // emitted by otel-js) resolves endPoint/destinationId instead of dropping the node, and
+        // the consumed keys are filtered from the raw attribute list (mirroring server.address).
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.service", strVal("oteldemo.CartService")),
+                kv("net.peer.name", strVal("cart")),
+                kv("net.peer.port", intVal(7070)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("cart:7070");
+        assertThat(event.getDestinationId()).isEqualTo("cart:7070");
+        assertThat(attributeKeys(event)).doesNotContain("net.peer.name", "net.peer.port");
+    }
+
+    @Test
+    void map_client_httpUrlOnly_setsEndPoint_andKeepsRawUrl() {
+        // Legacy HTTP client emitting only http.url — endPoint is derived from the URL host,
+        // while the raw URL attribute is retained (path/query carry extra information).
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.url", strVal("http://frontend-proxy:8080/api/cart")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("frontend-proxy:8080");
+        assertThat(event.getDestinationId()).isEqualTo("frontend-proxy:8080");
+        assertThat(attributeKeys(event)).contains("http.url");
+        assertThat(findAnnotation(event, HTTP_URL)).isEqualTo("http://frontend-proxy:8080/api/cart");
+    }
+
+    @Test
+    void map_client_urlFull_recordsHttpUrlAnnotation_stripsQueryAndUserinfo() {
+        // Mirrors the native HTTP client plugins: the request URL is recorded as the HTTP_URL (40)
+        // annotation (Call Tree display argument / RpcURLPatternFilter), query and userinfo removed.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("server.address", strVal("api.example.com")),
+                kv("server.port", intVal(443)),
+                kv("url.full", strVal("https://user:pw@api.example.com/users/123?token=abc#frag")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_URL)).isEqualTo("https://api.example.com/users/123");
+        // the raw URL attribute is not consumed by the promotion
+        assertThat(attributeKeys(event)).contains("url.full");
+    }
+
+    @Test
+    void map_client_micrometerKeys_becomesHttpClient_andRecordsHttpUrl() {
+        // Spring Boot micrometer-tracing bridge: no semconv keys, only Micrometer tags — the full
+        // http.url alone selects the HTTP client type and feeds the HTTP_URL annotation.
+        InstrumentationScope scope = InstrumentationScope.newBuilder()
+                .setName("org.springframework.boot").setVersion("4.1.0").build();
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("client.name", strVal("localhost")),
+                kv("exception", strVal("none")),
+                kv("http.url", strVal("http://localhost:18083/user/42")),
+                kv("method", strVal("GET")),
+                kv("outcome", strVal("SUCCESS")),
+                kv("status", strVal("200")),
+                kv("uri", strVal("/user/{id}")));
+
+        SpanEventBo event = mapSingle(span, scope);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+        assertThat(findAnnotation(event, HTTP_URL)).isEqualTo("http://localhost:18083/user/42");
+        assertThat(event.getDestinationId()).isEqualTo("localhost:18083");
+        // the route template stays a raw attribute (no SpanEvent-level rpc field)
+        assertThat(attributeKeys(event)).contains("uri", "http.url");
+    }
+
+    @Test
+    void map_producer_urlFull_noHttpUrlAnnotation_notHttpClient() {
+        // HTTP-transported messaging producer: the PRODUCER branch owns the span, HTTP_URL is a
+        // CLIENT-only annotation and the HTTP client type is never applied.
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("aws_sqs")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("url.full", strVal("https://sqs.ap-northeast-2.amazonaws.com/123/orders")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_URL)).isNull();
+        assertThat(event.getServiceType()).isNotEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+    }
+
+    @Test
+    void map_client_degenerateUrls_noHttpUrlAnnotation() {
+        // empty / query-only / bare scheme values carry no request target → nothing recorded,
+        // but the key still marks the span as an HTTP client
+        for (String url : new String[]{"", "?q=1", "https://", "http://?x=1"}) {
+            Span span = span(Span.SpanKind.SPAN_KIND_CLIENT, kv("url.full", strVal(url)));
+            SpanEventBo event = mapSingle(span);
+            assertThat(findAnnotation(event, HTTP_URL)).as("url=%s", url).isNull();
+            assertThat(event.getServiceType()).as("url=%s", url).isEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+        }
+        // a path-only value (no scheme) is a valid request target and is kept
+        SpanEventBo pathOnly = mapSingle(span(Span.SpanKind.SPAN_KIND_CLIENT, kv("http.url", strVal("/api/cart?x=1"))));
+        assertThat(findAnnotation(pathOnly, HTTP_URL)).isEqualTo("/api/cart");
+    }
+
+    @Test
+    void map_client_urlFullPreferredOverLegacyHttpUrl() {
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("url.full", strVal("https://api.example.com/v2/users")),
+                kv("http.url", strVal("https://api.example.com/v1/users")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_URL)).isEqualTo("https://api.example.com/v2/users");
+    }
+
+    @Test
+    void map_client_noUrl_noHttpUrlAnnotation() {
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("server.address", strVal("cart")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_URL)).isNull();
+    }
+
+    @Test
+    void map_database_noHttpUrlAnnotation() {
+        // HTTP_URL is an HTTP client annotation; DB client spans are untouched even with a URL-ish key.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("db.system", strVal("mysql")),
+                kv("url.full", strVal("jdbc:mysql://db:3306/shop")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_URL)).isNull();
+    }
+
+    @Test
+    void map_client_envoyEgress_consumedKeysFiltered() {
+        // Envoy egress: upstream_cluster.name is promoted (destinationId + upstream.cluster
+        // annotation) and upstream_address resolves the endPoint — both consumed → filtered.
+        // response_flags is only the detection gate and stays raw.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("upstream_cluster.name", strVal("frontend")),
+                kv("upstream_address", strVal("172.18.0.27:8080")),
+                kv("response_flags", strVal("-")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getDestinationId()).isEqualTo("frontend");
+        assertThat(event.getEndPoint()).isEqualTo("172.18.0.27:8080");
+        assertThat(attributeKeys(event)).doesNotContain("upstream_cluster.name", "upstream_address");
+        assertThat(attributeKeys(event)).contains("response_flags");
+    }
+
+    @Test
+    void map_internal_netPeerName_notConsumed_keptRaw() {
+        // INTERNAL spans resolve no endPoint/destinationId — net.peer.name is not consumed,
+        // so it stays in the raw attribute list instead of being silently dropped.
+        Span span = span(Span.SpanKind.SPAN_KIND_INTERNAL,
+                kv("net.peer.name", strVal("cart")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isNull();
+        assertThat(attributeKeys(event)).contains("net.peer.name");
+    }
+
+    @Test
+    void map_client_httpStatusCode_promotedToAnnotation_andConsumedKeyFiltered() {
+        // Mirrors native HTTP client plugins: the client SpanEvent promotes the status to the
+        // HTTP_STATUS_CODE annotation and the consumed raw key is removed (no duplicate).
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.status_code", intVal(200)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_STATUS_CODE)).isEqualTo(200);
+        assertThat(attributeKeys(event)).doesNotContain("http.status_code");
+    }
+
+    @Test
+    void map_client_bothStatusKeys_onlyConsumedKeyRemoved() {
+        // http.response.status_code wins (precedence) and is promoted + removed; the non-consumed
+        // legacy http.status_code is retained as a raw attribute.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.response.status_code", intVal(500)),
+                kv("http.status_code", intVal(500)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_STATUS_CODE)).isEqualTo(500);
+        assertThat(attributeKeys(event)).doesNotContain("http.response.status_code");
+        assertThat(attributeKeys(event)).contains("http.status_code");
+    }
+
+    @Test
+    void map_client_grpc_noHttpStatusAnnotation() {
+        // gRPC clients carry rpc.grpc.status_code, not an http.* status → no HTTP_STATUS_CODE
+        // annotation is promoted.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.grpc.status_code", intVal(0)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_STATUS_CODE)).isNull();
+    }
+
+    @Test
+    void map_client_grpcStatus_promotedToAnnotation_andConsumedKeyFiltered() {
+        // Mirrors the native gRPC client plugin: the numeric OTel code is translated to the
+        // status NAME (Status.getCode().name()) and recorded as the grpc.status (160) annotation;
+        // the consumed raw key is filtered.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.grpc.status_code", intVal(0)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("OK");
+        assertThat(attributeKeys(event)).doesNotContain("rpc.grpc.status_code");
+    }
+
+    @Test
+    void map_client_grpcStatus_failureCode_translated() {
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.grpc.status_code", intVal(14)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
+    void map_client_grpcStatus_bothKeys_onlyConsumedKeyRemoved() {
+        // Standard rpc.grpc.status_code wins; the non-consumed nonstandard variant stays raw.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.grpc.status_code", intVal(0)),
+                kv("grpc.status_code", strVal("0")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("OK");
+        assertThat(attributeKeys(event)).doesNotContain("rpc.grpc.status_code");
+        assertThat(attributeKeys(event)).contains("grpc.status_code");
+    }
+
+    @Test
+    void map_internal_httpStatusCode_promotedToAnnotation() {
+        // A Next.js INTERNAL span (Node.runHandler) carries http.status_code; it is promoted to the
+        // HTTP_STATUS_CODE annotation just like the client path (uniform: status present → surfaced).
+        Span span = span(Span.SpanKind.SPAN_KIND_INTERNAL,
+                kv("http.status_code", intVal(200)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, HTTP_STATUS_CODE)).isEqualTo(200);
+        assertThat(attributeKeys(event)).doesNotContain("http.status_code");
+    }
+
+    @Test
+    void map_client_httpMethod_promotedToAnnotation_andFiltered() {
+        // HTTP client SpanEvent: the request method is promoted to the HTTP_METHOD annotation and
+        // removed from the raw attributes.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.request.method", strVal("GET")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, AnnotationKey.HTTP_METHOD.getCode())).isEqualTo("GET");
+        assertThat(attributeKeys(event)).doesNotContain("http.request.method");
+    }
+
+    @Test
+    void map_producer_kafka_endPointFromBroker_destinationIdFromTopic() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("server.address", strVal("broker1.example.com")),
+                kv("server.port", intVal(9092)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("broker1.example.com:9092");
+        assertThat(event.getDestinationId()).isEqualTo("orders");
+    }
+
+    @Test
+    void map_producer_endPoint_fallsBackToNetworkPeerAddress() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("network.peer.address", strVal("10.0.0.1")),
+                kv("network.peer.port", intVal(9092)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("10.0.0.1:9092");
+        assertThat(event.getDestinationId()).isEqualTo("orders");
+    }
+
+    @Test
+    void map_producer_endPoint_fallsBackToClientId_whenBrokerAbsent() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("messaging.client_id", strVal("producer-1")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("producer-1");
+        assertThat(event.getDestinationId()).isEqualTo("orders");
+    }
+
+    @Test
+    void map_producer_endPoint_blankCurrentClientIdKey_fallsBackToLegacy() {
+        // A present-but-blank messaging.client.id must not win over the deprecated twin.
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("messaging.client.id", strVal(" ")),
+                kv("messaging.client_id", strVal("legacy-1")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("legacy-1");
+    }
+
+    @Test
+    void map_producer_endPoint_fallsBackToCurrentClientIdKey() {
+        // Current semconv spelling messaging.client.id; the deprecated twin is only a fallback.
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")),
+                kv("messaging.client.id", strVal("producer-42")),
+                kv("messaging.client_id", strVal("legacy-1")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("producer-42");
+        assertThat(attributeKeys(event)).doesNotContain("messaging.client.id", "messaging.client_id");
+    }
+
+    @Test
+    void map_producer_destinationId_fallsBackToEndPoint_whenDestinationNameAbsent() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("kafka")),
+                kv("server.address", strVal("broker1.example.com")),
+                kv("server.port", intVal(9092)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("broker1.example.com:9092");
+        assertThat(event.getDestinationId()).isEqualTo("broker1.example.com:9092");
+    }
+
+    @Test
+    void map_producer_rabbitmq_destinationIdIsExchange() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("rabbitmq")),
+                kv("messaging.destination.name", strVal("orders.exchange")),
+                kv("server.address", strVal("rabbit1.example.com")),
+                kv("server.port", intVal(5672)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("rabbit1.example.com:5672");
+        assertThat(event.getDestinationId()).isEqualTo("orders.exchange");
+    }
+
+    @Test
+    void map_producer_activemq_destinationIdIsQueueName() {
+        Span span = span(Span.SpanKind.SPAN_KIND_PRODUCER,
+                kv("messaging.system", strVal("activemq")),
+                kv("messaging.destination.name", strVal("orders.queue")),
+                kv("server.address", strVal("amq1.example.com")),
+                kv("server.port", intVal(61616)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isEqualTo("amq1.example.com:61616");
+        assertThat(event.getDestinationId()).isEqualTo("orders.queue");
+    }
+
+    @Test
+    void map_client_grpc_setsGrpcServiceType() {
+        // OTel grpc-1.6 agent emits rpc.system="grpc" on the client-side instrumenter.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.service", strVal("orders.OrderService")),
+                kv("rpc.method", strVal("PlaceOrder")),
+                kv("server.address", strVal("orders.example.com")),
+                kv("server.port", intVal(8080)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo((short) 9160); // GRPC
+    }
+
+    @Test
+    void map_client_dubbo_setsDubboConsumerServiceType() {
+        // OTel apache-dubbo-2.7 agent emits rpc.system="apache_dubbo" on the client side.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("apache_dubbo")),
+                kv("rpc.service", strVal("com.example.UserService")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo((short) 9997); // APACHE_DUBBO_CONSUMER
+    }
+
+    @Test
+    void map_client_rpcSystemName_rcKey_dispatchesServiceType() {
+        // RC semconv: rpc.system.name replaces rpc.system, and the Dubbo value was renamed
+        // apache_dubbo → dubbo. The consumed RC key is filtered from the raw attributes.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("dubbo")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo((short) 9997); // APACHE_DUBBO_CONSUMER
+        assertThat(attributeKeys(event)).doesNotContain("rpc.system.name");
+    }
+
+    @Test
+    void map_client_grpcStatus_rcResponseStatusCode_promoted() {
+        // RC rpc.response.status_code carries the status NAME; promoted only because the rpc
+        // system is grpc.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.response.status_code", strVal("UNAVAILABLE")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("UNAVAILABLE");
+        assertThat(attributeKeys(event)).doesNotContain("rpc.response.status_code");
+    }
+
+    @Test
+    void map_client_grpcStatus_rcStatusCode_promoted() {
+        // Current RC key rpc.status_code (replaces rpc.response.status_code and
+        // rpc.grpc.status_code): status NAME, promoted only because the rpc system is grpc.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.status_code", strVal("DEADLINE_EXCEEDED")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("DEADLINE_EXCEEDED");
+        assertThat(attributeKeys(event)).doesNotContain("rpc.status_code");
+    }
+
+    @Test
+    void map_client_grpcStatus_rcStatusCode_numericString_translated() {
+        // A sender emitting the legacy numeric shape under the new key is translated to the name.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.status_code", strVal("14")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
+    void map_client_grpcStatus_rcStatusCode_winsOverPredecessor_onlyConsumedKeyRemoved() {
+        // rpc.status_code takes precedence over rpc.response.status_code; the non-consumed
+        // predecessor stays in the raw attributes.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.status_code", strVal("OK")),
+                kv("rpc.response.status_code", strVal("UNAVAILABLE")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("OK");
+        assertThat(attributeKeys(event)).doesNotContain("rpc.status_code");
+        assertThat(attributeKeys(event)).contains("rpc.response.status_code");
+    }
+
+    @Test
+    void map_client_grpcStatus_rcStatusCode_nonGrpcSystem_notPromoted() {
+        // rpc.status_code is shared by all rpc systems; a jsonrpc error code must not become a
+        // gRPC status annotation.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system.name", strVal("jsonrpc")),
+                kv("rpc.status_code", strVal("-32602")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findAnnotation(event, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isNull();
+    }
+
+    @Test
+    void map_client_http_becomesOpenTelemetryHttpClient() {
+        // Generic HTTP client (Apache HttpClient / OkHttp / java-http-client / async-http-client)
+        // emits no rpc.system and no framework identifier — the HTTP keys select the HTTP client
+        // type so the web applies the HTTP_URL display rule.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.request.method", strVal("GET")),
+                kv("url.full", strVal("https://api.example.com/users/123")),
+                kv("network.protocol.name", strVal("http")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+    }
+
+    @Test
+    void map_client_legacyHttpUrlOnly_becomesOpenTelemetryHttpClient() {
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("http.url", strVal("http://frontend-proxy:8080/api/cart")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+    }
+
+    @Test
+    void map_client_unknownRpcSystemWithHttpKeys_keepsOpenTelemetryClient() {
+        // rpc.system wins over the HTTP fallback: an RPC over HTTP (connect_rpc) is not an HTTP client call.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("connect_rpc")),
+                kv("http.request.method", strVal("POST")),
+                kv("url.full", strVal("https://api.example.com/rpc")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_CLIENT.getCode());
+    }
+
+    @Test
+    void map_client_unsupportedRpcSystem_keepsOpenTelemetryClient() {
+        // OTel rpc.system values without a Pinpoint client counterpart.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("java_rmi")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_CLIENT.getCode());
+    }
+
+    @Test
+    void map_client_grpc_caseInsensitive() {
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("rpc.system", strVal("GRPC")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo((short) 9160);
+    }
+
+    @Test
+    void map_client_envoy_isOpenTelemetryHttpClient_andRecordsAnnotations() {
+        // Envoy egress leg is not re-typed to ENVOY_EGRESS (see OtlpEnvoyRecorder Javadoc); its
+        // HTTP tags make it a regular OPENTELEMETRY_HTTP_CLIENT. Envoy identification is carried
+        // by the upstream.cluster / envoy.operation annotations only.
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv("response_flags", strVal("-")),
+                kv("http.method", strVal("GET")),
+                kv("http.status_code", strVal("200")),
+                kv("upstream_cluster", strVal("frontend")),
+                kv("upstream_cluster.name", strVal("frontend")),
+                kv("upstream_address", strVal("172.18.0.27:8080")));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+        assertThat(event.getEndPoint()).isEqualTo("172.18.0.27:8080");
+        assertThat(event.getDestinationId()).isEqualTo("frontend");
+        assertThat(annotationValue(event.getAnnotationBoList(), OtlpTraceConstants.ANNOTATION_KEY_UPSTREAM_CLUSTER))
+                .isEqualTo("frontend");
+        assertThat(annotationValue(event.getAnnotationBoList(), OtlpTraceConstants.ANNOTATION_KEY_ENVOY_OPERATION))
+                .isEqualTo("Egress");
+    }
+
+    private static Object annotationValue(List<com.navercorp.pinpoint.common.server.bo.AnnotationBo> annotations, int key) {
+        return annotations.stream()
+                .filter(a -> a.getKey() == key)
+                .map(com.navercorp.pinpoint.common.server.bo.AnnotationBo::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Test
+    void map_internal_endPointAndDestinationIdAreNull() {
+        // Internal span has no outgoing endpoint/destination, even when server.address is present
+        // (the generic HTTP/DB fallback no longer leaks into internal-kind spans).
+        Span span = span(Span.SpanKind.SPAN_KIND_INTERNAL,
+                kv("server.address", strVal("example.com")),
+                kv("server.port", intVal(8080)));
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getEndPoint()).isNull();
+        assertThat(event.getDestinationId()).isNull();
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_INTERNAL.getCode());
+    }
+
+    @Test
+    void map_unspecified_kind_usesInternalMethodFallback() {
+        // OTel SDK that doesn't set span.kind (or sets UNSPECIFIED) lands in the else branch
+        // but is NOT a true OTel INTERNAL — fall back to the generic INTERNAL_METHOD type to
+        // signal the missing classification.
+        Span span = span(Span.SpanKind.SPAN_KIND_UNSPECIFIED);
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.INTERNAL_METHOD.getCode());
+    }
+
+    @Test
+    void map_nestedServerKind_usesInternalMethodFallback() {
+        // SERVER kind nested under another span reaches the SpanEvent mapper. It's neither
+        // database, client, producer, nor explicit OTel INTERNAL → INTERNAL_METHOD fallback.
+        Span span = span(Span.SpanKind.SPAN_KIND_SERVER);
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.INTERNAL_METHOD.getCode());
+    }
+
+    @Test
+    void map_nestedConsumerKind_usesInternalMethodFallback() {
+        // CONSUMER kind nested under another span — same fallthrough as nested SERVER.
+        Span span = span(Span.SpanKind.SPAN_KIND_CONSUMER);
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.INTERNAL_METHOD.getCode());
+    }
+
+    // =======================================================================
+    // map() — SDK-side dropped count composite annotation on SpanEvent
+    // =======================================================================
+
+    @Test
+    void map_event_droppedAnnotation_omitsZeroComponents() {
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .setDroppedAttributesCount(4)
+                .setDroppedLinksCount(1)
+                .build();
+
+        SpanEventBo event = mapSingle(span);
+        Object dropped = event.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == com.navercorp.pinpoint.common.trace.AnnotationKey.OPENTELEMETRY_DROPPED.getCode())
+                .map(com.navercorp.pinpoint.common.server.bo.AnnotationBo::getValue).findFirst().orElse(null);
+        assertThat(dropped).isEqualTo("attributes=4 links=1");
+    }
+
+    @Test
+    void map_event_droppedAnnotation_suppressedWhenAllZero() {
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .build();
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(event.getAnnotationBoList())
+                .extracting(com.navercorp.pinpoint.common.server.bo.AnnotationBo::getKey)
+                .doesNotContain(com.navercorp.pinpoint.common.trace.AnnotationKey.OPENTELEMETRY_DROPPED.getCode());
+    }
+
+    // =======================================================================
+    // map() — Span.Link → OPENTELEMETRY_LINK annotation on SpanEvent
+    // =======================================================================
+
+    private static final byte[] LINK_TRACE_ID = {
+            9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9
+    };
+    private static final byte[] LINK_SPAN_ID = {8, 7, 6, 5, 4, 3, 2, 1};
+
+    private static Object findLinkAnnotation(SpanEventBo event) {
+        return findAnnotation(event, AnnotationKey.OPENTELEMETRY_LINK.getCode());
+    }
+
+    @Test
+    void map_link_recordsLinkAnnotation() throws Exception {
+        // Mirrors the root-span path: a child span's Span.Link must survive as an
+        // OPENTELEMETRY_LINK annotation instead of being silently lost.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_UNSPECIFIED_VALUE)
+                .addLinks(Span.Link.newBuilder()
+                        .setTraceId(ByteString.copyFrom(LINK_TRACE_ID))
+                        .setSpanId(ByteString.copyFrom(LINK_SPAN_ID))
+                        .addAttributes(kv("link.type", strVal("parent_of"))))
+                .build();
+
+        SpanEventBo event = mapSingle(span);
+        Object value = findLinkAnnotation(event);
+        assertThat(value).isNotNull();
+
+        ObjectMapper om = new ObjectMapper();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> root = om.readValue((String) value, Map.class);
+        assertThat(root).containsEntry("traceId", "09090909090909090909090909090909");
+        assertThat(root).containsEntry("spanId", String.valueOf(
+                com.navercorp.pinpoint.common.server.util.ByteStringUtils.parseLong(ByteString.copyFrom(LINK_SPAN_ID))));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> linkAttrs = (Map<String, Object>) root.get("attributes");
+        assertThat(linkAttrs).containsEntry("link.type", "parent_of");
+    }
+
+    @Test
+    void map_link_invalidLink_dropped() {
+        // All-zero SpanContext cannot reference a real span — only the link is dropped,
+        // the owning SpanEvent maps normally (same rule as the root path).
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .addLinks(Span.Link.newBuilder()
+                        .setTraceId(ByteString.copyFrom(new byte[16]))
+                        .setSpanId(ByteString.copyFrom(new byte[8])))
+                .build();
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findLinkAnnotation(event)).isNull();
+    }
+
+    @Test
+    void map_link_truncatedTraceState_countsInTruncatedAnnotation() {
+        // Over-long link traceState is capped by the link mapper; the truncation must
+        // surface in the SpanEvent's OPENTELEMETRY_TRUNCATED annotation.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .addLinks(Span.Link.newBuilder()
+                        .setTraceId(ByteString.copyFrom(LINK_TRACE_ID))
+                        .setSpanId(ByteString.copyFrom(LINK_SPAN_ID))
+                        .setTraceState("x".repeat(9000)))
+                .build();
+
+        SpanEventBo event = mapSingle(span);
+        assertThat(findLinkAnnotation(event)).isNotNull();
+        assertThat(findAnnotation(event, AnnotationKey.OPENTELEMETRY_TRUNCATED.getCode()))
+                .isEqualTo("links=1");
+    }
+
+    // =======================================================================
+    // map() — error status → SpanEvent exceptionInfo (className:message encoding)
+    // =======================================================================
+
+    private static Span.Event exceptionEvent(KeyValue... attrs) {
+        Span.Event.Builder event = Span.Event.newBuilder().setName("exception");
+        for (KeyValue attr : attrs) {
+            event.addAttributes(attr);
+        }
+        return event.build();
+    }
+
+    private static Span errorClientSpan(Status.StatusCode code, String statusMessage, KeyValue[] attrs, Span.Event... events) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .setStatus(Status.newBuilder().setCode(code).setMessage(statusMessage == null ? "" : statusMessage));
+        for (KeyValue attr : attrs) {
+            builder.addAttributes(attr);
+        }
+        for (Span.Event event : events) {
+            builder.addEvents(event);
+        }
+        return builder.build();
+    }
+
+    private static long countEventAnnotations(SpanEventBo event) {
+        return event.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == com.navercorp.pinpoint.common.trace.AnnotationKey.OPENTELEMETRY_EVENT.getCode())
+                .count();
+    }
+
+    @Test
+    void map_error_exceptionEvent_setsExceptionInfo_andSkipsEventAnnotation() {
+        Span span = errorClientSpan(Status.StatusCode.STATUS_CODE_ERROR, "ignored", new KeyValue[]{},
+                exceptionEvent(kv("exception.type", strVal("java.io.IOException")),
+                        kv("exception.message", strVal("disk full"))));
+
+        SpanEventBo event = mapSingle(span);
+
+        assertThat(event.hasException()).isTrue();
+        assertThat(event.getExceptionInfo().id()).isEqualTo(0);
+        assertThat(event.getExceptionInfo().message()).isEqualTo("java.io.IOException:disk full");
+        assertThat(countEventAnnotations(event)).isZero();
+    }
+
+    @Test
+    void map_error_noEvent_statusMessageOnly_emptyClassPrefix() {
+        Span span = errorClientSpan(Status.StatusCode.STATUS_CODE_ERROR, "Connection refused: host", new KeyValue[]{});
+
+        SpanEventBo event = mapSingle(span);
+
+        assertThat(event.getExceptionInfo().message()).isEqualTo(":Connection refused: host");
+    }
+
+    @Test
+    void map_error_noSignal_noExceptionInfo() {
+        Span span = errorClientSpan(Status.StatusCode.STATUS_CODE_ERROR, "", new KeyValue[]{});
+
+        SpanEventBo event = mapSingle(span);
+
+        assertThat(event.hasException()).isFalse();
+    }
+
+    @Test
+    void map_okStatus_noExceptionInfo_keepsEventAnnotation() {
+        Span span = errorClientSpan(Status.StatusCode.STATUS_CODE_UNSET, "", new KeyValue[]{},
+                exceptionEvent(kv("exception.type", strVal("java.lang.RuntimeException"))));
+
+        SpanEventBo event = mapSingle(span);
+
+        assertThat(event.hasException()).isFalse();
+        assertThat(countEventAnnotations(event)).isEqualTo(1);
+    }
+
+    // =======================================================================
+    // map() — GenAI annotation promotion (gen_ai.model / gen_ai.usage)
+    // =======================================================================
+
+    private static final int GEN_AI_MODEL =
+            com.navercorp.pinpoint.common.trace.AnnotationKey.GEN_AI_MODEL.getCode();
+
+    private static final int GEN_AI_USAGE =
+            com.navercorp.pinpoint.common.trace.AnnotationKey.GEN_AI_USAGE.getCode();
+
+    @Test
+    void map_genAi_claudeCodeShape_kindUnspecified() {
+        // Claude Code fixture: an llm_request child span — kind=0 (UNSPECIFIED), semconv model
+        // key, bare nonstandard token keys (see the otel-console dump this mirrors).
+        Span span = span(Span.SpanKind.SPAN_KIND_UNSPECIFIED,
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_GEN_AI_REQUEST_MODEL, strVal("claude-sonnet-4-5")),
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_INPUT_TOKENS, intVal(1200)),
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_OUTPUT_TOKENS, intVal(340)),
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_CACHE_READ_TOKENS, intVal(5000)),
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_CACHE_CREATION_TOKENS, intVal(0)),
+                kv("gen_ai.response.finish_reasons", strVal("end_turn")));
+
+        SpanEventBo event = mapSingle(span);
+
+        // unclassified kind keeps the INTERNAL_METHOD fallback — the promotion is annotation-only
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.INTERNAL_METHOD.getCode());
+        assertThat(findAnnotation(event, GEN_AI_MODEL)).isEqualTo("claude-sonnet-4-5");
+        // bare Anthropic-style input excludes the cache → "in" normalized to the semconv meaning
+        assertThat(findAnnotation(event, GEN_AI_USAGE)).isEqualTo("in:6200 out:340 cache_r:5000 cache_w:0");
+        // consumed keys leave the raw attribute list; non-promoted gen_ai keys survive
+        assertThat(attributeKeys(event))
+                .doesNotContain(
+                        OtlpTraceConstants.ATTRIBUTE_KEY_GEN_AI_REQUEST_MODEL,
+                        OtlpTraceConstants.ATTRIBUTE_KEY_INPUT_TOKENS,
+                        OtlpTraceConstants.ATTRIBUTE_KEY_OUTPUT_TOKENS,
+                        OtlpTraceConstants.ATTRIBUTE_KEY_CACHE_READ_TOKENS,
+                        OtlpTraceConstants.ATTRIBUTE_KEY_CACHE_CREATION_TOKENS)
+                .contains("gen_ai.response.finish_reasons");
+    }
+
+    @Test
+    void map_genAi_absent_noAnnotations() {
+        SpanEventBo event = mapSingle(span(Span.SpanKind.SPAN_KIND_UNSPECIFIED));
+
+        assertThat(findAnnotation(event, GEN_AI_MODEL)).isNull();
+        assertThat(findAnnotation(event, GEN_AI_USAGE)).isNull();
+    }
+
+    @Test
+    void map_genAi_clientKind_annotationsStillRecorded() {
+        // a semconv-conformant LLM SDK emits the call as a CLIENT span — the promotion is
+        // kind-independent and must not disturb the CLIENT classification
+        Span span = span(Span.SpanKind.SPAN_KIND_CLIENT,
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_GEN_AI_RESPONSE_MODEL, strVal("gpt-oss-120b")),
+                kv(OtlpTraceConstants.ATTRIBUTE_KEY_GEN_AI_USAGE_INPUT_TOKENS, intVal(10)));
+
+        SpanEventBo event = mapSingle(span);
+
+        assertThat(findAnnotation(event, GEN_AI_MODEL)).isEqualTo("gpt-oss-120b");
+        assertThat(findAnnotation(event, GEN_AI_USAGE)).isEqualTo("in:10");
+        assertThat(event.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_CLIENT.getCode());
+    }
+}

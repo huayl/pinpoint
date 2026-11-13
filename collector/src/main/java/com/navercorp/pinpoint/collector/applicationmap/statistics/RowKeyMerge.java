@@ -1,0 +1,124 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.collector.applicationmap.statistics;
+
+import com.navercorp.pinpoint.common.hbase.wd.ByteSaltKey;
+import com.navercorp.pinpoint.common.server.applicationmap.statistics.RowKey;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Increment;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+
+/**
+ * @author emeroad
+ * @author HyunGil Jeong
+ */
+public class RowKeyMerge {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final Function<RowKey, byte[]> rowKeyFunction;
+
+    public static final Function<RowKey, byte[]> BYPASS = rowKey -> rowKey.getRowKey(ByteSaltKey.NONE.size());
+
+    public RowKeyMerge() {
+        this(BYPASS);
+    }
+
+    public RowKeyMerge(Function<RowKey, byte[]> rowKeyFunction) {
+        this.rowKeyFunction = Objects.requireNonNull(rowKeyFunction, "rowKeyFunction");
+    }
+
+    public Map<TableName, List<Increment>> createBulkIncrement(Map<com.navercorp.pinpoint.common.server.applicationmap.statistics.RowInfo, Long> data, byte[] family) {
+        if (data.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        final Map<TableName, Map<RowKey, List<ColumnCallCount>>> tableRowKeyMap = mergeRowKeys(data);
+
+        final Map<TableName, List<Increment>> tableIncrementMap = new HashMap<>();
+        for (Map.Entry<TableName, Map<RowKey, List<ColumnCallCount>>> tableRowKeys : tableRowKeyMap.entrySet()) {
+            final TableName tableName = tableRowKeys.getKey();
+            final List<Increment> incrementList = new ArrayList<>();
+            for (Map.Entry<RowKey, List<ColumnCallCount>> rowKeyEntry : tableRowKeys.getValue().entrySet()) {
+                Increment increment = createIncrement(rowKeyEntry, family);
+                incrementList.add(increment);
+            }
+            tableIncrementMap.put(tableName, incrementList);
+        }
+        return tableIncrementMap;
+    }
+
+    private Increment createIncrement(Map.Entry<RowKey, List<ColumnCallCount>> rowKeyEntry, byte[] family) {
+        RowKey rowKey = rowKeyEntry.getKey();
+        byte[] key = this.rowKeyFunction.apply(rowKey);
+        final Increment increment = new Increment(key);
+        increment.setReturnResults(false);
+        for (ColumnCallCount columnName : rowKeyEntry.getValue()) {
+            increment.addColumn(family, columnName.columnName(), columnName.callCount());
+        }
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("create increment row:{}, column:{}", rowKey, rowKeyEntry.getValue());
+        }
+        return increment;
+    }
+
+    private Map<TableName, Map<RowKey, List<ColumnCallCount>>> mergeRowKeys(Map<com.navercorp.pinpoint.common.server.applicationmap.statistics.RowInfo, Long> data) {
+        final Map<TableName, Map<RowKey, List<ColumnCallCount>>> tables = new HashMap<>();
+
+        for (Map.Entry<com.navercorp.pinpoint.common.server.applicationmap.statistics.RowInfo, Long> entry : data.entrySet()) {
+            final com.navercorp.pinpoint.common.server.applicationmap.statistics.RowInfo rowInfo = entry.getKey();
+            // write callCount to columnName and throw away
+            final long callCount = entry.getValue();
+
+            final RowKey rowKey = rowInfo.rowKey();
+
+            TableName tableName = rowInfo.tableName();
+            Map<RowKey, List<ColumnCallCount>> rows = tables.computeIfAbsent(tableName, k -> new HashMap<>());
+            List<ColumnCallCount> columnNames = rows.computeIfAbsent(rowKey, k -> new ArrayList<>());
+
+            ColumnCallCount columnCallCount = new ColumnCallCount(rowInfo.columnName().getColumnName(), callCount);
+            columnNames.add(columnCallCount);
+        }
+        return tables;
+    }
+
+
+    record ColumnCallCount(byte[] columnName, long callCount) {
+
+        public ColumnCallCount {
+            Objects.requireNonNull(columnName, "columnName");
+        }
+
+        @Override
+        public String toString() {
+            return "ColumnCallCount{" +
+                    "columnName=" + Bytes.toStringBinary(columnName) +
+                    ", callCount=" + callCount +
+                    '}';
+        }
+    }
+}

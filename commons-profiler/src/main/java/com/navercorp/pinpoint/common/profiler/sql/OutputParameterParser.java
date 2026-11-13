@@ -18,16 +18,18 @@ package com.navercorp.pinpoint.common.profiler.sql;
 
 import com.navercorp.pinpoint.common.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedList;
 import java.util.List;
+
+import static com.navercorp.pinpoint.common.profiler.sql.ParserContext.lookAhead1;
 
 /**
  * @author emeroad
  */
 public class OutputParameterParser {
 
-    public static final char SEPARATOR = DefaultSqlParser.SEPARATOR;
+    public static final char SEPARATOR = Tokens.SEPARATOR;
 
     public List<String> parseOutputParameter(String outputParams) {
         // may also need to know about the parsing result 
@@ -35,15 +37,19 @@ public class OutputParameterParser {
             return Collections.emptyList();
         }
 
-        final List<String> result = new LinkedList<String>();
+        final List<String> result = new ArrayList<>();
         StringBuilder params = new StringBuilder();
         for (int index = 0; index < outputParams.length(); index++) {
             final char ch = outputParams.charAt(index);
             if (ch == SEPARATOR) {
-                if (lookAhead1(outputParams, index) == SEPARATOR) {
+                int ahead = lookAhead1(outputParams, index);
+                if (ahead == SEPARATOR) {
                     params.append(SEPARATOR);
                     index++;
                 } else {
+                    if (ahead == ' ') {
+                        index++;
+                    }
                     result.add(params.toString());
                     params = new StringBuilder();
                 }
@@ -57,13 +63,5 @@ public class OutputParameterParser {
         return result;
     }
 
-    private int lookAhead1(String sql, int index) {
-        index++;
-        if (index < sql.length()) {
-            return sql.charAt(index);
-        } else {
-            return -1;
-        }
-    }
 
 }

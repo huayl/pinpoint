@@ -1,0 +1,24 @@
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
+  // Ignore compiled build output so jest does not pick up dist/*.js (ESM) alongside src tests.
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  transform: {
+    '^.+\\.tsx?$': 'ts-jest',
+  },
+  collectCoverageFrom: [
+    './src/**/*.[jt]s?(x)',
+    '!./src/stories/**/*.[jt]s?(x)',
+    '!**/*.stories.[jt]s?(x)',
+  ],
+  moduleNameMapper: {
+    '\\.(css|scss)$': '<rootDir>/src/test/mock/styleMock.ts',
+    '^.+\\.svg\\?react$': '<rootDir>/src/test/mock/svgMock.tsx',
+    '^@/components/(.*)$': '<rootDir>/src/components/$1',
+    '^@/constants/(.*)$': '<rootDir>/src/constants/$1',
+    '^@/utils/(.*)$': '<rootDir>/src/utils/$1',
+    '^@/types/(.*)$': '<rootDir>/src/types/$1',
+    '^@/assets/(.*)$': '<rootDir>/src/assets/$1',
+  },
+};

@@ -1,0 +1,36 @@
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { END_POINTS, UrlStatChartType as UrlStatChart } from '@pinpoint-fe/ui/src/constants';
+import { convertParamsToQueryString, toBasicISOString } from '@pinpoint-fe/ui/src/utils';
+import { useUrlStatSearchParameters } from '../searchParameters';
+import { queryFn } from './reactQueryHelper';
+
+const getQueryString = (queryParams: Partial<UrlStatChart.Parameters>) => {
+  if (queryParams.applicationName && queryParams.from && queryParams.to && queryParams.uri) {
+    return '?' + convertParamsToQueryString(queryParams);
+  }
+  return '';
+};
+
+export const useGetUrlStatChartData = ({ type, uri = '' }: { type: string; uri: string }) => {
+  const { application, dateRange, agentId } = useUrlStatSearchParameters();
+  const from = toBasicISOString(dateRange.from);
+  const to = toBasicISOString(dateRange.to);
+  const applicationName = application?.applicationName;
+  const queryParams = {
+    applicationName,
+    from,
+    to,
+    type,
+    uri,
+    agentId,
+  };
+
+  const queryString = getQueryString(queryParams);
+
+  const { data, isLoading, isFetching } = useSuspenseQuery<UrlStatChart.Response | null>({
+    queryKey: [END_POINTS.URL_STATISTIC_CHART, queryString],
+    queryFn: queryString ? queryFn(`${END_POINTS.URL_STATISTIC_CHART}${queryString}`) : () => null,
+  });
+
+  return { data, isLoading, isValidating: isFetching };
+};

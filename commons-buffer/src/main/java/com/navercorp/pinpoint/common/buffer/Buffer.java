@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 package com.navercorp.pinpoint.common.buffer;
 
+import com.navercorp.pinpoint.common.util.BytesUtils;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +26,14 @@ import java.nio.charset.StandardCharsets;
  * @author emeroad
  */
 public interface Buffer {
+
+    int NULL = -1;
+
+    byte BYTE_NULL = NULL;
+    int UNSIGNED_BYTE_NULL = BytesUtils.UNSIGNED_BYTE_MAX;
+    int UNSIGNED_BYTE_MAX = UNSIGNED_BYTE_NULL - 1;
+
+    byte NUL_DELIMITER = 0;
 
     int BOOLEAN_FALSE = 0;
     int BOOLEAN_TRUE = 1;
@@ -38,6 +48,13 @@ public interface Buffer {
 
     void putPrefixedBytes(byte[] bytes);
 
+    void putNullTerminatedString(String string);
+
+    /**
+     * max 254 byte range
+     */
+    void putUnsignedBytePrefixedBytes(byte[] bytes);
+
     void put2PrefixedBytes(byte[] bytes);
 
     void put4PrefixedBytes(byte[] bytes);
@@ -45,6 +62,8 @@ public interface Buffer {
     void putPadString(String string, int totalLength);
 
     void putPrefixedString(String string);
+
+    void putUnsignedBytePrefixedString(String string);
 
     void put2PrefixedString(String string);
 
@@ -130,6 +149,12 @@ public interface Buffer {
 
     void putBytes(byte[] v);
 
+    /**
+     * Returns the byte at the given index without moving the read position.
+     * The index is relative to the buffer's start offset: index 0 is this
+     * buffer's first byte even when it is a window over a shared array.
+     * Symmetric with {@link #setByte(int, byte)}.
+     */
     byte getByte(int index);
 
     byte readByte();
@@ -166,15 +191,27 @@ public interface Buffer {
 
     byte[] readPrefixedBytes();
 
+    byte[] readUnsignedBytePrefixedBytes();
+
     byte[] read2PrefixedBytes();
 
     byte[] read4PrefixedBytes();
 
     String readPrefixedString();
 
+    String readUnsignedBytePrefixedString();
+
     String read2PrefixedString();
 
     String read4PrefixedString();
+
+    String readNullTerminatedString();
+
+    /**
+     * Writes the byte at the given index without moving the write position.
+     * The index is relative to the buffer's start offset, see {@link #getByte(int)}.
+     */
+    void setByte(int offset, byte value);
 
     byte[] getBuffer();
 
@@ -186,10 +223,15 @@ public interface Buffer {
 
     void setOffset(int offset);
 
+    void skip(int offset);
+
     int getOffset();
 
     int remaining();
 
     boolean hasRemaining();
 
+    int getStartOffset();
+
+    int getEndOffset();
 }

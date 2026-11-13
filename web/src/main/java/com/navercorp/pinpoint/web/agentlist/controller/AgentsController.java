@@ -1,0 +1,218 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.navercorp.pinpoint.web.agentlist.controller;
+
+import com.navercorp.pinpoint.common.server.bo.ApplicationFactory;
+import com.navercorp.pinpoint.common.timeseries.time.ForwardRangeValidator;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.RangeValidator;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.web.agentlist.AgentsFactory;
+import com.navercorp.pinpoint.web.agentlist.service.AgentsService;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeHistogramSummary;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramService;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramServiceOption;
+import com.navercorp.pinpoint.web.config.ConfigProperties;
+import com.navercorp.pinpoint.web.hyperlink.HyperLinkFactory;
+import com.navercorp.pinpoint.web.service.ApplicationAgentListQueryRule;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.service.service.ServiceModelResolver;
+import com.navercorp.pinpoint.web.vo.ApplicationPair;
+import com.navercorp.pinpoint.web.vo.ApplicationPairs;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfoFilters;
+import com.navercorp.pinpoint.web.vo.agent.AgentStatusAndLink;
+import com.navercorp.pinpoint.service.web.resolver.ServiceParam;
+import com.navercorp.pinpoint.service.web.vo.ServiceName;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+
+/**
+ * @author intr3p1d
+ */
+@RestController
+@RequestMapping(value = "/api/agents")
+@Validated
+public class AgentsController {
+
+    private final ServiceTypeRegistryService registry;
+    private final ApplicationFactory applicationFactory;
+    private final ResponseTimeHistogramService responseTimeHistogramService;
+
+    private final AgentsService agentsService;
+    private final HyperLinkFactory hyperLinkFactory;
+    private final ServiceModelResolver serviceModelResolver;
+    private final RangeValidator rangeValidator;
+
+    public AgentsController(
+            ServiceTypeRegistryService registry,
+            ApplicationFactory applicationFactory,
+            ResponseTimeHistogramService responseTimeHistogramService,
+            AgentsService agentsService,
+            HyperLinkFactory hyperLinkFactory,
+            ServiceModelResolver serviceModelResolver,
+            ConfigProperties configProperties) {
+        this.registry = Objects.requireNonNull(registry, "registry");
+        this.applicationFactory = Objects.requireNonNull(applicationFactory, "applicationFactory");
+        this.responseTimeHistogramService =
+                Objects.requireNonNull(responseTimeHistogramService, "responseTimeHistogramService");
+        this.agentsService = Objects.requireNonNull(agentsService, "agentsService");
+        this.hyperLinkFactory = Objects.requireNonNull(hyperLinkFactory, "hyperLinkFactory");
+        this.serviceModelResolver = Objects.requireNonNull(serviceModelResolver, "serviceModelResolver");
+        Objects.requireNonNull(configProperties, "configProperties");
+        this.rangeValidator = new ForwardRangeValidator(Duration.ofDays(configProperties.getInspectorPeriodMax()));
+    }
+
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/overview", params = {"application"})
+    public List<AgentStatusAndLink> getAgentsList(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("application") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) String serviceTypeName,
+            @RequestParam(value = "query", required = false) String query) {
+        final ApplicationAgentListQueryRule applicationAgentListQueryRule = ApplicationAgentListQueryRule
+                .getByValue(query, ApplicationAgentListQueryRule.ALL);
+        final long timestamp = System.currentTimeMillis();
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        final Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+        Range between = Range.between(timestamp, timestamp);
+        TimeWindow timeWindow = new TimeWindow(between);
+        return agentsService.getAgentsByApplicationName(
+                application,
+                timeWindow,
+                applicationAgentListQueryRule,
+                AgentInfoFilters.acceptAll()
+        );
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/overview", params = {"application", "from", "to"})
+    public List<AgentStatusAndLink> getAgentsList(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("application") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @RequestParam(value = "query", required = false) String query) {
+        final ApplicationAgentListQueryRule applicationAgentListQueryRule = ApplicationAgentListQueryRule.getByValue(query, ApplicationAgentListQueryRule.ACTIVE_STATUS);
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        final Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+        Range range = Range.between(from, to);
+        rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        return agentsService.getAgentsByApplicationName(
+                application,
+                timeWindow,
+                applicationAgentListQueryRule,
+                AgentInfoFilters.acceptAll()
+        );
+    }
+
+
+    //use only for server map list
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/overview", params = {"application", "from", "to", "applicationPairs"})
+    public List<AgentStatusAndLink> getAgentsListWithVirtualNodes(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("application") @NotBlank String applicationName,
+            @RequestParam("serviceTypeCode") Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "applicationPairs", required = false) ApplicationPairs applicationPairs
+    ) {
+        ServiceType serviceType = registry.findServiceType(serviceTypeCode);
+        if (serviceType.isWas()) {
+            final ApplicationAgentListQueryRule serverMapAgentListQueryRule = ApplicationAgentListQueryRule.getByValue(query, ApplicationAgentListQueryRule.ACTIVE_STATISTICS);
+            return getAgentsList(
+                    serviceName, applicationName, serviceTypeCode, serviceTypeName, from, to, String.valueOf(serverMapAgentListQueryRule)
+            );
+        }
+        Range range = Range.between(from, to);
+        rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        final Application application = applicationFactory.createApplication(service, applicationName, serviceType.getCode());
+
+        // applicationPairs is used only for non-WAS nodes, which link to the selected service only for now,
+        // so every pair is bound to the request service. Change this once non-WAS nodes link across services.
+        final List<Application> fromApplications =
+                pairsToList(service, applicationPairs.getFromApplications());
+        final List<Application> toApplications =
+                pairsToList(service, applicationPairs.getToApplications());
+        final ResponseTimeHistogramServiceOption option = new ResponseTimeHistogramServiceOption
+                .Builder(application, timeWindow,
+                fromApplications, toApplications)
+                .setUseStatisticsAgentState(true)
+                .build();
+
+        final NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(
+                option
+        );
+
+        return AgentsFactory.extractVirtualNode(nodeHistogramSummary, hyperLinkFactory);
+    }
+
+    private List<Application> pairsToList(Service service, List<ApplicationPair> applicationPairs) {
+        if (CollectionUtils.isEmpty(applicationPairs)) {
+            return Collections.emptyList();
+        }
+        final List<Application> applications = new ArrayList<>(applicationPairs.size());
+        for (ApplicationPair applicationPair : applicationPairs) {
+            final String applicationName = applicationPair.getApplicationName();
+            final int serviceTypeCode = applicationPair.getServiceTypeCode();
+            final Application application = this.applicationFactory.createApplication(service, applicationName, serviceTypeCode);
+            applications.add(application);
+        }
+        return applications;
+    }
+
+    private Application createApplication(Service service, String applicationName, Short serviceTypeCode, String serviceTypeName) {
+        if (StringUtils.hasLength(applicationName)) {
+            if (serviceTypeCode != null) {
+                return applicationFactory.createApplication(service, applicationName, serviceTypeCode);
+            } else if (serviceTypeName != null) {
+                return applicationFactory.createApplicationByTypeName(service, applicationName, serviceTypeName);
+            }
+        }
+        // return application without service type
+        return new Application(service, applicationName, ServiceType.UNDEFINED);
+    }
+
+}

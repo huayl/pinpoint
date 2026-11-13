@@ -18,17 +18,17 @@ package com.navercorp.pinpoint.grpc.server;
 
 import io.grpc.Attributes;
 import io.grpc.ServerTransportFilter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 
 public class MetadataServerTransportFilter extends ServerTransportFilter {
 
-    public static final Attributes.Key<Long> LOG_ID = Attributes.Key.create("logId");
     public static final Attributes.Key<TransportMetadata> TRANSPORT_METADATA_KEY = Attributes.Key.create("transportMetadata");
+    public static final Attributes.Key<TransportMutableContext> TRANSPORT_MUTABLE_CONTEXT_KEY = Attributes.Key.create("transportMutableContext");
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
     private final TransportMetadataFactory transportMetadataFactory;
 
     public MetadataServerTransportFilter(TransportMetadataFactory transportMetadataFactory) {
@@ -44,6 +44,7 @@ public class MetadataServerTransportFilter extends ServerTransportFilter {
 
         Attributes.Builder builder = attributes.toBuilder();
         builder.set(TRANSPORT_METADATA_KEY, transportMetadata);
+        builder.set(TRANSPORT_MUTABLE_CONTEXT_KEY, new TransportMutableContext());
         return builder.build();
     }
 

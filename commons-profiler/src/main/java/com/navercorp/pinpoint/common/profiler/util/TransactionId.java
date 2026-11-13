@@ -16,70 +16,25 @@
 
 package com.navercorp.pinpoint.common.profiler.util;
 
-import java.util.Objects;
-
 /**
  * @author emeroad
  */
-public class TransactionId {
+public interface TransactionId {
 
-    private String agentId;
-    private final long agentStartTime;
-    private final long transactionSequence;
+    String getAgentId();
 
-    public TransactionId(String agentId, long agentStartTime, long transactionSequence) {
-        this.agentId = Objects.requireNonNull(agentId, "agentId");
-        this.agentStartTime = agentStartTime;
-        this.transactionSequence = transactionSequence;
+    long getAgentStartTime();
+
+    long getTransactionSequence();
+
+    String getId();
+
+
+    static TransactionId of(String agentId, long agentStartTime, long transactionSequence) {
+        return new TransactionIdV1(agentId, agentStartTime, transactionSequence);
     }
 
-    public TransactionId(long agentStartTime, long transactionSequence) {
-        this.agentStartTime = agentStartTime;
-        this.transactionSequence = transactionSequence;
-    }
-
-    public String getAgentId() {
-        return agentId;
-    }
-
-    public long getAgentStartTime() {
-        return agentStartTime;
-    }
-
-    public long getTransactionSequence() {
-        return transactionSequence;
-    }
-
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        TransactionId that = (TransactionId) o;
-
-        if (agentStartTime != that.agentStartTime) return false;
-        if (transactionSequence != that.transactionSequence) return false;
-        if (!agentId.equals(that.agentId)) return false;
-
-        return true;
-    }
-
-    @Override
-    public int hashCode() {
-        int result = agentId.hashCode();
-        result = 31 * result + (int) (agentStartTime ^ (agentStartTime >>> 32));
-        result = 31 * result + (int) (transactionSequence ^ (transactionSequence >>> 32));
-        return result;
-    }
-
-    @Override
-    public String toString() {
-        final StringBuilder sb = new StringBuilder("TransactionId{");
-        sb.append("agentId='").append(agentId).append('\'');
-        sb.append(", agentStartTime=").append(agentStartTime);
-        sb.append(", transactionSequence=").append(transactionSequence);
-        sb.append('}');
-        return sb.toString();
+    static TransactionId of(String openTelemetryTraceId) {
+        return new TransactionIdV1(openTelemetryTraceId, 0, 0);
     }
 }

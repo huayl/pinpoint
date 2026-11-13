@@ -90,7 +90,7 @@ public final class NetUtils {
             return null;
         }
         final String host = address.substring(0, hostIndex);
-        final String portString = address.substring(hostIndex +1, address.length());
+        final String portString = address.substring(hostIndex + 1);
         final int port = parseInteger(portString, HostAndPort.NO_PORT);
         return hostAndPortFactory.newInstance(host, port);
     }
@@ -117,7 +117,7 @@ public final class NetUtils {
             if (validationIpV4FormatAddress(localIp)) {
                 return localIp;
             }
-        } catch (UnknownHostException ignore) {
+        } catch (UnknownHostException ignored) {
             // skip
         }
         return LOOPBACK_ADDRESS_V4;
@@ -132,7 +132,7 @@ public final class NetUtils {
         Enumeration<NetworkInterface> interfaces = null;
         try {
             interfaces = NetworkInterface.getNetworkInterfaces();
-        } catch (SocketException ignore) {
+        } catch (SocketException ignored) {
             // skip
         }
 
@@ -140,7 +140,7 @@ public final class NetUtils {
             return Collections.emptyList();
         }
 
-        List<String> result = new ArrayList<String>();
+        List<String> result = new ArrayList<>();
         while (interfaces.hasMoreElements()) {
             NetworkInterface current = interfaces.nextElement();
             if (isSkipIp(current)) {
@@ -169,7 +169,7 @@ public final class NetUtils {
                 return true;
             }
             return false;
-        } catch (Exception ignore) {
+        } catch (Exception ignored) {
             // skip
         }
         return true;
@@ -188,7 +188,7 @@ public final class NetUtils {
             return false;
         }
 
-        final String portString = address.substring(splitIndex + 1, address.length());
+        final String portString = address.substring(splitIndex + 1);
         final int port = parseInteger(portString, HostAndPort.NO_PORT);
         if (!HostAndPort.isValidPort(port)) {
             return false;
@@ -211,7 +211,7 @@ public final class NetUtils {
                 }
             }
             return true;
-        } catch (NumberFormatException ignore) {
+        } catch (NumberFormatException ignored) {
             // skip
         }
 

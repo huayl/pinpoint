@@ -15,22 +15,20 @@
 
 package com.navercorp.pinpoint.web.applicationmap;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.navercorp.pinpoint.web.applicationmap.link.Link;
-import com.navercorp.pinpoint.web.applicationmap.nodes.Node;
-
-import java.util.Collection;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.web.applicationmap.link.LinkList;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeList;
+import org.jspecify.annotations.Nullable;
 
 /**
  * @author Taejin Koo
  */
 public interface ApplicationMap {
 
+    NodeList getNodes();
 
-    @JsonProperty("nodeDataArray")
-    Collection<Node> getNodes();
+    LinkList getLinks();
 
-    @JsonProperty("linkDataArray")
-    Collection<Link> getLinks();
-
+    @Nullable
+    Range getRange();
 }

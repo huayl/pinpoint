@@ -15,37 +15,36 @@
  */
 package com.navercorp.pinpoint.web.controller;
 
-import static org.hamcrest.Matchers.hasKey;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import com.navercorp.pinpoint.user.dao.UserDao;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.web.WebAppConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import com.navercorp.pinpoint.web.dao.UserDao;
+import static com.navercorp.pinpoint.web.TestTraceUtils.hasKey;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * @author minwoo.jung
  */
-@Ignore
-@RunWith(SpringJUnit4ClassRunner.class)
+@Disabled
+@ExtendWith(SpringExtension.class)
 @WebAppConfiguration
-@ContextConfiguration(locations = {"classpath:servlet-context-web.xml", "classpath:applicationContext-web.xml"})
+@ContextConfiguration(locations = {"classpath:applicationContext-web.xml"})
 public class UserControllerTest {
     
     private final static String USER_ID = "naver00";
@@ -66,7 +65,7 @@ public class UserControllerTest {
     
     private MockMvc mockMvc;
     
-    @Before
+    @BeforeEach
     public void setup() {
         this.mockMvc = MockMvcBuilders.webAppContextSetup(this.wac).build();
         userDao.deleteUser(USER_ID);
@@ -82,14 +81,14 @@ public class UserControllerTest {
                             "\"email\" : \"" + USER_EMAIL + "\"" + 
                           "}"; 
                            
-        this.mockMvc.perform(post("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
+        this.mockMvc.perform(post("/api/user").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
                         .andExpect(jsonPath("$.result").value("SUCCESS"))
                         .andReturn();
         
-        this.mockMvc.perform(get("/user.pinpoint").contentType(MediaType.APPLICATION_JSON))
+        this.mockMvc.perform(get("/api/user").contentType(MediaType.APPLICATION_JSON))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$[0]", hasKey("userId")))
@@ -99,7 +98,7 @@ public class UserControllerTest {
                         .andExpect(jsonPath("$[0]", hasKey("email")))
                         .andReturn();
         
-        this.mockMvc.perform(get("/user.pinpoint?searchKey=" + USER_NAME).contentType(MediaType.APPLICATION_JSON))
+        this.mockMvc.perform(get("/api/user?searchKey=" + USER_NAME).contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType("application/json;charset=UTF-8"))
         .andExpect(jsonPath("$[0]", hasKey("userId")))
@@ -109,7 +108,7 @@ public class UserControllerTest {
         .andExpect(jsonPath("$[0]", hasKey("email")))
         .andReturn();
 
-        this.mockMvc.perform(get("/user.pinpoint?userId=" + USER_ID).contentType(MediaType.APPLICATION_JSON))
+        this.mockMvc.perform(get("/api/user?userId=" + USER_ID).contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType("application/json;charset=UTF-8"))
         .andExpect(jsonPath("$[0]", hasKey("userId")))
@@ -119,7 +118,7 @@ public class UserControllerTest {
         .andExpect(jsonPath("$[0]", hasKey("email")))
         .andReturn();
         
-        this.mockMvc.perform(get("/user.pinpoint?searchKey=" + USER_DEPARTMENT).contentType(MediaType.APPLICATION_JSON))
+        this.mockMvc.perform(get("/api/user?searchKey=" + USER_DEPARTMENT).contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType("application/json;charset=UTF-8"))
         .andExpect(jsonPath("$[0]", hasKey("userId")))
@@ -129,7 +128,7 @@ public class UserControllerTest {
         .andExpect(jsonPath("$[0]", hasKey("email")))
         .andReturn();
         
-        this.mockMvc.perform(delete("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
+        this.mockMvc.perform(delete("/api/user").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
@@ -147,14 +146,14 @@ public class UserControllerTest {
                             "\"email\" : \"" + USER_EMAIL + "\"" + 
                           "}"; 
                            
-        this.mockMvc.perform(post("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
+        this.mockMvc.perform(post("/api/user").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
                         .andExpect(jsonPath("$.result").value("SUCCESS"))
                         .andReturn();
         
-        this.mockMvc.perform(get("/user.pinpoint?userId=" + USER_ID).contentType(MediaType.APPLICATION_JSON))
+        this.mockMvc.perform(get("/api/user?userId=" + USER_ID).contentType(MediaType.APPLICATION_JSON))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$[0]", hasKey("userId")))
@@ -166,7 +165,7 @@ public class UserControllerTest {
                         .andReturn();
         
         
-        this.mockMvc.perform(delete("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
+        this.mockMvc.perform(delete("/api/user").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
@@ -184,7 +183,7 @@ public class UserControllerTest {
                             "\"email\" : \"" + USER_EMAIL + "\"" + 
                           "}"; 
                            
-        this.mockMvc.perform(post("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParamforUserInfo))
+        this.mockMvc.perform(post("/api/user").contentType(MediaType.APPLICATION_JSON).content(jsonParamforUserInfo))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
@@ -199,14 +198,14 @@ public class UserControllerTest {
                 "\"email\" : \"" + USER_EMAIL_UPDATED + "\"" + 
               "}"; 
         
-        this.mockMvc.perform(put("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParmForUserInfoUpdated))
+        this.mockMvc.perform(put("/api/user").contentType(MediaType.APPLICATION_JSON).content(jsonParmForUserInfoUpdated))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
                         .andExpect(jsonPath("$.result").value("SUCCESS"))
                         .andReturn();
         
-        this.mockMvc.perform(delete("/user.pinpoint").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
+        this.mockMvc.perform(delete("/api/user").contentType(MediaType.APPLICATION_JSON).content("{\"userId\" : \"" + USER_ID + "\"}"))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))

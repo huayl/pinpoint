@@ -16,97 +16,94 @@
 
 package com.navercorp.pinpoint.web.applicationmap.histogram;
 
-import com.navercorp.pinpoint.common.trace.SlotType;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.AgentHistogram;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.AgentHistogramList;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkCallDataMap;
-import com.navercorp.pinpoint.web.util.TimeWindow;
-import com.navercorp.pinpoint.web.util.TimeWindowDownSampler;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
-import com.navercorp.pinpoint.web.vo.ResponseTime;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindowDownSampler;
+import com.navercorp.pinpoint.applicationmap.rawdata.AgentHistogram;
+import com.navercorp.pinpoint.applicationmap.rawdata.AgentHistogramList;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkCallDataMap;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.applicationmap.vo.ResponseTime;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * @author emeroad
  */
 public class AgentTimeHistogramBuilder {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-
     private final Application application;
-    private final Range range;
     private final TimeWindow window;
 
     public AgentTimeHistogramBuilder(Application application, Range range) {
         this.application = Objects.requireNonNull(application, "application");
-        this.range = Objects.requireNonNull(range, "range");
         this.window = new TimeWindow(range, TimeWindowDownSampler.SAMPLER);
     }
 
+    public AgentTimeHistogramBuilder(Application application, TimeWindow window) {
+        this.application = Objects.requireNonNull(application, "application");
+        this.window = Objects.requireNonNull(window, "window");
+    }
 
     public AgentTimeHistogram build(List<ResponseTime> responseHistogramList) {
-        AgentHistogramList agentHistogramList = new AgentHistogramList(application, responseHistogramList);
+        AgentHistogramList agentHistogramList = AgentHistogramList.newBuilder().build(application, responseHistogramList);
         return build(agentHistogramList);
     }
 
     public AgentTimeHistogram buildSource(LinkCallDataMap linkCallDataMap) {
         Objects.requireNonNull(linkCallDataMap, "linkCallDataMap");
 
-        return build(linkCallDataMap.getSourceList());
+        return build(linkCallDataMap.getInLinkList());
     }
 
     public AgentTimeHistogram buildTarget(LinkCallDataMap linkCallDataMap) {
         Objects.requireNonNull(linkCallDataMap, "linkCallDataMap");
 
-        return build(linkCallDataMap.getTargetList());
+        return build(linkCallDataMap.getOutLinkList());
     }
 
 
-    private AgentTimeHistogram build(AgentHistogramList agentHistogramList) {
-        AgentHistogramList histogramList = interpolation(agentHistogramList, window);
-        AgentTimeHistogram agentTimeHistogram = new AgentTimeHistogram(application, range, histogramList);
-        return agentTimeHistogram;
+    public AgentTimeHistogram build(AgentHistogramList agentHistogramList) {
+        List<AgentHistogram> agentHistograms = agentHistogramList.getAgentHistogramList();
+        AgentHistogramList histogramList = interpolation(agentHistograms, window);
+        return new AgentTimeHistogram(application, histogramList);
     }
 
 
-    private AgentHistogramList interpolation(AgentHistogramList agentHistogramList, TimeWindow window) {
-        if (agentHistogramList.size() == 0) {
+    private AgentHistogramList interpolation(List<AgentHistogram> agentHistograms, TimeWindow window) {
+        if (agentHistograms.isEmpty()) {
             return new AgentHistogramList();
         }
 
         // create window space. Prior to using a AgentHistogramList, we used a raw data structure.
         // could've been a list, but since range overflow may occur when applying filters, we use a map instead.
         // TODO: find better structure
-        final AgentHistogramList resultAgentHistogramList = new AgentHistogramList();
-        for (AgentHistogram agentHistogram : agentHistogramList.getAgentHistogramList()) {
+        final AgentHistogramList.Builder resultAgentHistogramBuilder = AgentHistogramList.newBuilder();
+        for (AgentHistogram agentHistogram : agentHistograms) {
             List<TimeHistogram> timeHistogramList = new ArrayList<>();
             for (Long time : window) {
                 timeHistogramList.add(new TimeHistogram(application.getServiceType(), time));
             }
-            resultAgentHistogramList.addTimeHistogram(agentHistogram.getAgentId(), timeHistogramList);
+            Application agentId = agentHistogram.getAgentId();
+            resultAgentHistogramBuilder.addTimeHistogram(agentId, timeHistogramList);
         }
 
-        for (AgentHistogram agentHistogram : agentHistogramList.getAgentHistogramList()) {
+        for (AgentHistogram agentHistogram : agentHistograms) {
             for (TimeHistogram timeHistogram : agentHistogram.getTimeHistogram()) {
-                final Long time = window.refineTimestamp(timeHistogram.getTimeStamp());
+                final long time = window.refineTimestamp(timeHistogram.getTimeStamp());
                 Application agentId = agentHistogram.getAgentId();
-                TimeHistogram windowHistogram = new TimeHistogram(timeHistogram.getHistogramSchema(), time);
-                windowHistogram.add(timeHistogram);
-                resultAgentHistogramList.addTimeHistogram(agentId, windowHistogram);
+
+                TimeHistogram newHistogram = new TimeHistogram(timeHistogram.getHistogramSchema(), time);
+                newHistogram.add(timeHistogram);
+
+                resultAgentHistogramBuilder.addTimeHistogram(agentId, newHistogram);
             }
         }
 
-        return resultAgentHistogramList;
-    }
-
-
-    public long getCount(TimeHistogram timeHistogram, SlotType slotType) {
-        return timeHistogram.getCount(slotType);
+        return resultAgentHistogramBuilder.build();
     }
 
 

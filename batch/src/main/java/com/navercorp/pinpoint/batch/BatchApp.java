@@ -17,20 +17,29 @@
 package com.navercorp.pinpoint.batch;
 
 import com.navercorp.pinpoint.common.server.util.ServerBootLogger;
-import com.navercorp.pinpoint.web.WebStarter;
+import com.navercorp.pinpoint.datasource.MainDataSourcePropertySource;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.batch.BatchAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
-import org.springframework.context.annotation.ImportResource;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration;
+import org.springframework.context.annotation.Import;
 
 /**
  * @author minwoo.jung
  */
 @SpringBootConfiguration
-@EnableAutoConfiguration(exclude = {SecurityAutoConfiguration.class, TransactionAutoConfiguration.class, BatchAutoConfiguration.class})
-@ImportResource({ "classpath:applicationContext-batch-schedule.xml"})
+@EnableAutoConfiguration(exclude = {
+        TransactionAutoConfiguration.class,
+        SecurityAutoConfiguration.class,
+        UserDetailsServiceAutoConfiguration.class,
+        ServletWebSecurityAutoConfiguration.class
+})
+@Import({
+        BatchModule.class,
+        MainDataSourcePropertySource.class
+})
 public class BatchApp {
 
     private static final ServerBootLogger logger = ServerBootLogger.getLogger(BatchApp.class);
@@ -38,7 +47,7 @@ public class BatchApp {
 
     public static void main(String[] args) {
         try {
-            WebStarter starter = new WebStarter(BatchApp.class);
+            BatchStarter starter = new BatchStarter(BatchApp.class);
             starter.start(args);
         } catch (Exception exception) {
             logger.error("[WebApp] could not launch app.", exception);

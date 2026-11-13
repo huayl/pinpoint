@@ -1,4 +1,0 @@
-rocketmq:
-  name-server: localhost:9876
-  producer:
-    group: test-group

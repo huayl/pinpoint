@@ -1,0 +1,178 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+package com.navercorp.pinpoint.web.applicationmap.map;
+
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataDuplexMap;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import com.navercorp.pinpoint.applicationmap.link.LinkKey;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkCallData;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkCallDataMap;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkData;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataMap;
+import com.navercorp.pinpoint.web.applicationmap.service.LinkDataMapService;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+
+/**
+ * @author HyunGil Jeong
+ */
+public class VirtualLinkHandler {
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final LinkDataMapService linkDataMapService;
+
+    private final VirtualLinkMarker virtualLinkMarker;
+
+    public VirtualLinkHandler(LinkDataMapService linkDataMapService, VirtualLinkMarker virtualLinkMarker) {
+        this.linkDataMapService = Objects.requireNonNull(linkDataMapService, "linkDataMapService");
+        this.virtualLinkMarker = Objects.requireNonNull(virtualLinkMarker, "virtualLinkMarker");
+    }
+
+    public LinkDataDuplexMap processVirtualLinks(LinkDataDuplexMap linkDataDuplexMap, LinkVisitChecker linkVisitChecker, TimeWindow timeWindow) {
+        Set<LinkData> virtualLinkDataSet = virtualLinkMarker.getVirtualLinkData();
+        if (virtualLinkDataSet.isEmpty()) {
+            return linkDataDuplexMap;
+        }
+        logger.debug("Virtual link size : {}", virtualLinkDataSet.size());
+        Collection<Application> unpopulatedEmulatedNodes = getUnpopulatedEmulatedNodes(linkDataDuplexMap.getTargetLinkDataMap(), virtualLinkDataSet);
+        if (unpopulatedEmulatedNodes.isEmpty()) {
+            logger.debug("unpopulated emulated node not found");
+        } else {
+            logger.info("unpopulated emulated nodes : {}", unpopulatedEmulatedNodes);
+            for (Application unpopulatedEmulatedNode : unpopulatedEmulatedNodes) {
+                for (LinkData emulatedNodeInLinkData : getEmulatedNodeInLinkData(linkVisitChecker, unpopulatedEmulatedNode, timeWindow)) {
+                    linkDataDuplexMap.addTargetLinkData(emulatedNodeInLinkData);
+                }
+            }
+        }
+
+        fillEmulationLink(linkDataDuplexMap, virtualLinkDataSet);
+        return linkDataDuplexMap;
+    }
+
+    private Collection<Application> getUnpopulatedEmulatedNodes(LinkDataMap targetLinkDataMap, Set<LinkData> virtualLinkDataSet) {
+        Set<Application> unpopulatedEmulatedNodes = new HashSet<>();
+        for (LinkData virtualLinkData : virtualLinkDataSet) {
+            Application toApplication = virtualLinkData.getToApplication();
+            if (targetLinkDataMap.getLinkData(new LinkKey(virtualLinkData.getFromApplication(), toApplication)) == null) {
+                unpopulatedEmulatedNodes.add(toApplication);
+            }
+        }
+        return unpopulatedEmulatedNodes;
+    }
+
+    private Collection<LinkData> getEmulatedNodeInLinkData(LinkVisitChecker linkVisitChecker, Application emulatedNode, TimeWindow timeWindow) {
+        LinkDataMap inLinkDataMap = linkDataMapService.selectInLinkDataMap(emulatedNode, timeWindow);
+        logger.debug("emulated node [{}] in LinkDataMap:{}", emulatedNode, inLinkDataMap);
+
+        LinkDataMap filteredInLinkDataMap = new LinkDataMap();
+        for (LinkData inLinkData : inLinkDataMap.getLinkDataList()) {
+            Application fromApplication = inLinkData.getFromApplication();
+            // filter callee link data from non-WAS nodes
+            if (!fromApplication.getServiceType().isWas()) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("filtered {} as {} is not a WAS node", inLinkData, fromApplication);
+                }
+                continue;
+            }
+            // filter callee link data from nodes that haven't been visited as we don't need them
+            if (!linkVisitChecker.isVisitedOut(fromApplication)) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("filtered {} as {} is not in scope of the current server map", inLinkData, fromApplication);
+                }
+                continue;
+            }
+            logger.debug("emulated node [{}] inLink LinkData:{}", emulatedNode, inLinkData);
+            filteredInLinkDataMap.addLinkData(inLinkData);
+        }
+        logger.debug("emulated node [{}] filtered inLink LinkDataMap:{}", emulatedNode, filteredInLinkDataMap);
+        return filteredInLinkDataMap.getLinkDataList();
+    }
+
+    private void fillEmulationLink(LinkDataDuplexMap linkDataDuplexMap, Set<LinkData> emulationLinkMarker) {
+        // TODO need to be reimplemented - virtual node creation logic needs an overhaul.
+        // Currently, only the reversed relationship node is displayed. We need to create a virtual node and convert the rpc data appropriately.
+        logger.debug("this.emulationLinkMarker:{}", emulationLinkMarker);
+        List<LinkData> emulationLinkDataList = findEmulationLinkData(linkDataDuplexMap, emulationLinkMarker);
+
+        for (LinkData emulationLinkData : emulationLinkDataList) {
+            LinkCallDataMap beforeImage = emulationLinkData.getLinkCallDataMap();
+            logger.debug("beforeImage:{}", beforeImage);
+            emulationLinkData.resetLinkData();
+
+            LinkKey findLinkKey = new LinkKey(emulationLinkData.getFromApplication(), emulationLinkData.getToApplication());
+            LinkData targetLinkData = linkDataDuplexMap.getTargetLinkData(findLinkKey);
+            if (targetLinkData == null) {
+                // Expected when one rpc host is served by two or more applications: the virtual link is created for
+                // every accepting application, but only the ones the caller actually called have inbound data from it.
+                // Nothing to reverse for the others, so the virtual link stays empty and no reversed link is drawn.
+                logger.debug("targetLinkData not found findLinkKey:{}", findLinkKey);
+                continue;
+            }
+            // create reversed link data - convert data accepted by the target to target's call data
+            LinkCallDataMap targetList = targetLinkData.getLinkCallDataMap();
+            Collection<LinkCallData> beforeLinkDataList = beforeImage.getLinkDataList();
+
+            LinkCallData beforeLinkCallData = beforeLinkDataList.iterator().next();
+            for (LinkCallData agentHistogram : targetList.getLinkDataList()) {
+                Collection<TimeHistogram> timeHistogramList = agentHistogram.getTimeHistogram();
+                LinkCallDataMap linkCallDataMap = emulationLinkData.getLinkCallDataMap();
+
+                if (logger.isDebugEnabled()) {
+                    logger.debug("emulationLink BEFORE:{}", beforeLinkCallData);
+                    logger.debug("emulationLink agent:{}", agentHistogram);
+                    logger.debug("emulationLink link:{} -> {}", agentHistogram.getTarget(), beforeLinkCallData.getTarget());
+                }
+
+                linkCallDataMap.addCallData(agentHistogram.getTarget(), beforeLinkCallData.getTarget(), timeHistogramList);
+            }
+        }
+    }
+
+    private List<LinkData> findEmulationLinkData(LinkDataDuplexMap linkDataDuplexMap, Set<LinkData> emulationLinkMarker) {
+        // LinkDataDuplexMap already has a copy of the data - modifying emulationLinkMarker's data has no effect.
+        // We must get the data from LinkDataDuplexMap again.
+        List<LinkData> searchList = new ArrayList<>();
+        for (LinkData emulationLinkData : emulationLinkMarker) {
+            LinkKey search = getLinkKey(emulationLinkData);
+            for (LinkData linkData : linkDataDuplexMap.getSourceLinkDataList()) {
+                LinkKey linkKey = getLinkKey(linkData);
+                if (linkKey.equals(search)) {
+                    searchList.add(linkData);
+                }
+            }
+        }
+        return searchList;
+    }
+
+    private LinkKey getLinkKey(LinkData emulationLinkData) {
+        Application fromApplication = emulationLinkData.getFromApplication();
+        Application toApplication = emulationLinkData.getToApplication();
+        return new LinkKey(fromApplication, toApplication);
+    }
+}

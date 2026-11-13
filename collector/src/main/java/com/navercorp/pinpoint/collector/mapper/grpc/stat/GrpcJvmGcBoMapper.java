@@ -16,12 +16,15 @@
 
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
+import com.navercorp.pinpoint.common.server.bo.JvmGcType;
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.JvmGcBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PJvmGc;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 /**
  * @author HyunGil Jeong
@@ -29,19 +32,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcJvmGcBoMapper implements GrpcStatMapper {
 
-    @Autowired
-    private GrpcJvmGcTypeMapper jvmGcTypeMapper;
+    private final GrpcJvmGcTypeMapper jvmGcTypeMapper;
 
-    public JvmGcBo map(final PJvmGc jvmGc) {
-        final JvmGcBo jvmGcBo = new JvmGcBo();
-        jvmGcBo.setGcType(this.jvmGcTypeMapper.map(jvmGc.getType()));
-        jvmGcBo.setHeapUsed(jvmGc.getJvmMemoryHeapUsed());
-        jvmGcBo.setHeapMax(jvmGc.getJvmMemoryHeapMax());
-        jvmGcBo.setNonHeapUsed(jvmGc.getJvmMemoryNonHeapUsed());
-        jvmGcBo.setNonHeapMax(jvmGc.getJvmMemoryNonHeapMax());
-        jvmGcBo.setGcOldCount(jvmGc.getJvmGcOldCount());
-        jvmGcBo.setGcOldTime(jvmGc.getJvmGcOldTime());
-        return jvmGcBo;
+    public GrpcJvmGcBoMapper(GrpcJvmGcTypeMapper jvmGcTypeMapper) {
+        this.jvmGcTypeMapper = Objects.requireNonNull(jvmGcTypeMapper, "jvmGcTypeMapper");
+    }
+
+    public JvmGcBo map(DataPoint point, final PJvmGc jvmGc) {
+        JvmGcType gcType = this.jvmGcTypeMapper.map(jvmGc.getType());
+        return new JvmGcBo(point, gcType,
+                jvmGc.getJvmMemoryHeapUsed(),
+                jvmGc.getJvmMemoryHeapMax(),
+                jvmGc.getJvmMemoryNonHeapUsed(),
+                jvmGc.getJvmMemoryNonHeapMax(),
+                jvmGc.getJvmGcOldCount(),
+                jvmGc.getJvmGcOldTime());
     }
 
     @Override
@@ -49,8 +54,9 @@ public class GrpcJvmGcBoMapper implements GrpcStatMapper {
         // jvmGc
         if (agentStat.hasGc()) {
             final PJvmGc jvmGc = agentStat.getGc();
-            final JvmGcBo jvmGcBo = this.map(jvmGc);
-            builder.addJvmGc(jvmGcBo);
+            DataPoint point = builder.getDataPoint();
+            final JvmGcBo jvmGcBo = this.map(point, jvmGc);
+            builder.addPoint(jvmGcBo);
         }
     }
 }

@@ -18,6 +18,7 @@ package com.navercorp.pinpoint.web.vo;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
 
 /**
  * @author HyunGil Jeong
@@ -34,7 +35,7 @@ public class ApplicationPair {
     }
 
     public void setApplicationName(String applicationName) {
-        this.applicationName = applicationName;
+        this.applicationName = StringPrecondition.requireHasLength(applicationName, "applicationName");
     }
 
     public short getServiceTypeCode() {
@@ -47,10 +48,9 @@ public class ApplicationPair {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("ApplicationPair{");
-        sb.append("applicationName='").append(applicationName).append('\'');
-        sb.append(", serviceTypeCode=").append(serviceTypeCode);
-        sb.append('}');
-        return sb.toString();
+        return "ApplicationPair{" +
+                "applicationName='" + applicationName + '\'' +
+                ", serviceTypeCode=" + serviceTypeCode +
+                '}';
     }
 }

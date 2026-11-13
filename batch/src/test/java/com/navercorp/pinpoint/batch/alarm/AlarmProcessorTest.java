@@ -1,0 +1,99 @@
+package com.navercorp.pinpoint.batch.alarm;
+
+import com.navercorp.pinpoint.batch.alarm.collector.pinot.HeapDataCollector;
+import com.navercorp.pinpoint.batch.alarm.vo.AppAlarmChecker;
+import com.navercorp.pinpoint.batch.config.AlarmCheckerConfiguration;
+import com.navercorp.pinpoint.batch.service.BatchApplicationIndexService;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.web.alarm.CheckerCategory;
+import com.navercorp.pinpoint.web.alarm.vo.Rule;
+import com.navercorp.pinpoint.web.service.AlarmService;
+import com.navercorp.pinpoint.web.service.component.ActiveAgentValidator;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith({MockitoExtension.class, SpringExtension.class})
+@ContextConfiguration(
+        classes = AlarmCheckerConfiguration.class
+)
+public class AlarmProcessorTest {
+
+    @Mock
+    private DataCollectorFactory dataCollectorFactory;
+
+    @Mock
+    private AlarmService alarmService;
+
+    @Mock
+    private HeapDataCollector heapDataCollector;
+
+    @Autowired
+    CheckerRegistry checkerRegistry;
+
+    @Mock
+    private BatchApplicationIndexService batchApplicationIndexService;
+
+    @Mock
+    private ActiveAgentValidator activeAgentValidator;
+
+    private static final String SERVICE_NAME = "local_tomcat";
+
+    private static final List<String> agentIds = List.of("agent0", "agent1", "agent2");
+
+    @Test
+    public void shouldSkipIfNoRule() {
+        Application app = new Application(SERVICE_NAME, ServiceType.STAND_ALONE);
+
+        when(alarmService.selectRuleByApplicationName(SERVICE_NAME)).thenReturn(List.of());
+
+        AlarmProcessor proc = new AlarmProcessor(dataCollectorFactory, alarmService, checkerRegistry, batchApplicationIndexService, activeAgentValidator);
+        AppAlarmChecker checker = proc.process(app);
+
+        assertNull(checker, "should be skipped");
+    }
+
+    @Test
+    public void test() {
+        // Assumptions
+        Application application = new Application(SERVICE_NAME, ServiceType.STAND_ALONE);
+        Rule rule1 = new Rule(SERVICE_NAME, ServiceType.STAND_ALONE.getName(), CheckerCategory.HEAP_USAGE_RATE.getName(), 70, "testGroup", false, false, false, "");
+        Rule rule2 = new Rule(SERVICE_NAME, ServiceType.STAND_ALONE.getName(), CheckerCategory.HEAP_USAGE_RATE.getName(), 90, "testGroup", false, false, false, "");
+        Map<String, Long> heapUsageRate = Map.of(agentIds.get(1), 80L, agentIds.get(2), 85L);
+
+        when(alarmService.selectRuleByApplicationName(SERVICE_NAME)).thenReturn(List.of(rule1, rule2));
+        when(dataCollectorFactory.createDataCollector(any(), any(), any(), anyLong())).thenReturn(heapDataCollector);
+        when(heapDataCollector.getHeapUsageRate()).thenReturn(heapUsageRate);
+
+        // Executions
+        AlarmProcessor processor = new AlarmProcessor(dataCollectorFactory, alarmService, checkerRegistry, batchApplicationIndexService, activeAgentValidator);
+        AppAlarmChecker appChecker = processor.process(application);
+
+        // Validations
+        verify(alarmService).selectRuleByApplicationName(SERVICE_NAME);
+        verify(dataCollectorFactory).createDataCollector(any(), any(), any(), anyLong());
+
+        assertNotNull(appChecker, "processed object is null");
+        assertThat(appChecker.getChildren())
+                .as("rules should be propagated").hasSize(2);
+        assertThat(appChecker.getChildren().get(0).isDetected()).isTrue();
+        assertThat(appChecker.getChildren().get(1).isDetected()).isFalse();
+    }
+
+}

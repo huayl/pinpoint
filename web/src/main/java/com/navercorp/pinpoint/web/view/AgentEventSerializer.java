@@ -16,69 +16,57 @@
 
 package com.navercorp.pinpoint.web.view;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.ValueSerializer;
+import tools.jackson.databind.SerializationContext;
 import com.navercorp.pinpoint.common.server.bo.event.DeadlockBo;
 import com.navercorp.pinpoint.common.server.bo.event.ThreadDumpBo;
-import com.navercorp.pinpoint.thrift.dto.TDeadlock;
-import com.navercorp.pinpoint.thrift.dto.command.TThreadDump;
 import com.navercorp.pinpoint.web.util.ThreadDumpUtils;
 import com.navercorp.pinpoint.web.vo.AgentEvent;
-
-import java.io.IOException;
-import java.util.List;
 
 /**
  * @author Taejin Koo
  * @author jaehong.kim - Add DeadlockBo logic
  */
-public class AgentEventSerializer extends JsonSerializer<AgentEvent> {
+public class AgentEventSerializer extends ValueSerializer<AgentEvent> {
 
     @Override
-    public void serialize(AgentEvent agentEvent, JsonGenerator jgen, SerializerProvider serializers) throws IOException {
+    public void serialize(AgentEvent agentEvent, JsonGenerator jgen, SerializationContext serializers) {
         jgen.writeStartObject();
 
         if (agentEvent.getAgentId() != null) {
-            jgen.writeStringField("agentId", agentEvent.getAgentId());
+            jgen.writeStringProperty("agentId", agentEvent.getAgentId());
         }
 
-        jgen.writeNumberField("startTimestamp", agentEvent.getStartTimestamp());
-        jgen.writeNumberField("eventTimestamp", agentEvent.getEventTimestamp());
-        jgen.writeNumberField("eventTypeCode", agentEvent.getEventTypeCode());
+        jgen.writeNumberProperty("startTimestamp", agentEvent.getStartTimestamp());
+        jgen.writeNumberProperty("eventTimestamp", agentEvent.getEventTimestamp());
+        jgen.writeNumberProperty("eventTypeCode", agentEvent.getEventTypeCode());
 
         if (agentEvent.getEventTypeDesc() != null) {
-            jgen.writeStringField("eventTypeDesc", agentEvent.getEventTypeDesc());
+            jgen.writeStringProperty("eventTypeDesc", agentEvent.getEventTypeDesc());
         }
 
-        jgen.writeBooleanField("hasEventMessage", agentEvent.hasEventMessage());
+        jgen.writeBooleanProperty("hasEventMessage", agentEvent.hasEventMessage());
 
-        if (agentEvent.getEventMessage() != null) {
-            Object eventMessage = agentEvent.getEventMessage();
-
-            if (eventMessage instanceof TDeadlock) {
-                StringBuilder message = new StringBuilder();
-
-                List<TThreadDump> deadlockedThreadList = ((TDeadlock) eventMessage).getDeadlockedThreadList();
-
-                for (TThreadDump threadDump : deadlockedThreadList) {
-                    message.append(ThreadDumpUtils.createDumpMessage(threadDump));
-                }
-
-                jgen.writeObjectField("eventMessage", message.toString());
-            } else if (eventMessage instanceof DeadlockBo) {
-                final StringBuilder message = new StringBuilder();
-                final List<ThreadDumpBo> threadDumpBoList = ((DeadlockBo) eventMessage).getThreadDumpBoList();
-                for (ThreadDumpBo threadDump : threadDumpBoList) {
-                    message.append(ThreadDumpUtils.createDumpMessage(threadDump));
-                }
-                jgen.writeObjectField("eventMessage", message.toString());
+        final Object eventMessage = agentEvent.getEventMessage();
+        if (eventMessage != null) {
+            if (eventMessage instanceof DeadlockBo deadlock) {
+                final String deadLockEvent = deadLockEvent(deadlock);
+                jgen.writePOJOProperty("eventMessage", deadLockEvent);
             } else {
-                jgen.writeObjectField("eventMessage", eventMessage);
+                jgen.writePOJOProperty("eventMessage", eventMessage);
             }
         }
 
         jgen.writeEndObject();
+    }
+
+    private String deadLockEvent(DeadlockBo deadlock) {
+        final StringBuilder message = new StringBuilder(128);
+        for (ThreadDumpBo threadDump : deadlock.getThreadDumpBoList()) {
+            message.append(ThreadDumpUtils.createDumpMessage(threadDump));
+        }
+        return message.toString();
     }
 
 }

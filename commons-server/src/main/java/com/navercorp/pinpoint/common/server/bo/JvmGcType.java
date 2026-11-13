@@ -16,9 +16,6 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
-import java.util.EnumSet;
-import java.util.Set;
-
 /**
  * @author HyunGil Jeong
  */
@@ -27,11 +24,12 @@ public enum JvmGcType {
     SERIAL(1),
     PARALLEL(2),
     CMS(3),
-    G1(4);
+    G1(4),
+    ZGC(5);
 
     private final int typeCode;
 
-    private static final Set<JvmGcType> JVM_GC_TYPES = EnumSet.allOf(JvmGcType.class);
+    private static final JvmGcType[] JVM_GC_TYPES = JvmGcType.values();
 
 
     JvmGcType(int typeCode) {

@@ -1,0 +1,52 @@
+import React from 'react';
+import { RxMagnifyingGlass } from 'react-icons/rx';
+import { cn } from '../../lib/utils';
+import { Input } from '../ui/input';
+
+export interface VirtualSearchListProps {
+  children?: React.ReactNode | (({ filterKeyword }: { filterKeyword: string }) => React.ReactNode);
+  className?: string;
+  inputClassName?: string;
+  inputContainerClassName?: string;
+  placeHolder?: string;
+  onChangeFilterKeyword?: (filterKeyword: string) => void;
+}
+
+export const VirtualSearchList = ({
+  children,
+  className,
+  inputClassName,
+  inputContainerClassName,
+  placeHolder = 'Input keyword...',
+  onChangeFilterKeyword,
+}: VirtualSearchListProps) => {
+  const [filterKeyword, setFilterKeyword] = React.useState('');
+
+  return (
+    <div className={className}>
+      <div className={cn('flex', inputContainerClassName)}>
+        <div className="flex items-center pl-3 opacity-50">
+          <RxMagnifyingGlass />
+        </div>
+        <Input
+          className={cn(inputClassName)}
+          onChange={(e) => {
+            setFilterKeyword(e.target.value);
+            onChangeFilterKeyword?.(e.target.value);
+          }}
+          placeholder={placeHolder}
+        />
+      </div>
+      {typeof children === 'function'
+        ? children({ filterKeyword })
+        : React.Children.map(children, (child) => {
+            if (React.isValidElement(child)) {
+              return React.cloneElement(child, {
+                filterKeyword,
+              } as Partial<{ filterKeyword: string }>);
+            }
+            return child;
+          })}
+    </div>
+  );
+};

@@ -16,70 +16,67 @@
 
 package com.navercorp.pinpoint.web.interceptor;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.navercorp.pinpoint.common.util.StringUtils;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.server.ServletServerHttpResponse;
-import org.springframework.util.StringUtils;
-import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.HandlerInterceptor;
 
-import java.io.IOException;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 
 /**
  * FIXME temporary interceptor for admin operations.
  * 
  * @author hyungil.jeong
  */
-public class AdminAuthInterceptor extends HandlerInterceptorAdapter {
+public class AdminAuthInterceptor implements HandlerInterceptor {
 
-    private static final Charset UTF_8 = StandardCharsets.UTF_8;
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    
+    private final String password;
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-    
-    @Value("${admin.password:}")
-    private String password;
-    
+    public AdminAuthInterceptor(String password) {
+        this.password = password;
+    }
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String requestUri = request.getRequestURI();
         String requestIp = request.getRemoteAddr();
         logger.info("{} called from {}", requestUri, requestIp);
         if (StringUtils.isEmpty(password)) {
-            return true;
+            handleDisabled();
+            return false;
         }
-        return checkAuthorization(request, response);
+        return checkAuthorization(request);
     }
 
-    private boolean checkAuthorization(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    private boolean checkAuthorization(HttpServletRequest request) {
         String requestPassword = request.getParameter("password");
         if (requestPassword == null) {
-            handleMissingPassword(response);
+            handleMissingPassword();
             return false;
         }
         if (password.equals(requestPassword)) {
             return true;
         } else {
-            handleInvalidPassword(response);
+            handleInvalidPassword();
             return false;
         }
     }
 
-    private void handleMissingPassword(HttpServletResponse response) throws IOException {
-        ServletServerHttpResponse serverResponse = new ServletServerHttpResponse(response);
-        serverResponse.setStatusCode(HttpStatus.BAD_REQUEST);
-        serverResponse.getBody().write("Missing password.".getBytes(UTF_8));
+    private void handleDisabled() {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin API is disabled. Set admin.password to enable it");
     }
 
-    private void handleInvalidPassword(HttpServletResponse response) throws IOException {
-        ServletServerHttpResponse serverResponse = new ServletServerHttpResponse(response);
-        serverResponse.setStatusCode(HttpStatus.FORBIDDEN);
-        serverResponse.getBody().write("Invalid password.".getBytes(UTF_8));
+    private void handleMissingPassword() {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing password");
+    }
+
+    private void handleInvalidPassword() {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid password");
     }
 
     

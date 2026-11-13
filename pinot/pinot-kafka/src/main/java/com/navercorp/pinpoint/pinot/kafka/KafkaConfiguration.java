@@ -1,0 +1,96 @@
+package com.navercorp.pinpoint.pinot.kafka;
+
+import org.springframework.util.StringUtils;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.core.env.Environment;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.ProducerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
+
+@Configuration
+@PropertySource("classpath:/profiles/${pinpoint.profiles.active:release}/kafka-producer-factory.properties")
+public class KafkaConfiguration {
+
+    private final Logger logger = LogManager.getLogger(KafkaConfiguration.class);
+
+    public Map<String, Object> toConfig(KafkaProperties properties) {
+        Map<String, Object> config = new HashMap<>();
+        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, properties.getBootstrapServers());
+
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, properties.getKeySerializer());
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, properties.getValueSerializer());
+
+        if (StringUtils.hasText(properties.getPartitionerClass())) {
+            config.put(ProducerConfig.PARTITIONER_CLASS_CONFIG, properties.getPartitionerClass());
+        }
+        config.put(ProducerConfig.ACKS_CONFIG, properties.getAcks());
+        config.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, properties.getCompressionType());
+        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, properties.getMaxBlockMs());
+        if (properties.getBufferMemory() != null) {
+            config.put(ProducerConfig.BUFFER_MEMORY_CONFIG, properties.getBufferMemory());
+        }
+        if (properties.getLingerMs() != null) {
+            config.put(ProducerConfig.LINGER_MS_CONFIG, properties.getLingerMs());
+        }
+        return config;
+    }
+
+    @Bean
+    public ProducerFactory kafkaProducerFactory(KafkaProperties properties) {
+        logger.info("kafka {}:{}", ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, properties.getBootstrapServers());
+        logger.debug("kafka config:{}", properties);
+
+        Map<String, Object> config = toConfig(properties);
+        return new DefaultKafkaProducerFactory<>(config);
+    }
+
+    @Deprecated
+    @Bean
+    public ProducerFactory kafkaProducerByteArrayKeyFactory(KafkaProperties properties) {
+        logger.info("kafka {}:{}", ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, properties.getBootstrapServers());
+        logger.debug("kafka config:{}", properties);
+
+        Map<String, Object> config = toConfig(properties);
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, properties.getByteArrayKeySerializer());
+        return new DefaultKafkaProducerFactory<>(config);
+    }
+
+    @Bean
+    public KafkaProperties kafkaProperties(Environment env) {
+        KafkaProperties properties = new KafkaProperties();
+
+        bindProperties(env, "pinpoint.metric.kafka.bootstrap.servers", properties::setBootstrapServers);
+        bindProperties(env, "pinpoint.metric.kafka.key.serializer", properties::setKeySerializer);
+        bindProperties(env, "pinpoint.metric.kafka.value.serializer", properties::setValueSerializer);
+        bindProperties(env, "pinpoint.metric.kafka.acks", properties::setAcks);
+        bindProperties(env, "pinpoint.metric.kafka.compressionType", properties::setCompressionType);
+        bindProperties(env, "pinpoint.metric.kafka.partitionerClass", properties::setPartitionerClass);
+        bindLongProperties(env, "pinpoint.metric.kafka.max.block.ms", properties::setMaxBlockMs);
+        bindLongProperties(env, "pinpoint.metric.kafka.buffer.memory", properties::setBufferMemory);
+        bindLongProperties(env, "pinpoint.metric.kafka.linger.ms", properties::setLingerMs);
+
+        return properties;
+    }
+
+    private void bindProperties(Environment env, String key, Consumer<String> consumer) {
+        String value = env.getProperty(key);
+        if (value != null) {
+            consumer.accept(value);
+        }
+    }
+
+    private void bindLongProperties(Environment env, String key, Consumer<Long> consumer) {
+        Long value = env.getProperty(key, Long.class);
+        if (value != null) {
+            consumer.accept(value);
+        }
+    }
+}

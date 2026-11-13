@@ -16,19 +16,21 @@
 
 package com.navercorp.pinpoint.collector.receiver.grpc;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
 import com.navercorp.pinpoint.common.trace.ServiceType;
-import com.navercorp.pinpoint.grpc.AgentHeaderFactory;
+import com.navercorp.pinpoint.grpc.ClientHeaderFactoryV1;
 import com.navercorp.pinpoint.grpc.client.ChannelFactory;
 import com.navercorp.pinpoint.grpc.client.ChannelFactoryBuilder;
-import com.navercorp.pinpoint.grpc.client.config.ClientOption;
 import com.navercorp.pinpoint.grpc.client.DefaultChannelFactoryBuilder;
 import com.navercorp.pinpoint.grpc.client.HeaderFactory;
 import com.navercorp.pinpoint.grpc.client.UnaryCallDeadlineInterceptor;
+import com.navercorp.pinpoint.grpc.client.config.ClientOption;
 import com.navercorp.pinpoint.grpc.client.interceptor.DiscardClientInterceptor;
 import com.navercorp.pinpoint.grpc.client.interceptor.DiscardEventListener;
 import com.navercorp.pinpoint.grpc.client.interceptor.LoggingDiscardEventListener;
+import com.navercorp.pinpoint.grpc.stream.ClientCallStateStreamObserver;
 import com.navercorp.pinpoint.grpc.trace.PAnnotation;
 import com.navercorp.pinpoint.grpc.trace.PAnnotationValue;
 import com.navercorp.pinpoint.grpc.trace.PSpan;
@@ -44,11 +46,11 @@ import com.navercorp.pinpoint.profiler.sender.grpc.StreamEventListener;
 import com.navercorp.pinpoint.profiler.sender.grpc.StreamId;
 import io.grpc.ClientInterceptor;
 import io.grpc.ManagedChannel;
-import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -57,7 +59,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SpanClientMock {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
     private final ReconnectExecutor reconnectExecutor = new ReconnectExecutor(scheduledExecutorService);
 
@@ -70,7 +73,7 @@ public class SpanClientMock {
     private volatile StreamObserver<PSpanMessage> spanStream;
     private final Reconnector spanStreamReconnector;
 
-    public SpanClientMock(final String host, final int port) throws Exception {
+    public SpanClientMock(final String host, final int port) {
         channelFactory = newChannelFactory();
         this.channel = channelFactory.build("SpanClientMock", host, port);
 
@@ -136,7 +139,7 @@ public class SpanClientMock {
         StreamEventListener<PSpanMessage> listener = new StreamEventListener<PSpanMessage>() {
 
             @Override
-            public void start(ClientCallStreamObserver<PSpanMessage> requestStream) {
+            public void start(ClientCallStateStreamObserver<PSpanMessage> requestStream) {
                 spanStreamReconnector.reset();
             }
 
@@ -156,7 +159,7 @@ public class SpanClientMock {
 
 
     private ChannelFactory newChannelFactory() {
-        HeaderFactory headerFactory = new AgentHeaderFactory("mockAgentId", "mockAgentName", "mockApplicationName", ServiceType.UNDEFINED.getCode(), System.currentTimeMillis());
+        HeaderFactory headerFactory = new ClientHeaderFactoryV1("mockAgentId", "mockAgentName", "mockApplicationName", ServiceType.UNDEFINED.getCode(), System.currentTimeMillis());
 
         ChannelFactoryBuilder channelFactoryBuilder = new DefaultChannelFactoryBuilder("SpanClientMock");
         final ClientInterceptor unaryCallDeadlineInterceptor = new UnaryCallDeadlineInterceptor(1000);
@@ -174,9 +177,8 @@ public class SpanClientMock {
     private ClientInterceptor newDiscardClientInterceptor() {
         final int spanDiscardLogRateLimit = 1000;
         final long spanDiscardMaxPendingThreshold = 1000;
-        final long spanDiscardCountForReconnect = 5 * 60 * 100;
-        final long spanNotReadyTimeoutMillis = 5 * 60 * 1000;
-        final DiscardEventListener<?> discardEventListener = new LoggingDiscardEventListener(SpanGrpcDataSender.class.getName(), spanDiscardLogRateLimit);
+
+        final DiscardEventListener<?> discardEventListener = new LoggingDiscardEventListener<>(SpanGrpcDataSender.class.getName(), Duration.ofMillis(spanDiscardLogRateLimit));
         return new DiscardClientInterceptor(discardEventListener, spanDiscardMaxPendingThreshold, 1000, 1000);
     }
 
@@ -205,27 +207,20 @@ public class SpanClientMock {
         PAnnotation annotation = PAnnotation.newBuilder().setValue(value).build();
         PSpanEvent spanEvent = PSpanEvent.newBuilder().addAnnotation(annotation).build();
 
-        AtomicLong counter = new AtomicLong();
         service.execute(new Runnable() {
             @Override
             public void run() {
 //                StreamObserver<Empty> responseObserver = getResponseObserver();
 //                StreamObserver<PSpanMessage> requestObserver = spanStub.sendSpan(responseObserver);
-                try {
-                    TimeUnit.SECONDS.sleep(3);
-                } catch (InterruptedException e) {
-                }
+                Uninterruptibles.sleepUninterruptibly(Duration.ofSeconds(3));
 
                 for (int i = 0; i < count; i++) {
                     final PSpan span = PSpan.newBuilder().setSpanId(i).addSpanEvent(spanEvent).build();
                     final PSpanMessage spanMessage = PSpanMessage.newBuilder().setSpan(span).build();
                     spanStream.onNext(spanMessage);
 //                    requestObserver.onNext(spanMessage);
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(10);
-                    } catch (InterruptedException e) {
-                    }
-//                    System.out.print("S");
+
+                    Uninterruptibles.sleepUninterruptibly(Duration.ofMillis(20));
                 }
                 spanStream.onCompleted();
 //                requestObserver.onCompleted();
@@ -249,10 +244,8 @@ public class SpanClientMock {
                     final PSpanMessage spanMessage = PSpanMessage.newBuilder().setSpanChunk(spanChunk).build();
                     spanStream.onNext(spanMessage);
 //                    requestObserver.onNext(spanMessage);
-                    try {
-                        TimeUnit.SECONDS.sleep(1);
-                    } catch (InterruptedException e) {
-                    }
+
+                    Uninterruptibles.sleepUninterruptibly(Duration.ofSeconds(1));
                 }
                 spanStream.onCompleted();
 //                requestObserver.onCompleted();

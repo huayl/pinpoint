@@ -1,11 +1,11 @@
 /*
- * Copyright 2016 Naver Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,9 @@ package com.navercorp.pinpoint.common.server.bo.stat;
 
 
 import com.navercorp.pinpoint.common.server.util.FilterUtils;
+import com.navercorp.pinpoint.common.server.util.NumberPrecondition;
+import com.navercorp.pinpoint.common.server.util.StringPrecondition;
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,8 +30,12 @@ import java.util.Objects;
  * @author HyunGil Jeong
  */
 public class AgentStatBo {
-
+    @NonNull
+    private final String applicationName;
+    @NonNull
     private final String agentId;
+    @NonNull
+    private final String serviceName;
     private final long startTimestamp;
 
     private final List<JvmGcBo> jvmGcBos;
@@ -45,8 +52,10 @@ public class AgentStatBo {
     private final List<LoadedClassBo> loadedClassBos;
 
 
-    public AgentStatBo(Builder builder) {
+    private AgentStatBo(Builder builder) {
+        this.applicationName = builder.applicationName;
         this.agentId = builder.agentId;
+        this.serviceName = builder.serviceName;
         this.startTimestamp = builder.startTimestamp;
         this.jvmGcBos = FilterUtils.filter(builder.statList, JvmGcBo.class);
         this.jvmGcDetailedBos = FilterUtils.filter(builder.statList, JvmGcDetailedBo.class);
@@ -67,8 +76,16 @@ public class AgentStatBo {
         return startTimestamp;
     }
 
+    public String getApplicationName() {
+        return applicationName;
+    }
+
     public String getAgentId() {
         return agentId;
+    }
+
+    public String getServiceName() {
+        return serviceName;
     }
 
     public List<JvmGcBo> getJvmGcBos() {
@@ -120,19 +137,24 @@ public class AgentStatBo {
         return loadedClassBos;
     }
 
-    public static Builder newBuilder(String agentId, long startTimestamp) {
-        return new Builder(agentId, startTimestamp);
+    public static Builder newBuilder(String serviceName, String applicationName, String agentId, long startTimestamp) {
+        return new Builder(serviceName, applicationName, agentId, startTimestamp);
     }
 
     public static class Builder {
+
+        private final String serviceName;
+        private final String applicationName;
         private final String agentId;
         private final long startTimestamp;
 
-        private final List<AgentStatDataPoint> statList = new ArrayList<>();
+        private final List<StatDataPoint> statList = new ArrayList<>();
 
-        public Builder(String agentId, long startTimestamp) {
-            this.agentId = Objects.requireNonNull(agentId, "agentId");
-            this.startTimestamp = startTimestamp;
+        Builder(String serviceName, String applicationName, String agentId, long startTimestamp) {
+            this.serviceName = StringPrecondition.requireHasLength(serviceName, "serviceName");
+            this.applicationName = StringPrecondition.requireHasLength(applicationName, "applicationName");
+            this.agentId = StringPrecondition.requireHasLength(agentId, "agentId");
+            this.startTimestamp = NumberPrecondition.requirePositiveOrZero(startTimestamp, "startTimestamp");
         }
 
         public StatBuilder newStatBuilder(long timestamp) {
@@ -140,102 +162,20 @@ public class AgentStatBo {
         }
 
         public class StatBuilder {
-            private final long timestamp;
+            private final DataPoint dataPoint;
 
             public StatBuilder(long timestamp) {
-                this.timestamp = timestamp;
+                this.dataPoint = DataPoint.of(agentId, applicationName, serviceName, startTimestamp, timestamp);
             }
 
-            private void setBaseData(AgentStatDataPoint agentStatDataPoint) {
-                agentStatDataPoint.setAgentId(agentId);
-                agentStatDataPoint.setStartTimestamp(startTimestamp);
-                agentStatDataPoint.setTimestamp(this.timestamp);
+            public DataPoint getDataPoint() {
+                return dataPoint;
             }
 
-            public void addJvmGc(JvmGcBo jvmGc) {
-                Objects.requireNonNull(jvmGc, "jvmGc");
-                setBaseData(jvmGc);
-                statList.add(jvmGc);
+            public void addPoint(StatDataPoint point) {
+                Objects.requireNonNull(point, "point");
+                statList.add(point);
             }
-
-            public void addJvmGcDetailed(JvmGcDetailedBo jvmGcDetailed) {
-                Objects.requireNonNull(jvmGcDetailed, "jvmGcDetailed");
-                setBaseData(jvmGcDetailed);
-                statList.add(jvmGcDetailed);
-            }
-
-
-            public void addCpuLoad(CpuLoadBo cpuLoad) {
-                Objects.requireNonNull(cpuLoad, "cpuLoad");
-                setBaseData(cpuLoad);
-                statList.add(cpuLoad);
-            }
-
-
-            public void addTransaction(TransactionBo transaction) {
-                Objects.requireNonNull(transaction, "transaction");
-                setBaseData(transaction);
-                statList.add(transaction);
-            }
-
-
-            public void addActiveTrace(ActiveTraceBo activeTrace) {
-                Objects.requireNonNull(activeTrace, "activeTrace");
-                setBaseData(activeTrace);
-                statList.add(activeTrace);
-            }
-
-            public void addDataSourceList(DataSourceListBo dataSourceList) {
-                Objects.requireNonNull(dataSourceList, "dataSourceList");
-                setBaseData(dataSourceList);
-                for (DataSourceBo dataSourceBo : dataSourceList.getList()) {
-                    setBaseData(dataSourceBo);
-                }
-                statList.add(dataSourceList);
-            }
-
-
-            public void addResponseTime(ResponseTimeBo responseTime) {
-                Objects.requireNonNull(responseTime, "responseTime");
-                setBaseData(responseTime);
-                statList.add(responseTime);
-            }
-
-
-            public void addDeadlockThreadCount(DeadlockThreadCountBo deadlockThreadCount) {
-                Objects.requireNonNull(deadlockThreadCount, "deadlockThreadCount");
-                setBaseData(deadlockThreadCount);
-                statList.add(deadlockThreadCount);
-            }
-
-
-            public void addFileDescriptor(FileDescriptorBo fileDescriptor) {
-                Objects.requireNonNull(fileDescriptor, "fileDescriptor");
-                setBaseData(fileDescriptor);
-                statList.add(fileDescriptor);
-            }
-
-
-            public void addDirectBuffer(DirectBufferBo directBuffer) {
-                Objects.requireNonNull(directBuffer, "directBuffer");
-                setBaseData(directBuffer);
-                statList.add(directBuffer);
-            }
-
-
-            public void addTotalThreadCount(TotalThreadCountBo totalThreadCount) {
-                Objects.requireNonNull(totalThreadCount, "totalThreadCount");
-                setBaseData(totalThreadCount);
-                statList.add(totalThreadCount);
-            }
-
-
-            public void addLoadedClass(LoadedClassBo loadedClass) {
-                Objects.requireNonNull(loadedClass, "loadedClass");
-                setBaseData(loadedClass);
-                statList.add(loadedClass);
-            }
-
         }
 
         public AgentStatBo build() {
@@ -245,22 +185,21 @@ public class AgentStatBo {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("AgentStatBo{");
-        sb.append("agentId='").append(agentId).append('\'');
-        sb.append(", jvmGcBos=").append(jvmGcBos);
-        sb.append(", jvmGcDetailedBos=").append(jvmGcDetailedBos);
-        sb.append(", cpuLoadBos=").append(cpuLoadBos);
-        sb.append(", transactionBos=").append(transactionBos);
-        sb.append(", activeTraceBos=").append(activeTraceBos);
-        sb.append(", dataSourceListBos=").append(dataSourceListBos);
-        sb.append(", responseTimeBos=").append(responseTimeBos);
-        sb.append(", deadlockThreadCountBos=").append(deadlockThreadCountBos);
-        sb.append(", fileDescriptorBos=").append(fileDescriptorBos);
-        sb.append(", directBufferBos=").append(directBufferBos);
-        sb.append(", totalThreadCountBos=").append(totalThreadCountBos);
-        sb.append(", loadedClassBos=").append(loadedClassBos);
-        sb.append('}');
-        return sb.toString();
+        return "AgentStatBo{" +
+                "agentId='" + agentId + '\'' +
+                ", startTimestamp=" + startTimestamp +
+                ", jvmGcBos=" + jvmGcBos +
+                ", jvmGcDetailedBos=" + jvmGcDetailedBos +
+                ", cpuLoadBos=" + cpuLoadBos +
+                ", transactionBos=" + transactionBos +
+                ", activeTraceBos=" + activeTraceBos +
+                ", dataSourceListBos=" + dataSourceListBos +
+                ", responseTimeBos=" + responseTimeBos +
+                ", deadlockThreadCountBos=" + deadlockThreadCountBos +
+                ", fileDescriptorBos=" + fileDescriptorBos +
+                ", directBufferBos=" + directBufferBos +
+                ", totalThreadCountBos=" + totalThreadCountBos +
+                ", loadedClassBos=" + loadedClassBos +
+                '}';
     }
-
 }

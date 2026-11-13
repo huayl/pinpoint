@@ -1,0 +1,34 @@
+import React from 'react';
+import { AgentStatisticChart, ChartData } from './AgentStatisticChart';
+import { AgentOverview } from '@pinpoint-fe/ui/src/constants';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const useVersionChartData = (data: any, versionKey: 'vmVersion' | 'agentVersion') =>
+  React.useMemo(() => {
+    const instances = data;
+
+    const versionCounts = instances?.reduce((acc: any, instance: AgentOverview.Instance) => {
+      const version = instance[versionKey];
+      if (version) {
+        acc[version] = (acc[version] || 0) + 1;
+      }
+      return acc;
+    }, {} as any);
+
+    return Object.entries(versionCounts || {}).map(([version, value]) => ({
+      [versionKey]: version,
+      value,
+    }));
+  }, [data, versionKey]);
+
+export function AgentStatisticContainer({ data }: { data?: AgentOverview.Response }) {
+  const vmVersionChartData = useVersionChartData(data, 'vmVersion');
+  const agentVersionChartData = useVersionChartData(data, 'agentVersion');
+
+  return (
+    <div className="flex min-w-full gap-5 h-[40%] min-h-0">
+      <AgentStatisticChart type="vmVersion" chartData={vmVersionChartData as ChartData[]} />
+      <AgentStatisticChart type="agentVersion" chartData={agentVersionChartData as ChartData[]} />
+    </div>
+  );
+}

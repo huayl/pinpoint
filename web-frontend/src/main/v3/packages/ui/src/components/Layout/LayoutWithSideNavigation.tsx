@@ -1,0 +1,578 @@
+import React from 'react';
+import { Link, useLocation } from 'react-router';
+import {
+  IMAGE_PATH,
+  APP_PATH,
+  APP_SETTING_KEYS,
+  MenuItemType as MenuItem,
+} from '@pinpoint-fe/ui/src/constants';
+import { cn } from '../../lib';
+import {
+  ErrorBoundary,
+  GlobalSearch,
+  Separator,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '..';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { LuChevronRight, LuChevronFirst, LuChevronLast, LuSearch } from 'react-icons/lu';
+import { RxMagnifyingGlass } from 'react-icons/rx';
+import { LuCommand } from 'react-icons/lu';
+import { useLocalStorage } from '@pinpoint-fe/ui/src/hooks';
+import { useAtom } from 'jotai';
+import { globalSearchDisplayAtom } from '@pinpoint-fe/ui/src/atoms';
+import {
+  SidebarProvider,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  Sidebar as ShadcnUiSidebar,
+  SidebarContent,
+  SidebarMenu,
+  SidebarHeader,
+  SidebarFooter,
+} from '@pinpoint-fe/ui/src/components/ui/sidebar';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@pinpoint-fe/ui/src/components/ui/dropdown-menu';
+
+import { findActiveMenuItem, isMenuItemActive } from './menuItemActive';
+import { filterChildItemsByName } from './filterChildItemsByName';
+
+const SIDEBAR_WIDTH = 200;
+const SIDEBAR_COLLAPSED_WIDTH = 64;
+
+export type SideNavigationMenuItem = MenuItem & {
+  aHref?: string;
+  children?: React.ReactNode | ((collapsed: boolean) => React.ReactNode);
+  childItems?: SideNavigationMenuItem[];
+  onClick?: () => void;
+  headerAction?: React.ReactNode | ((close: () => void) => React.ReactNode);
+  selected?: boolean;
+  leftChildItems?: SideNavigationMenuItem[];
+  leftSectionTitle?: string;
+  rightSectionTitle?: string;
+  /** 주어지면 오른쪽 칸(`childItems`) 위에 검색창을 띄우고, 이름으로 목록을 거른다. */
+  childItemsSearchPlaceholder?: string;
+  /** 검색 결과가 없을 때 보여줄 문구. */
+  childItemsSearchEmptyText?: string;
+};
+
+interface TooltipProps {
+  trigger: React.ReactNode;
+  content: React.ReactNode;
+  hidden?: boolean;
+}
+
+export interface LayoutWithSideNavigationProps {
+  children: React.ReactNode;
+  topMenuItems?: SideNavigationMenuItem[];
+  bottomMenuItems?: SideNavigationMenuItem[];
+}
+
+// 사이드 메뉴와 그 드롭다운은 배경이 파랗다. 공통 스크롤바 색(회색)은 그 위에서 잘 안 보이므로
+// 사이드 메뉴용 색으로 바꾼다. 드롭다운은 portal 로 떨어져 그려지므로 따로 얹어야 한다.
+const SNB_SCROLLBAR_CLASS_NAME = '[--scrollbar-thumb:var(--snb-scrollbar-thumb)]';
+
+const SIDEBAR_MENU_BUTTON_BASE_CLASS_NAME = `h-10! !rounded p-1.5 pl-1.5! pr-2! text-sm
+  hover:bg-(--blue-700) hover:text-(--white-default)`;
+
+// 드롭다운 항목은 마우스/키보드 이동이 focus 로 표시되므로 하이라이트가 필요하다.
+const SIDEBAR_MENU_BUTTON_FOCUS_CLASS_NAME = `focus:bg-(--blue-700) focus:text-(--white-default)`;
+
+const SIDEBAR_MENU_BUTTON_CLASS_NAME = `${SIDEBAR_MENU_BUTTON_BASE_CLASS_NAME}
+  ${SIDEBAR_MENU_BUTTON_FOCUS_CLASS_NAME}`;
+
+// 하단 메뉴 버튼은 드롭다운을 닫으면 포커스가 트리거로 돌아온다. 그때 focus 배경과
+// SidebarMenuButton 기본 focus-visible 링이 남아 선택된 메뉴처럼 보이므로 둘 다 쓰지 않는다.
+const SIDEBAR_MENU_BUTTON_WITHOUT_FOCUS_CLASS_NAME = `${SIDEBAR_MENU_BUTTON_BASE_CLASS_NAME}
+  focus-visible:ring-0`;
+
+export const LayoutWithSideNavigation = ({
+  children,
+  topMenuItems,
+  bottomMenuItems,
+}: LayoutWithSideNavigationProps) => {
+  const [, setGlobalSearchOpen] = useAtom(globalSearchDisplayAtom);
+  const [collapsed, setCollapsed] = useLocalStorage(APP_SETTING_KEYS.SIDE_NAV_BAR_SCALE, false);
+  const { pathname } = useLocation();
+
+  // 이 경로의 주인인 최상위 항목. 보이는 항목으로 아무것도 안 걸릴 때만 감춘 항목까지 본다
+  // (`findActiveMenuItem`). 기능 설정으로 메뉴에서 빠진 화면에 URL로 들어오면 화면은 그 그룹
+  // 안에서 그려지므로(`findActiveConfigMenuGroup`), 사이드바도 같은 그룹을 켜야 한다.
+  const activeItem = findActiveMenuItem(
+    React.useMemo(
+      () => [...(topMenuItems ?? []), ...(bottomMenuItems ?? [])],
+      [topMenuItems, bottomMenuItems],
+    ),
+    pathname,
+  );
+
+  // 자식 항목은 위 목록에 없으므로 항목 자체로 판단한다(감춘 자식은 세지 않는 쪽).
+  const isActive = React.useCallback(
+    (item: SideNavigationMenuItem) => item === activeItem || isMenuItemActive(item, pathname),
+    [activeItem, pathname],
+  );
+
+  const renderMenuItemContent = (item: SideNavigationMenuItem, isChildItem?: boolean) => {
+    const itemClassName = cn('w-full', { 'justify-center': collapsed });
+
+    const itemChildren = (
+      <div className="flex items-center w-full">
+        {item?.icon && (
+          <span
+            className={cn(
+              'flex relative shrink-0 justify-center items-center mr-1 text-lg transition-opacity w-[35px] h-[35px]',
+              isActive(item) ? 'opacity-100' : 'opacity-70',
+            )}
+          >
+            {item.icon}
+            {collapsed && item.childItems && item.childItems.length > 0 && (
+              <span className="absolute top-2 right-1 w-1.5 h-1.5 bg-white rounded-full" />
+            )}
+          </span>
+        )}
+        {collapsed && !isChildItem ? null : (
+          <>
+            <span
+              className={cn(
+                'flex-1 min-w-0 transition-opacity truncate',
+                isActive(item) ? 'opacity-100' : 'opacity-70',
+                {
+                  'pl-6 pr-2': !item?.icon,
+                },
+              )}
+            >
+              {item.children
+                ? typeof item.children === 'function'
+                  ? item.children(collapsed)
+                  : item.children
+                : item.name}
+            </span>
+            {item.childItems && item.childItems?.length > 0 && (
+              <LuChevronRight className="ml-auto" />
+            )}
+          </>
+        )}
+      </div>
+    );
+
+    if (item?.childItems && item?.childItems?.length > 0) {
+      return <div className="w-full">{itemChildren}</div>;
+    } else if (item.aHref) {
+      return (
+        <a href={item.aHref ?? ''} className={itemClassName}>
+          {itemChildren}
+        </a>
+      );
+    } else if (item.onClick && !item.href) {
+      return (
+        <button type="button" className={itemClassName} onClick={item.onClick}>
+          {itemChildren}
+        </button>
+      );
+    } else {
+      return (
+        <Link to={item.href ?? ''} className={itemClassName}>
+          {itemChildren}
+        </Link>
+      );
+    }
+  };
+
+  const renderSidebarMenuItem = (
+    item: SideNavigationMenuItem,
+    options?: { withoutFocusStyle?: boolean },
+  ) => {
+    // hide는 메뉴 자리(버튼 높이 + gap)까지 남지 않도록 아예 렌더하지 않는다.
+    if (item.hide) {
+      return null;
+    }
+
+    const buttonClassName = options?.withoutFocusStyle
+      ? SIDEBAR_MENU_BUTTON_WITHOUT_FOCUS_CLASS_NAME
+      : SIDEBAR_MENU_BUTTON_CLASS_NAME;
+
+    if (item.childItems) {
+      return (
+        <SidebarMenuItem>
+          <SidebarMenuButtonWithDropdownMenu
+            item={item}
+            isActive={isActive}
+            renderMenuItemContent={renderMenuItemContent}
+            collapsed={collapsed}
+            triggerClassName={buttonClassName}
+          />
+        </SidebarMenuItem>
+      );
+    }
+
+    return (
+      <SidebarMenuItem>
+        {WithTooltip({
+          trigger: (
+            <SidebarMenuButton
+              className={cn(buttonClassName, {
+                'font-semibold bg-(--blue-700)': isActive(item),
+              })}
+            >
+              {renderMenuItemContent(item)}
+            </SidebarMenuButton>
+          ),
+          content: item.name || '',
+          hidden: !collapsed,
+        })}
+      </SidebarMenuItem>
+    );
+  };
+
+  return (
+    <SidebarProvider
+      style={
+        {
+          '--sidebar-width': `${collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH}px`,
+        } as React.CSSProperties
+      }
+      className="h-screen"
+    >
+      <ErrorBoundary
+        fallbackRender={({ error }) => (
+          <div className="flex flex-col items-center justify-center w-[200px] h-full gap-5 p-3">
+            <div className="w-full text-center max-w-112">
+              <p className="mb-2 text-sm truncate">{(error as Error | undefined)?.message}</p>
+            </div>
+          </div>
+        )}
+      >
+        <React.Fragment>
+          <TooltipProvider delayDuration={100}>
+            <ShadcnUiSidebar
+              style={{
+                color: 'var(--snb-text)',
+                background: 'var(--snb-background)',
+              }}
+              className={cn(
+                '[&:hover_.scale-button-wrapper]:inline-block',
+                SNB_SCROLLBAR_CLASS_NAME,
+              )}
+            >
+              <SidebarHeader className="gap-0 p-0">
+                <div className="mb-2">
+                  <div
+                    className={cn(
+                      'flex relative items-center pl-6 h-16 min-h-16 hover:bg-(--blue-700)',
+                      { 'justify-center pl-0': collapsed },
+                    )}
+                  >
+                    <Link to={APP_PATH.SERVER_MAP} className="flex items-center">
+                      <img
+                        src={collapsed ? `${IMAGE_PATH}/mini-logo.png` : `${IMAGE_PATH}/logo.png`}
+                        alt={'pinpoint-logo'}
+                      />
+                    </Link>
+                    <div className="absolute hidden top-1 right-1 scale-button-wrapper">
+                      <button
+                        className="flex items-center justify-center w-6 h-6 text-white opacity-50 cursor-pointer hover:opacity-100 hover:font-semibold"
+                        onClick={() => setCollapsed(!collapsed)}
+                      >
+                        {collapsed ? <LuChevronLast /> : <LuChevronFirst />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <SidebarMenuItem className="px-2">
+                  {WithTooltip({
+                    trigger: (
+                      <SidebarMenuButton
+                        className={cn(
+                          'mb-0.5 group/global_search group/search-item h-10! rounded! p-0! pl-1.5! pr-2! text-sm',
+                          'bg-transparent hover:bg-(--blue-700) transition-colors',
+                        )}
+                        onClick={() => setGlobalSearchOpen(true)}
+                      >
+                        <div className="flex items-center w-full">
+                          <span className="w-[35px] h-[35px] flex items-center justify-center">
+                            <RxMagnifyingGlass className="mr-1 text-lg text-white/70" />
+                          </span>
+                          {collapsed ? null : (
+                            <>
+                              <span className="text-white/70">Search...</span>
+                              <div className="items-center hidden gap-1 px-1.5 ml-auto text-xs border border-white/20 rounded group-hover/global_search:flex bg-white/10 text-white">
+                                <LuCommand className="text-xs" />K
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </SidebarMenuButton>
+                    ),
+                    content: (
+                      <div className="flex">
+                        Search...
+                        <div className="flex items-center gap-1 px-1 ml-3 text-xs border rounded bg-muted/25">
+                          <LuCommand /> K
+                        </div>
+                      </div>
+                    ),
+                    hidden: !collapsed,
+                  })}
+                </SidebarMenuItem>
+                <div className="px-4 my-2">
+                  <Separator className="opacity-50" />
+                </div>
+              </SidebarHeader>
+              <SidebarContent>
+                <SidebarMenu className="gap-1 px-2">
+                  {topMenuItems?.map((item) => {
+                    return (
+                      <React.Fragment key={getMenuKey(item.path)}>
+                        {renderSidebarMenuItem(item)}
+                      </React.Fragment>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarContent>
+              <SidebarFooter className="px-0 pb-10">
+                <SidebarMenu className="px-2">
+                  {bottomMenuItems?.map((item) => {
+                    return (
+                      <React.Fragment key={getMenuKey(item.path)}>
+                        {renderSidebarMenuItem(item, { withoutFocusStyle: true })}
+                      </React.Fragment>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarFooter>
+            </ShadcnUiSidebar>
+          </TooltipProvider>
+        </React.Fragment>
+      </ErrorBoundary>
+      <SidebarContent>
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </SidebarContent>
+      <GlobalSearch services={topMenuItems} />
+    </SidebarProvider>
+  );
+};
+
+const SidebarMenuButtonWithDropdownMenu = ({
+  item,
+  isActive,
+  renderMenuItemContent,
+  collapsed,
+  triggerClassName = SIDEBAR_MENU_BUTTON_CLASS_NAME,
+}: {
+  item: SideNavigationMenuItem;
+  isActive: (item: SideNavigationMenuItem) => boolean;
+  renderMenuItemContent: (item: SideNavigationMenuItem, isChildItem?: boolean) => React.ReactNode;
+  collapsed: boolean;
+  triggerClassName?: string;
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const [listMinHeight, setListMinHeight] = React.useState<number>();
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    // 다시 열 때는 전체 목록부터 보여주고, 높이도 그때 다시 잰다.
+    if (!nextOpen) {
+      setQuery('');
+      setListMinHeight(undefined);
+    }
+  }, []);
+  // 검색으로 목록이 줄어도 창 높이가 따라 줄지 않도록, 열렸을 때(검색어가 비어 전체 목록일 때)의
+  // 높이를 재 두고 그보다 작아지지 않게 한다. 목록 칸은 열릴 때마다 새로 붙으므로 붙는 순간 잰다.
+  const listRef = React.useRef<HTMLDivElement | null>(null);
+  const measureList = React.useCallback((node: HTMLDivElement | null) => {
+    listRef.current = node;
+    if (node) {
+      setListMinHeight((prev) => prev ?? node.offsetHeight);
+    }
+  }, []);
+  // 검색창에 입력하는 중에는 마우스가 목록 위를 지나가도 포커스를 뺏기지 않게 한다. 메뉴는 마우스가
+  // 항목에 오면 그 항목에, 떠나면 메뉴 자신에 포커스를 주는데, 그러면 다음 글자가 검색창이 아니라
+  // typeahead로 간다. 마우스 하이라이트는 CSS hover로 그대로 보인다.
+  const keepSearchFocus = React.useCallback((e: React.PointerEvent) => {
+    if (document.activeElement === searchInputRef.current) {
+      e.preventDefault();
+    }
+  }, []);
+  // 첫 항목에서 ↑를 누르면 검색창으로 돌아간다. 메뉴는 끝에서 돌지 않고(loop 꺼짐) Tab도 막으므로,
+  // 이게 없으면 목록에 들어간 뒤 검색어를 고치려면 닫았다 열어야 하고 그때 검색어가 지워진다.
+  // 메뉴의 화살표 처리는 항목에서 일어나므로 capture 단계에서 먼저 가로챈다.
+  const returnToSearchFromFirstItem = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'ArrowUp') {
+        return;
+      }
+      const firstItem = e.currentTarget.querySelector('[role="menuitem"]');
+      if (firstItem && e.target === firstItem) {
+        e.preventDefault();
+        e.stopPropagation();
+        searchInputRef.current?.focus();
+      }
+    },
+    [],
+  );
+  // 항목을 골라 닫을 때도 검색어를 비워야 하므로 같은 길로 닫는다.
+  const close = React.useCallback(() => handleOpenChange(false), [handleOpenChange]);
+  const searchable = !!item.childItemsSearchPlaceholder;
+
+  // 검색창이 있으면 열자마자 바로 칠 수 있게 그쪽으로 포커스를 준다. 메뉴는 열릴 때 자기 자신에
+  // 포커스를 주므로, 그 다음 프레임에 옮긴다.
+  React.useEffect(() => {
+    if (!open || !searchable) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open, searchable]);
+
+  const filteredChildItems = React.useMemo(
+    () => filterChildItemsByName(item.childItems ?? [], searchable ? query : ''),
+    [item.childItems, searchable, query],
+  );
+  const hasLeftSection = !!item.leftChildItems && item.leftChildItems.length > 0;
+
+  const renderChildList = (childItems: SideNavigationMenuItem[]) => (
+    <div className="space-y-1">
+      {childItems
+        .filter((childItem) => !childItem.hide)
+        .map((childItem) => (
+          <DropdownMenuItem
+            key={getMenuKey(childItem.path)}
+            className={cn(
+              SIDEBAR_MENU_BUTTON_CLASS_NAME,
+              {
+                'font-semibold': isActive(childItem) || childItem.selected,
+                'bg-(--blue-700)': isActive(childItem),
+              },
+              'cursor-pointer',
+            )}
+            asChild
+            onSelect={close}
+            onPointerMove={searchable ? keepSearchFocus : undefined}
+            onPointerLeave={searchable ? keepSearchFocus : undefined}
+          >
+            {renderMenuItemContent(childItem, true)}
+          </DropdownMenuItem>
+        ))}
+    </div>
+  );
+
+  const rightSection = (
+    <>
+      <div className="flex items-center justify-between h-10 gap-4 pl-6 pr-2 text-sm">
+        <span className="min-w-0 truncate opacity-50">{item.rightSectionTitle ?? item.name}</span>
+        {typeof item.headerAction === 'function' ? item.headerAction(close) : item.headerAction}
+      </div>
+      <Separator className="mb-2 opacity-50" />
+      {searchable && (
+        <div className="relative px-2 mb-2">
+          <LuSearch className="absolute w-3.5 h-3.5 -translate-y-1/2 pointer-events-none left-4 top-1/2 text-white/50" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={query}
+            placeholder={item.childItemsSearchPlaceholder}
+            aria-label={item.childItemsSearchPlaceholder}
+            className="w-full h-8 pr-2 text-sm text-white border rounded-md outline-none pl-7 bg-white/10 border-white/20 placeholder:text-white/50 focus:border-white/50"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // 메뉴는 자기 자신에 포커스가 있을 때만 화살표를 처리하므로 첫 항목으로 직접 옮긴다.
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                listRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+              }
+              // 메뉴의 typeahead(글자를 치면 그 글자로 시작하는 항목으로 포커스를 옮김)가 입력을
+              // 가로채지 않도록 막는다. Escape만 메뉴에 넘겨 닫히게 한다.
+              if (e.key !== 'Escape') {
+                e.stopPropagation();
+              }
+            }}
+          />
+        </div>
+      )}
+      <div
+        ref={searchable ? measureList : undefined}
+        className="overflow-y-auto max-h-[360px]"
+        // 잰 값은 실행 중에야 알 수 있어 Tailwind 클래스로 쓸 수 없다.
+        style={searchable ? { minHeight: listMinHeight } : undefined}
+        onKeyDownCapture={searchable ? returnToSearchFromFirstItem : undefined}
+      >
+        {searchable && query.trim() && filteredChildItems.length === 0 ? (
+          <div className="px-6 py-2 text-sm opacity-50">{item.childItemsSearchEmptyText}</div>
+        ) : (
+          renderChildList(filteredChildItems)
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+      {WithTooltip({
+        trigger: (
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              className={cn(triggerClassName, {
+                'font-semibold bg-(--blue-700)': isActive(item),
+              })}
+            >
+              {renderMenuItemContent(item)}
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+        ),
+        content: item.name || '',
+        hidden: !collapsed,
+      })}
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        alignOffset={-50}
+        className={cn(
+          'rounded-md border-none shadow-lg bg-(--blue-900) text-(--white-default)',
+          SNB_SCROLLBAR_CLASS_NAME,
+          hasLeftSection ? 'min-w-[440px]' : 'w-full min-w-[220px]',
+        )}
+      >
+        {hasLeftSection ? (
+          <div className="flex">
+            <div className="flex-1 pr-2 border-r border-white/10">
+              <div className="flex items-center h-10 pl-6 pr-2 text-sm">
+                <span className="opacity-50">{item.leftSectionTitle ?? ''}</span>
+              </div>
+              <Separator className="mb-2 opacity-50" />
+              {renderChildList(item.leftChildItems ?? [])}
+            </div>
+            <div className="flex-1 pl-2">{rightSection}</div>
+          </div>
+        ) : (
+          rightSection
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
+const WithTooltip = ({ trigger, content, hidden }: TooltipProps) => {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipPrimitive.Portal>
+        <TooltipContent side="right" className={cn({ hidden: !!hidden })}>
+          {content}
+        </TooltipContent>
+      </TooltipPrimitive.Portal>
+    </Tooltip>
+  );
+};
+
+const getMenuKey = (path: SideNavigationMenuItem['path']) => {
+  return Array.isArray(path) ? path[0] : path;
+};

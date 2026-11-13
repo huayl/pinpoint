@@ -1,0 +1,190 @@
+import React from 'react';
+import { BASE_PATH } from '@pinpoint-fe/ui/src/constants';
+import { useGetTransactionInfo } from '@pinpoint-fe/ui/src/hooks';
+import { useAtom, useSetAtom } from 'jotai';
+import { useTranslation } from 'react-i18next';
+import { FaChevronRight } from 'react-icons/fa6';
+import { useNavigate } from 'react-router';
+import { Button, HelpPopover, Tabs, TabsContent, TabsList, TabsTrigger } from '../..';
+import { CallTree } from '..';
+import {
+  getTransactionDetailPath,
+  getTransactionDetailQueryString,
+} from '@pinpoint-fe/ui/src/utils';
+import { useTransactionSearchParameters } from '@pinpoint-fe/ui/src/hooks';
+import { RxExternalLink } from 'react-icons/rx';
+import {
+  transactionInfoCurrentTabId,
+  transactionInfoDatasAtom,
+  transactionInfoSteppedInSpanId,
+} from '@pinpoint-fe/ui/src/atoms';
+import { Popover, PopoverContent, PopoverTrigger } from '../../ui';
+import { Timeline } from '../timeline/Timeline';
+import { ServerIcon } from '../../Application/ServerIcon';
+import { TraceServerMap } from '../traceServerMap/traceServerMap';
+
+export interface TransactionInfoFetcherProps {
+  disableHeader?: boolean;
+}
+
+const tabList = [
+  { id: 'callTree', display: 'Call Tree' },
+  { id: 'serverMap', display: 'Server Map' },
+  { id: 'flameGraph', display: 'Flame Graph' },
+];
+
+export const TransactionInfoFetcher = ({ disableHeader }: TransactionInfoFetcherProps) => {
+  const navigate = useNavigate();
+  // URL에 실려 있던 service 이름. 새 탭/같은 탭으로 여는 transactionDetail에 다시 실어야
+  // pServiceName 헤더가 유지된다(`getRequestService`).
+  const { application, transactionInfo, serviceName } = useTransactionSearchParameters();
+  const { data, tableData, mapData } = useGetTransactionInfo();
+  const setTransactionInfo = useSetAtom(transactionInfoDatasAtom);
+  const [currentTab, setCurrentTab] = useAtom(transactionInfoCurrentTabId);
+  const setSteppedInSpanId = useSetAtom(transactionInfoSteppedInSpanId);
+  const [toolbarSlot, setToolbarSlot] = React.useState<HTMLDivElement | null>(null);
+  const { t } = useTranslation();
+
+  const currentTabId = currentTab || tabList[0].id;
+
+  // Stepping in is a view state on one trace; a different transaction must start stepped out.
+  // Atoms survive remounts, so this has to be cleared explicitly.
+  React.useEffect(() => {
+    setSteppedInSpanId('');
+  }, [data?.transactionId, data?.spanId, setSteppedInSpanId]);
+
+  React.useEffect(() => {
+    setTransactionInfo(data);
+    // transaction 검색으로 들어온 경우 redirect
+    if (data && data.spanId === -1 && !application) {
+      const applicationName = data.applicationName;
+      const serviceType = data.serviceType;
+      const navigatePath = `${getTransactionDetailPath(
+        { applicationName, serviceType },
+        undefined,
+        serviceName,
+      )}?${getTransactionDetailQueryString({
+        agentId: data.agentId,
+        traceId: data.transactionId,
+        spanId: transactionInfo.spanId,
+        focusTimestamp: transactionInfo.focusTimestamp,
+      })}`;
+      navigate(navigatePath, {
+        replace: true,
+      });
+    }
+  }, [data, application?.applicationName, application?.serviceType]);
+
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        {t('TRANSACTION_LIST.SELECT_TRANSACTION')}
+      </div>
+    );
+  }
+
+  return (
+    <Tabs
+      value={currentTabId}
+      className="flex flex-col h-full"
+      onValueChange={(id) => setCurrentTab(id)}
+    >
+      <div className="flex-none p-3 border-b">
+        {!disableHeader && (
+          <div className="flex items-center gap-1 pb-2 text-sm font-semibold truncate">
+            <ServerIcon application={application!} className="w-3.5 mr-1" />
+            <div className="truncate">{application?.applicationName}</div>
+            <div className="truncate">({data.agentId})</div>
+            <FaChevronRight className="fill-slate-400 mx-1.5 flex-none" />
+            <div className="truncate">{data.uri}</div>
+            <FaChevronRight className="fill-slate-400 mx-1.5 flex-none" />
+            <div className="truncate text-muted-foreground">{data.transactionId}</div>
+            <Button
+              className="ml-auto w-8 h-8 text-base text-muted-foreground py-0.5 px-1"
+              variant="ghost"
+              onClick={() => {
+                const path = getTransactionDetailPath(application, undefined, serviceName);
+                window.open(
+                  `${BASE_PATH}${path}?${getTransactionDetailQueryString({
+                    agentId: data.agentId,
+                    traceId: data.transactionId,
+                    spanId: transactionInfo.spanId,
+                    focusTimestamp: transactionInfo.focusTimestamp,
+                  })}`,
+                );
+              }}
+            >
+              <RxExternalLink />
+            </Button>
+            <HelpPopover helpKey="HELP_VIEWER.CALL_TREE" />
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          <TabsList>
+            {tabList.map((tab) => (
+              <TabsTrigger className="text-xs" key={tab.id} value={tab.id}>
+                {tab.display}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                size="sm"
+                variant="link"
+                disabled={!data.logLinkEnable}
+                onClick={(e) => {
+                  if (data.loggingTransactionInfo) {
+                    e.preventDefault();
+                    window.open(
+                      `${location.protocol}//${location.host}/${encodeURI(data.logPageUrl)}`,
+                    );
+                  }
+                }}
+              >
+                {data.logButtonName}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="space-y-2 text-xs [&_a]:text-primary hover:[&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: data.disableButtonMessage }}
+            ></PopoverContent>
+          </Popover>
+
+          {/* Toolbar slot: the Call Tree and the Flame Graph portal their own controls here so the
+              tabs and the toolbar share one flex-wrap row and wrap instead of overlapping when
+              space is tight. */}
+          <div ref={setToolbarSlot} className="flex items-center ml-auto" />
+        </div>
+      </div>
+      {tabList.map((tab) => {
+        let Content;
+        if (tab.id === 'callTree') {
+          Content = (
+            <CallTree
+              data={tableData}
+              metaData={data}
+              mapData={mapData || []}
+              toolbarSlot={toolbarSlot}
+            />
+          );
+        } else if (tab.id === 'serverMap' && data) {
+          Content = <TraceServerMap />;
+        } else if (tab.id === 'flameGraph') {
+          Content = <Timeline transactionInfo={data} mapData={mapData} toolbarSlot={toolbarSlot} />;
+        }
+        return (
+          <TabsContent
+            key={tab.id}
+            value={tab.id}
+            className="mt-0 flex-1 min-h-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+          >
+            {Content}
+          </TabsContent>
+        );
+      })}
+    </Tabs>
+  );
+};

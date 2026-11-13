@@ -17,27 +17,32 @@
 package com.navercorp.pinpoint.collector.dao.hbase;
 
 import com.navercorp.pinpoint.collector.dao.TraceDao;
-import com.navercorp.pinpoint.collector.util.CollectorUtils;
+import com.navercorp.pinpoint.collector.util.DurabilityApplier;
 import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
-import com.navercorp.pinpoint.common.hbase.HbaseOperations2;
-import com.navercorp.pinpoint.common.hbase.TableDescriptor;
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
+import com.navercorp.pinpoint.common.hbase.async.HbasePutWriter;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
 import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanChunkSerializerV2;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.SpanSerializerV2;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Put;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * @author Woonduk Kang(emeroad)
@@ -45,77 +50,97 @@ import java.util.Objects;
 @Repository
 public class HbaseTraceDaoV2 implements TraceDao {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
-    private final HbaseOperations2 hbaseTemplate;
+    private static final HbaseColumnFamily descriptor = HbaseTables.TRACE_V2_SPAN;
 
-    private final TableDescriptor<HbaseColumnFamily.Trace> descriptor;
+    private final TableNameProvider tableNameProvider;
 
     private final SpanSerializerV2 spanSerializer;
 
     private final SpanChunkSerializerV2 spanChunkSerializer;
 
-    private final RowKeyEncoder<TransactionId> rowKeyEncoder;
+    private final RowKeyEncoder<ServerTraceId> rowKeyEncoder;
+    private final HbasePutWriter putWriter;
 
-    public HbaseTraceDaoV2(@Qualifier("asyncPutHbaseTemplate") HbaseOperations2 hbaseTemplate,
-                           TableDescriptor<HbaseColumnFamily.Trace> descriptor,
-                           @Qualifier("traceRowKeyEncoderV2") RowKeyEncoder<TransactionId> rowKeyEncoder,
+    private final DurabilityApplier durabilityApplier;
+
+    public HbaseTraceDaoV2(@Qualifier("spanPutWriter")
+                           HbasePutWriter putWriter,
+                           TableNameProvider tableNameProvider,
+                           @Qualifier("traceRowKeyEncoderV2") RowKeyEncoder<ServerTraceId> rowKeyEncoder,
                            SpanSerializerV2 spanSerializer,
-                           SpanChunkSerializerV2 spanChunkSerializer) {
-        this.hbaseTemplate = Objects.requireNonNull(hbaseTemplate, "hbaseTemplate");
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
+                           SpanChunkSerializerV2 spanChunkSerializer,
+                           DurabilityApplier durabilityApplier) {
+        this.putWriter = Objects.requireNonNull(putWriter, "putWriter");
+        this.tableNameProvider = Objects.requireNonNull(tableNameProvider, "tableNameProvider");
         this.rowKeyEncoder = Objects.requireNonNull(rowKeyEncoder, "rowKeyEncoder");
         this.spanSerializer = Objects.requireNonNull(spanSerializer, "spanSerializer");
         this.spanChunkSerializer = Objects.requireNonNull(spanChunkSerializer, "spanChunkSerializer");
+
+        this.durabilityApplier = Objects.requireNonNull(durabilityApplier, "durabilityApplier");
     }
 
     @Override
-    public boolean insert(final SpanBo spanBo) {
+    public boolean insert(SpanBo span) {
+        CompletableFuture<Void> future = asyncInsert(span);
+        try {
+            future.get(3, TimeUnit.SECONDS);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.debug("insert interrupted", e);
+            return false;
+        } catch (ExecutionException | TimeoutException e) {
+            logger.debug("insert failed", e);
+            return false;
+        }
+    }
+
+    @Override
+    public CompletableFuture<Void> asyncInsert(final SpanBo spanBo) {
         Objects.requireNonNull(spanBo, "spanBo");
         if (logger.isDebugEnabled()) {
             logger.debug("insert trace: {}", spanBo);
         }
 
-        // Assert agentId
-        CollectorUtils.checkAgentId(spanBo.getAgentId());
-        // Assert applicationName
-        CollectorUtils.checkApplicationName(spanBo.getApplicationId());
-
         long acceptedTime = spanBo.getCollectorAcceptTime();
 
-        TransactionId transactionId = spanBo.getTransactionId();
+        ServerTraceId transactionId = spanBo.getTransactionId();
         final byte[] rowKey = this.rowKeyEncoder.encodeRowKey(transactionId);
-        final Put put = new Put(rowKey, acceptedTime);
+        final Put put = new Put(rowKey, acceptedTime, true);
+
+        this.durabilityApplier.apply(put);
 
         this.spanSerializer.serialize(spanBo, put, null);
 
-        TableName traceTableName = descriptor.getTableName();
-
-        return hbaseTemplate.asyncPut(traceTableName, put);
+        TableName traceTableName = tableNameProvider.getTableName(descriptor.getTable());
+        return putWriter.put(traceTableName, put);
     }
 
     @Override
-    public boolean insertSpanChunk(SpanChunkBo spanChunkBo) {
+    public void insertSpanChunk(SpanChunkBo spanChunkBo) {
         Objects.requireNonNull(spanChunkBo, "spanChunkBo");
-
-        TransactionId transactionId = spanChunkBo.getTransactionId();
-        final byte[] rowKey = this.rowKeyEncoder.encodeRowKey(transactionId);
-
-        final long acceptedTime = spanChunkBo.getCollectorAcceptTime();
-        final Put put = new Put(rowKey, acceptedTime);
 
         final List<SpanEventBo> spanEventBoList = spanChunkBo.getSpanEventBoList();
         if (CollectionUtils.isEmpty(spanEventBoList)) {
-            return true;
+            return;
         }
+
+        ServerTraceId transactionId = spanChunkBo.getTransactionId();
+        final byte[] rowKey = this.rowKeyEncoder.encodeRowKey(transactionId);
+
+        final long acceptedTime = spanChunkBo.getCollectorAcceptTime();
+        final Put put = new Put(rowKey, acceptedTime, true);
+
+        this.durabilityApplier.apply(put);
 
         this.spanChunkSerializer.serialize(spanChunkBo, put, null);
 
-        if (!put.isEmpty()) {
-            TableName traceTableName = descriptor.getTableName();
-            return hbaseTemplate.asyncPut(traceTableName, put);
+        if (put.isEmpty()) {
+            return;
         }
-
-        return false;
+        TableName traceTableName = tableNameProvider.getTableName(descriptor.getTable());
+        this.putWriter.put(traceTableName, put);
     }
 }

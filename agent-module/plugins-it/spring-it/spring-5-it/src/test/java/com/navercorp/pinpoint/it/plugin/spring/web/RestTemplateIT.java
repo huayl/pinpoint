@@ -1,0 +1,89 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.it.plugin.spring.web;
+
+import com.navercorp.pinpoint.bootstrap.plugin.test.PluginTestVerifier;
+import com.navercorp.pinpoint.bootstrap.plugin.test.PluginTestVerifierHolder;
+import com.navercorp.pinpoint.it.plugin.utils.AgentPath;
+import com.navercorp.pinpoint.it.plugin.utils.PluginITConstants;
+import com.navercorp.pinpoint.it.plugin.utils.WebServer;
+import com.navercorp.pinpoint.test.plugin.api.Dependency;
+import com.navercorp.pinpoint.test.plugin.api.ImportPlugin;
+import com.navercorp.pinpoint.test.plugin.api.JvmVersion;
+import com.navercorp.pinpoint.test.plugin.api.PinpointAgent;
+import com.navercorp.pinpoint.test.plugin.api.PinpointConfig;
+import com.navercorp.pinpoint.test.plugin.api.PluginTest;
+import org.junit.jupiter.api.AutoClose;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.client.AbstractClientHttpRequest;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.http.client.Netty4ClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
+
+import static com.navercorp.pinpoint.bootstrap.plugin.test.Expectations.annotation;
+import static com.navercorp.pinpoint.bootstrap.plugin.test.Expectations.event;
+
+/**
+ * @author Taejin Koo
+ */
+@PluginTest
+@PinpointAgent(AgentPath.PATH)
+@Dependency({"org.springframework:spring-web:[5.0.0.RELEASE,5.max]",
+        "org.apache.httpcomponents:httpclient:4.3", "io.netty:netty-all:4.1.9.Final",
+        WebServer.VERSION, PluginITConstants.VERSION})
+@PinpointConfig("pinpoint-disabled-plugin-test.config")
+@ImportPlugin({"com.navercorp.pinpoint:pinpoint-resttemplate-plugin"})
+public class RestTemplateIT {
+
+    @AutoClose("stop")
+    public static WebServer webServer;
+
+    @BeforeAll
+    public static void beforeClass() throws Exception {
+        webServer = WebServer.newTestWebServer();
+    }
+
+    public String getAddress() {
+        return webServer.getCallHttpUrl();
+    }
+
+
+    @Test
+    public void test1() throws Exception {
+        RestTemplate restTemplate = new RestTemplate();
+        String forObject = restTemplate.getForObject(getAddress(), String.class);
+
+        PluginTestVerifier verifier = PluginTestVerifierHolder.getInstance();
+        verifier.printCache();
+
+        verifier.verifyTrace(event("REST_TEMPLATE", RestTemplate.class.getConstructor()));
+        verifier.verifyTrace(event("REST_TEMPLATE", AbstractClientHttpRequest.class.getMethod("execute"), annotation("http.status.code", 200)));
+    }
+
+    @Test
+    public void test2() throws Exception {
+        RestTemplate restTemplate = new RestTemplate(new HttpComponentsClientHttpRequestFactory());
+        String forObject = restTemplate.getForObject(getAddress(), String.class);
+
+        PluginTestVerifier verifier = PluginTestVerifierHolder.getInstance();
+        verifier.printCache();
+
+        verifier.verifyTrace(event("REST_TEMPLATE", RestTemplate.class.getConstructor()));
+        verifier.verifyTrace(event("REST_TEMPLATE", AbstractClientHttpRequest.class.getMethod("execute"), annotation("http.status.code", 200)));
+    }
+}

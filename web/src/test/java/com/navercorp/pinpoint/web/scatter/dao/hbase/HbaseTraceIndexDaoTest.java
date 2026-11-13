@@ -1,0 +1,173 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.scatter.dao.hbase;
+
+import com.navercorp.pinpoint.common.hbase.HbaseOperations;
+import com.navercorp.pinpoint.common.hbase.HbaseTableNameProvider;
+import com.navercorp.pinpoint.common.hbase.ResultsExtractor;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
+import com.navercorp.pinpoint.common.hbase.wd.RowKeyDistributor;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.web.config.ScatterChartProperties;
+import com.navercorp.pinpoint.web.scatter.DragArea;
+import com.navercorp.pinpoint.web.scatter.DragAreaQuery;
+import com.navercorp.pinpoint.web.scatter.ScatterData;
+import com.navercorp.pinpoint.web.scatter.ScatterDataBuilder;
+import com.navercorp.pinpoint.web.scatter.dao.TraceIndexDao;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
+import com.navercorp.pinpoint.web.scatter.vo.DotMetaData;
+import com.navercorp.pinpoint.web.vo.LimitedScanResult;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Scan;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.AutoClose;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.Spy;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
+
+public class HbaseTraceIndexDaoTest {
+
+    private static final ServerTraceId EMPTY = new PinpointServerTraceId("EMPTY", 0, 0);
+
+    private static final int serviceUid = ServiceUid.DEFAULT_SERVICE_UID_CODE;
+    private static final Service service = Service.DEFAULT;
+    private static final DotMetaData testDotMetaData = new DotMetaData(new Dot(EMPTY, 10, 10, 0, "testAgentId"),
+            "testAgentName", "remoteAddr", "rpc", "endpoint", -1, 0);
+
+    @Mock
+    private HbaseOperations hbaseOperations;
+
+    @Mock
+    private RowKeyDistributor traceIndexRowKeyDistributor;
+
+    @Spy
+    private final TableNameProvider tableNameProvider = new HbaseTableNameProvider("default");
+
+    private TraceIndexDao traceIndexDao;
+
+    @AutoClose
+    @SuppressWarnings("unused")
+    private AutoCloseable openMocks;
+
+    @BeforeEach
+    public void beforeEach() {
+        openMocks = MockitoAnnotations.openMocks(this);
+        ScatterChartProperties scatterChartProperties = new ScatterChartProperties();
+        this.traceIndexDao = new HbaseTraceIndexDao(scatterChartProperties, hbaseOperations, tableNameProvider, traceIndexRowKeyDistributor);
+    }
+
+    @Test
+    public void scanTraceIndexExceptionTest() {
+        int limit = -20;
+        assertThrows(IllegalArgumentException.class, () -> this.traceIndexDao.scanTraceIndex(serviceUid, "app", ServiceType.TEST_STAND_ALONE.getCode(), Range.between(0, 10), limit));
+    }
+
+    @Test
+    public void scanTraceIndexMetaTest() {
+        final List<List<DotMetaData>> scannedList = Collections.nCopies(10, List.of(testDotMetaData));
+        when(this.hbaseOperations.findParallel(any(TableName.class), any(Scan.class), any(RowKeyDistributor.class),
+                any(ResultsExtractor.class), anyInt())).thenReturn(scannedList);
+        LimitedScanResult<List<DotMetaData>> result =
+                this.traceIndexDao.scanTraceIndex(serviceUid, "app", ServiceType.TEST_STAND_ALONE.getCode(), Range.between(1000L, 5000L), 20);
+        Assertions.assertEquals(1000L, result.limitedTime());
+
+        // using last row accessor
+        result = this.traceIndexDao.scanTraceIndex(serviceUid, "app", ServiceType.TEST_STAND_ALONE.getCode(), Range.between(1000L, 5000L), 5);
+        Assertions.assertEquals(-1L, result.limitedTime());
+
+    }
+
+    @Test
+    public void scanScatterDataV2LimitTest() {
+        final List<List<DotMetaData>> scannedList = Collections.nCopies(10, List.of(testDotMetaData));
+        when(this.hbaseOperations.findParallel(any(TableName.class), any(Scan.class), any(RowKeyDistributor.class),
+                any(ResultsExtractor.class), anyInt())).thenReturn(scannedList);
+
+        DragAreaQuery dragAreaQuery = new DragAreaQuery(DragArea.normalize(1000L, 5000L, 0L, 100L), null, null);
+
+        LimitedScanResult<List<DotMetaData>> result =
+                this.traceIndexDao.scanScatterDataV2(service, "app", ServiceType.TEST_STAND_ALONE.getCode(), dragAreaQuery, null, 20);
+        Assertions.assertEquals(1000L, result.limitedTime());
+        assertThat(result.scanData()).hasSize(10);
+    }
+
+    @Test
+    public void scanTraceScatterDataExceptionTest() {
+        assertThrows(IllegalArgumentException.class, () -> this.traceIndexDao.scanTraceScatterData(service, "app", ServiceType.TEST_STAND_ALONE.getCode(), Range.between(1000L, 5000L), -10));
+    }
+
+    @Test
+    public void scanTraceIndexEmptyTest() {
+
+        when(this.hbaseOperations.findParallel(any(TableName.class), any(Scan.class), any(RowKeyDistributor.class),
+                any(ResultsExtractor.class), anyInt())).thenReturn(List.of());
+        Range range = Range.between(1000L, 5000L);
+        LimitedScanResult<List<Dot>> scanResult
+                = this.traceIndexDao.scanTraceScatterData(service, "app", ServiceType.TEST_STAND_ALONE.getCode(), range, 10);
+        ScatterDataBuilder builder = new ScatterDataBuilder(range.getFrom(), range.getTo(), 1, 5);
+        scanResult.scanData().forEach(builder::addDot);
+        ScatterData result = builder.build();
+
+        Assertions.assertEquals(1000L, result.getFrom());
+        Assertions.assertEquals(5000L, result.getTo());
+        assertThat(result.getScatterData()).isEmpty();
+    }
+
+    @Test
+    public void scanTraceIndexDotTest() {
+        List<List<Dot>> scanResult = createScatterDotList();
+        when(this.hbaseOperations.findParallel(any(TableName.class), any(Scan.class), any(RowKeyDistributor.class),
+                any(ResultsExtractor.class), anyInt())).thenReturn(scanResult);
+        Range range = Range.between(1000L, 5000L);
+        LimitedScanResult<List<Dot>> limitedScanResult
+                = this.traceIndexDao.scanTraceScatterData(service, "app", ServiceType.TEST_STAND_ALONE.getCode(), range, 10);
+        ScatterDataBuilder builder = new ScatterDataBuilder(range.getFrom(), range.getTo(), 1, 5);
+        limitedScanResult.scanData().forEach(builder::addDot);
+        ScatterData result = builder.build();
+        Assertions.assertEquals(1000L, result.getFrom());
+        Assertions.assertEquals(5000L, result.getTo());
+        Assertions.assertEquals(2000L, result.getOldestAcceptedTime());
+        Assertions.assertEquals(3000L, result.getLatestAcceptedTime());
+    }
+
+    private List<List<Dot>> createScatterDotList() {
+        List<List<Dot>> result = new ArrayList<>();
+        ServerTraceId transactionId = new PinpointServerTraceId("A", 1, 1);
+        result.add(List.of(new Dot(transactionId, 2000L, 1000, 0, "a1")));
+        result.add(List.of(new Dot(transactionId, 3000L, 5000, 0, "a2")));
+        result.add(List.of(new Dot(transactionId, 2400L, 3000, 0, "a3")));
+        return result;
+    }
+
+}

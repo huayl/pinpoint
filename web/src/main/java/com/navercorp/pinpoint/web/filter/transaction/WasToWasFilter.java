@@ -16,6 +16,7 @@
 
 package com.navercorp.pinpoint.web.filter.transaction;
 
+import com.navercorp.pinpoint.common.server.bo.BasicSpan;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
 import com.navercorp.pinpoint.common.trace.ServiceType;
@@ -25,7 +26,6 @@ import com.navercorp.pinpoint.web.filter.RpcType;
 import com.navercorp.pinpoint.web.filter.URLPatternFilter;
 import com.navercorp.pinpoint.web.filter.agent.AgentFilterFactory;
 import com.navercorp.pinpoint.web.filter.visitor.SpanAcceptor;
-import com.navercorp.pinpoint.web.filter.visitor.SpanEventVisitor;
 import com.navercorp.pinpoint.web.filter.visitor.SpanReader;
 import com.navercorp.pinpoint.web.filter.visitor.SpanVisitor;
 
@@ -91,7 +91,7 @@ public class WasToWasFilter implements Filter<LinkContext> {
             return Filter.REJECT;
         }
 
-        // Check for url pattern should now be done on the caller side (from spans) as to spans are missing at this point
+        // Check for url pattern should now be done on the out link side (from spans) as to spans are missing at this point
         if (!rpcUrlFilter.accept(fromSpanList)) {
             return Filter.REJECT;
         }
@@ -110,15 +110,15 @@ public class WasToWasFilter implements Filter<LinkContext> {
             return false;
         }
         SpanAcceptor acceptor = new SpanReader(fromSpanList);
-        return acceptor.accept(new SpanEventVisitor() {
+        return acceptor.accept(new SpanVisitor() {
             @Override
-            public boolean visit(SpanEventBo spanEventBo) {
-                return filterByRpcHints(spanEventBo, transaction);
+            public boolean visit(BasicSpan basicSpan, SpanEventBo spanEventBo) {
+                return filterByRpcHints(basicSpan, spanEventBo, transaction);
             }
         });
     }
 
-    private boolean filterByRpcHints(SpanEventBo spanEventBo, LinkContext transaction) {
+    private boolean filterByRpcHints(BasicSpan basicSpan, SpanEventBo spanEventBo, LinkContext transaction) {
         if (filterByRpcHints(rpcHintList, spanEventBo, transaction)) {
             return SpanVisitor.ACCEPT;
         }
@@ -132,7 +132,7 @@ public class WasToWasFilter implements Filter<LinkContext> {
         }
         if (eventServiceType.isRpcClient() || eventServiceType.isQueue()) {
             // check rpc call fail
-            // There are also cases where multiple applications receiving the same request from the caller node
+            // There are also cases where multiple applications receiving the same request from the out node
             // but not all of them have agents installed. RpcHint is used for such cases as acceptUrlFilter will
             // reject these transactions.
             for (RpcHint rpcHint : rpcHintList) {

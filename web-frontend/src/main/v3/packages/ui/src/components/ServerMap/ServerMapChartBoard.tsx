@@ -1,0 +1,446 @@
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  ChartBoardSkeleton,
+  ErrorBoundary,
+  ChartsBoard,
+  ChartsBoardProps,
+  Button,
+  ChartTypeButtons,
+  InstanceCount,
+  ApdexScore,
+  ScatterChart,
+  Heatmap,
+  Separator,
+  MergedServerSearchList,
+  MergedServerSearchListProps,
+  Drawer,
+  ScatterChartStatic,
+  ChartsBoardHeader,
+} from '@pinpoint-fe/ui/src/components';
+import { GetServerMap } from '@pinpoint-fe/ui/src/constants';
+import {
+  useExperimentals,
+  useServerMapSearchParameters,
+  useRequestService,
+} from '@pinpoint-fe/ui/src/hooks';
+import { MdArrowBackIosNew, MdArrowForwardIos } from 'react-icons/md';
+import { PiArrowSquareOut } from 'react-icons/pi';
+import {
+  currentServerAtom,
+  CurrentTarget,
+  scatterDataAtom,
+  serverMapChartTypeAtom,
+  serverMapCurrentTargetAtom,
+  serverMapDataAtom,
+} from '@pinpoint-fe/ui/src/atoms';
+import { useAtomValue, useSetAtom } from 'jotai';
+import {
+  getApplicationKey,
+  getSelectedTargetApplication,
+  getServerImagePath,
+} from '@pinpoint-fe/ui/src/utils';
+import { cn } from '@pinpoint-fe/ui/src/lib';
+import { RxChevronRight } from 'react-icons/rx';
+import { ServerListForCommon } from '@pinpoint-fe/ui/src/components/ServerList/ServerListForCommon';
+import { useGetHistogramStatistics } from '@pinpoint-fe/ui/src/hooks/api/useGetHistogramStatistics';
+import { useServerMapTargetServiceName } from '@pinpoint-fe/ui/src/hooks/serverMap/useServerMapTargetServiceName';
+import {
+  useServerMapCurrentTarget,
+  useServerMapCurrentTargetData,
+} from '@pinpoint-fe/ui/src/hooks/serverMap/useServerMapCurrentTarget';
+
+export interface ServerMapChartsBoardProps extends ServerMapChartsBoardFetcherProps {}
+
+export const ServerMapChartsBoard = ({ ...props }: ServerMapChartsBoardProps) => {
+  return (
+    <>
+      <ErrorBoundary>
+        <React.Suspense fallback={<ChartBoardSkeleton />}>
+          <ServerMapChartsBoardFetcher {...props} />
+        </React.Suspense>
+      </ErrorBoundary>
+    </>
+  );
+};
+
+export interface ServerMapChartsBoardFetcherProps extends Omit<
+  ChartsBoardProps,
+  'timestamp' | 'nodeData' | 'header'
+> {
+  authorizationGuideUrl?: string;
+  currentPanelWidth: number;
+  SERVER_LIST_WIDTH: number;
+  resizeHandleWidth: number;
+  SERVERMAP_CONTAINER_ID: string;
+}
+
+export const ServerMapChartsBoardFetcher = ({
+  authorizationGuideUrl,
+  currentPanelWidth,
+  SERVER_LIST_WIDTH,
+  resizeHandleWidth,
+  SERVERMAP_CONTAINER_ID,
+  children,
+  ...props
+}: ServerMapChartsBoardFetcherProps) => {
+  const { t } = useTranslation();
+  const experimentalOption = useExperimentals();
+  const { application, dateRange, queryOption, pathname } = useServerMapSearchParameters();
+
+  const chartType = useAtomValue(serverMapChartTypeAtom);
+  const scatterData = useAtomValue(scatterDataAtom);
+
+  const [openServerView, setOpenServerView] = React.useState(false);
+  const [isScatterDataOutdated, setIsScatterDataOutdated] = React.useState(chartType !== 'scatter');
+  const useStatisticsAgentState = experimentalOption.statisticsAgentState.value ?? true;
+
+  // /api/servermap/serverMap 로 가져온 data
+  const serverMapData = useAtomValue(serverMapDataAtom);
+  // serverMap에서 클릭 된 target (node 또는 link)
+  // 이전 경로에서 고른 것은 읽지 않는다(→ `useServerMapCurrentTarget`). 아톰을 그대로 읽으면
+  // 경로가 바뀐 직후 한 렌더 동안 "새 application + 이전 경로의 노드"로 조회가 나간다. (#10587)
+  const setServerMapCurrentTarget = useSetAtom(serverMapCurrentTargetAtom);
+  const serverMapCurrentTarget = useServerMapCurrentTarget();
+  // 클릭 된 serverMap target의 data (serverMapCurrentTarget, serverMapData를 이용해 나온 값) serverMap이 클릭되었을 때 주는 node/link의 데이터가 충분치 않아서 사용하는 값
+  const currentTargetData = useServerMapCurrentTargetData();
+  // VIEW SERVERS로 열었을 때 왼쪽에 클릭된 서버
+  const currentServer = useAtomValue(currentServerAtom);
+
+  // 조회의 기준이 될 application. merged 대상(그래프가 여러 개를 하나로 묶어 그린 것)은 기준이
+  // 없다는 판단까지 규칙이 하나다 → `utils/helper/serverMap`의 `getSelectedTargetApplication`
+  const selectedTargetApplication = React.useMemo(
+    () =>
+      getSelectedTargetApplication(
+        serverMapCurrentTarget,
+        currentTargetData,
+        serverMapData?.applicationMapData?.linkDataArray as GetServerMap.LinkData[] | undefined,
+      ),
+    [serverMapCurrentTarget, currentTargetData, serverMapData],
+  );
+
+  // servicemap은 다른 service의 application도 함께 그린다. 그런 노드를 고르면 이 패널의 조회는
+  // 화면의 service가 아니라 그 노드의 service로 나가야 한다. 아래 차트/목록에 prop으로 내려준다.
+  const targetServiceName = useServerMapTargetServiceName();
+  const screenServiceName = useRequestService();
+  const isCrossServiceTarget =
+    !!targetServiceName && !!screenServiceName && targetServiceName !== screenServiceName;
+
+  // 통계 API의 기준 application은 **map을 그린 루트**다(고른 노드가 아니다). 고른 노드는 nodeKey로
+  // 따로 싣는다. 백엔드가 둘을 비교해, 다르면 루트를 고른 노드의 상대(from/to)로 넣어
+  // "루트에서 본 그 노드"의 히스토그램을 만든다 → `ServerMapHistogramController#getStatisticsFromServerMap`.
+  // 그래서 여기서 고른 노드를 기준으로 바꿔 보내면 안 된다. currentTarget의 applicationName·serviceType은
+  // 화면 표시용 필드라서(USER 노드는 리터럴 "USER", DB 노드의 serviceType은 `MYSQL` 같은 desc)
+  // 백엔드가 이름으로 해석하는 nodeKey 형식(`MYSQL_EXECUTE_QUERY`)과 어긋나, 조회가 조용히 비거나 400이 된다.
+  //
+  // 예외는 다른 service의 노드를 고른 경우다. 이 요청은 그 노드의 service로 나가는데(`serviceName`)
+  // 경로의 application은 화면 service 소속이라 그 service에 존재하지 않아 루트가 성립하지 않는다.
+  // 그때만 노드 자신을 기준으로 삼는다 — 그 application을 직접 열어 본 것과 같은 결과가 된다. (이슈 #10497)
+  const baseApplication = isCrossServiceTarget
+    ? selectedTargetApplication
+    : (application ?? selectedTargetApplication);
+
+  const { data, isLoading } = useGetHistogramStatistics({
+    useStatisticsAgentState,
+    applicationName: baseApplication?.applicationName,
+    serviceType: baseApplication?.serviceType,
+    dateRange,
+    queryOption,
+    nodeKey:
+      (currentTargetData as GetServerMap.NodeData)?.nodeKey ||
+      (baseApplication ? getApplicationKey(baseApplication) : undefined), // 원래 optional인데 첫 페이지 로딩 시 currentTargetData가 없을 때, currentTargetData가 application으로 잡힐 때 두번 중복 call 방지를 위해 required 처럼 사용
+    linkKey: (currentTargetData as GetServerMap.LinkData)?.linkKey,
+    serviceName: targetServiceName,
+  });
+
+  React.useEffect(() => {
+    setOpenServerView(false);
+  }, [pathname]);
+
+  React.useEffect(() => {
+    if (
+      chartType === 'scatter' ||
+      (scatterData?.dateRange && scatterData?.dateRange[0] === dateRange.from?.getTime())
+      // from, to 둘 다 비교해야하는데 정확한 to를 useGetScatterData가 주지 않음
+    ) {
+      setIsScatterDataOutdated(false);
+      return;
+    }
+
+    setIsScatterDataOutdated(true);
+  }, [dateRange, scatterData]);
+
+  const getClickedMergedNodeList = ({ nodes, edges }: CurrentTarget) => {
+    const nodeIds = nodes
+      ? nodes.map((node) => node.id)
+      : edges
+        ? edges.map((edge) => edge.target)
+        : [];
+
+    return ((serverMapData?.applicationMapData.nodeDataArray as GetServerMap.NodeData[]) || [])
+      .filter(({ key }: GetServerMap.NodeData) => nodeIds.includes(key))
+      .sort((node1, node2) => node2.totalCount - node1.totalCount);
+  };
+
+  const handleClickMergedItem: MergedServerSearchListProps['onClickItem'] = (nodeData) => {
+    const { key, applicationName, serviceType } = nodeData;
+    setServerMapCurrentTarget({
+      id: key,
+      applicationName,
+      serviceType,
+      imgPath: getServerImagePath(nodeData),
+      type: 'node',
+      nodes: serverMapCurrentTarget?.nodes,
+      edges: serverMapCurrentTarget?.edges,
+    });
+  };
+
+  const shouldHideScatter = React.useCallback(() => {
+    return (
+      currentTargetData &&
+      (currentTargetData as GetServerMap.NodeData)?.nodeCategory !==
+        GetServerMap.NodeCategory.SERVER
+    );
+  }, [currentTargetData]);
+
+  const [timestamp, setTimestamp] = React.useState(data?.timestamp);
+  React.useEffect(() => {
+    if (!isLoading) {
+      setTimestamp(data?.timestamp);
+    }
+  }, [data, isLoading]);
+
+  const histogramStatisticsData = React.useMemo(() => {
+    if (!isLoading && data) {
+      return {
+        histogram: data?.histogram,
+        responseStatistics: data?.responseStatistics,
+        timeSeriesHistogram: data?.timeSeriesHistogram,
+      };
+    }
+
+    return;
+  }, [isLoading, data, currentTargetData]);
+
+  const agentHistogramStatisticsData = React.useMemo(() => {
+    if (!isLoading && data && currentServer?.agentId) {
+      return {
+        histogram: data?.agentHistogram?.[currentServer?.agentId || ''],
+        responseStatistics: data?.agentResponseStatistics?.[currentServer?.agentId || ''],
+        timeSeriesHistogram: data?.agentTimeSeriesHistogram?.[currentServer?.agentId || ''],
+      };
+    }
+
+    return;
+  }, [isLoading, data, currentServer?.agentId]);
+
+  // serviceType의 진실의 원천: 클릭 즉시 세팅되는 serverMapCurrentTarget을 우선 사용하고,
+  // 그 다음으로 조회된 currentTargetData, 마지막으로 기본 application으로 폴백한다.
+  // currentTargetData만 보면 전환 중에 undefined가 되어 USER/UNKNOWN 체크를 통과시킬 수 있다.
+  const targetServiceType =
+    serverMapCurrentTarget?.serviceType ??
+    (currentTargetData as GetServerMap.NodeData)?.serviceType ??
+    application?.serviceType;
+
+  // 선택된 대상도, 기준이 될 application도 없으면 보여줄 것이 없다. service 전체를 모아 그린
+  // servicemap에 처음 들어온 상태가 여기에 해당한다. 이때 억지로 그리면 이름 없는 헤더와
+  // 조회 대상 없는 차트가 남으므로, 차트 대신 무엇을 해야 하는지 알려준다.
+  if (!serverMapCurrentTarget && !application) {
+    return (
+      <div className="flex items-center justify-center w-full h-full text-muted-foreground">
+        {t('SERVER_MAP.SELECT_NODE_FOR_CHART')}
+      </div>
+    );
+  }
+
+  // service group 노드/링크가 선택된 경우(subNodes/subLinks 보유) ChartsBoard를 그리지 않는다.
+  // 팝업에서 자식 노드/링크를 선택하면 currentTarget이 자식 key로 바뀌어 다시 렌더된다.
+  if (
+    ((currentTargetData as GetServerMap.NodeData)?.subNodes?.length ?? 0) > 0 ||
+    ((currentTargetData as GetServerMap.LinkData)?.subLinks?.length ?? 0) > 0
+  ) {
+    return null;
+  }
+
+  return (
+    <>
+      <ChartsBoard
+        {...props}
+        timestamp={timestamp}
+        nodeData={
+          (serverMapCurrentTarget && !currentTargetData) || // USER 처럼 merged node일 경우
+          (currentTargetData as GetServerMap.NodeData)?.isAuthorized === false
+            ? undefined
+            : (histogramStatisticsData as GetServerMap.NodeData)
+        }
+        header={
+          <ChartsBoardHeader
+            currentTarget={
+              openServerView
+                ? null
+                : serverMapCurrentTarget || {
+                    ...application,
+                    type: 'node',
+                  }
+            }
+          />
+        }
+        emptyMessage={t('COMMON.NO_DATA')}
+      >
+        {serverMapCurrentTarget?.nodes ||
+        serverMapCurrentTarget?.edges ||
+        currentTargetData === undefined ||
+        serverMapCurrentTarget?.type === 'edge' ||
+        (currentTargetData as GetServerMap.NodeData)?.isAuthorized ? (
+          <>
+            {serverMapCurrentTarget?.nodes || serverMapCurrentTarget?.edges ? (
+              <MergedServerSearchList
+                list={getClickedMergedNodeList(serverMapCurrentTarget)}
+                onClickItem={handleClickMergedItem}
+              />
+            ) : (
+              <>
+                {(serverMapCurrentTarget?.type === 'node' || !serverMapCurrentTarget) &&
+                targetServiceType !== 'USER' &&
+                targetServiceType !== 'UNKNOWN' ? (
+                  <div className="flex items-center h-12 py-2.5 px-4 gap-2">
+                    <Button
+                      className="px-2 py-1 text-xs"
+                      variant="outline"
+                      onClick={() => setOpenServerView(!openServerView)}
+                    >
+                      {openServerView ? <MdArrowForwardIos /> : <MdArrowBackIosNew />}
+                      <span className="ml-2">VIEW SERVERS</span>
+                    </Button>
+                    {!shouldHideScatter() && <ChartTypeButtons />}
+                    <InstanceCount nodeData={data as unknown as GetServerMap.NodeData} />
+                  </div>
+                ) : !shouldHideScatter() ? (
+                  <div className="flex items-center h-12 py-2.5 px-4 gap-2">
+                    <ChartTypeButtons />
+                  </div>
+                ) : null}
+                {!shouldHideScatter() && (
+                  <>
+                    <div
+                      className={cn('w-full p-5', {
+                        'mb-12 aspect-[1.618]': chartType === 'scatter',
+                        'aspect-[1.4]': chartType === 'heatmap',
+                      })}
+                    >
+                      <div className="h-7">
+                        <ApdexScore
+                          nodeData={(currentTargetData as GetServerMap.NodeData) || application}
+                          serviceName={targetServiceName}
+                        />
+                      </div>
+                      {chartType === 'scatter' ? (
+                        <ScatterChart
+                          node={(serverMapCurrentTarget || application) as CurrentTarget}
+                          serviceName={targetServiceName}
+                        />
+                      ) : (
+                        <Heatmap
+                          nodeData={(currentTargetData as GetServerMap.NodeData) || application}
+                          serviceName={targetServiceName}
+                        />
+                      )}
+                    </div>
+                    <Separator />
+                  </>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <div className="flex justify-center pt-24 font-semibold text-status-fail">
+            <a href={authorizationGuideUrl} target="_blank">
+              You don't have authorization.
+              {authorizationGuideUrl && <PiArrowSquareOut />}
+            </a>
+          </div>
+        )}
+      </ChartsBoard>
+      <Drawer
+        destroyOnClose
+        open={openServerView}
+        getContainer={`#${SERVERMAP_CONTAINER_ID}`}
+        styles={{
+          wrapper: {
+            width: currentPanelWidth + SERVER_LIST_WIDTH,
+            right: currentPanelWidth + resizeHandleWidth,
+          },
+        }}
+        onClose={() => setOpenServerView(false)}
+      >
+        {/* 제목 줄을 뺀 나머지 높이만 목록에 준다. 목록이 칸 전체 높이를 가지면 제목 줄만큼 넘쳐
+            드로어 자체에 스크롤이 하나 더 생긴다(목록과 차트는 각자 스크롤을 가진다). */}
+        <div className="flex flex-col h-full" style={{ width: SERVER_LIST_WIDTH }}>
+          <div className="flex items-center h-12 gap-1 font-semibold border-b-1 shrink-0">
+            <img src={serverMapCurrentTarget?.imgPath} width={52} />
+            <div className="truncate">{serverMapCurrentTarget?.applicationName}</div>
+          </div>
+          <div className="flex-1 min-h-0">
+            <ServerListForCommon nodeStatistics={data} serviceName={targetServiceName} />
+          </div>
+        </div>
+        <div style={{ width: currentPanelWidth }}>
+          <ChartsBoard
+            header={
+              <div className="flex items-center h-12 gap-1 font-semibold border-b-1 shrink-0">
+                <div className="flex items-center">
+                  <RxChevronRight />
+                </div>
+                {currentServer?.agentId}
+              </div>
+            }
+            timestamp={timestamp}
+            nodeData={agentHistogramStatisticsData as GetServerMap.NodeData}
+            chartsContainerClassName="pt-12"
+            emptyMessage={t('COMMON.NO_DATA')}
+          >
+            {!shouldHideScatter() && baseApplication && (
+              <>
+                <div className="w-full p-5 mb-12 aspect-[1.618] relative">
+                  <div className="h-7">
+                    {currentServer?.agentId && (
+                      <ApdexScore
+                        nodeData={currentTargetData as GetServerMap.NodeData}
+                        agentId={currentServer?.agentId}
+                        serviceName={targetServiceName}
+                      />
+                    )}
+                  </div>
+                  <ScatterChartStatic
+                    application={serverMapCurrentTarget!}
+                    data={
+                      isScatterDataOutdated ? [] : scatterData.acc[currentServer?.agentId || '']
+                    }
+                    range={[dateRange.from.getTime(), dateRange.to.getTime()]}
+                    selectedAgentId={currentServer?.agentId || ''}
+                    serviceName={targetServiceName}
+                  />
+                  {isScatterDataOutdated && (
+                    <div className="absolute top-0 left-0 z-chart-overlay flex flex-col items-center justify-center w-full h-[calc(100%+48px)] bg-background/50 text-center">
+                      {t('SERVER_MAP.SCATTER_CHART_STATIC_WARN')
+                        .split('\n')
+                        .map((txt, i) => (
+                          <p key={i}>{txt}</p>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <Separator />
+              </>
+            )}
+            {!isLoading && data && Object.keys(data.agentHistogram || {}).length === 0 && (
+              <div className="flex items-center justify-center h-full opacity-50">
+                {t('COMMON.NO_DATA')}
+              </div>
+            )}
+          </ChartsBoard>
+        </div>
+      </Drawer>
+    </>
+  );
+};

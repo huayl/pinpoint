@@ -1,0 +1,369 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.trace.span;
+
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
+import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
+import com.navercorp.pinpoint.common.server.bo.SpanOwner;
+import com.navercorp.pinpoint.common.server.bo.TraceSourceType;
+import com.navercorp.pinpoint.io.SpanVersion;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.fail;
+
+/**
+ * 
+ * @author jaehong.kim
+ *
+ */
+public class CallTreeTest {
+
+    private static final boolean SYNC = false;
+    private static final boolean ASYNC = true;
+
+    private final SpanCallTree callTree = new SpanCallTree(makeSpanAlign());
+    private final List<String> expectResult = new ArrayList<>();
+
+    @Test
+    public void add() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("####");
+        expectResult.add("#####");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+        callTree.add(2, makeSpanAlign(SYNC, (short) 1));
+        callTree.add(3, makeSpanAlign(SYNC, (short) 2));
+        callTree.add(4, makeSpanAlign(SYNC, (short) 3));
+        assertDepth("add", callTree, expectResult);
+    }
+
+    @Test
+    public void addLevel() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("####");
+        expectResult.add("#####");
+        expectResult.add("#####");
+        expectResult.add("#####");
+        expectResult.add("#####");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+        callTree.add(2, makeSpanAlign(SYNC, (short) 1));
+        callTree.add(3, makeSpanAlign(SYNC, (short) 2));
+        callTree.add(4, makeSpanAlign(SYNC, (short) 3));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 4));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 5));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 6));
+        assertDepth("addLevel", callTree, expectResult);
+    }
+
+    @Test
+    public void addComplex() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("####");
+        expectResult.add("#####");
+        expectResult.add("######");
+        expectResult.add("######");
+        expectResult.add("######");
+        expectResult.add("######");
+        expectResult.add("######");
+        expectResult.add("#####");
+        expectResult.add("#####");
+        expectResult.add("######");
+        expectResult.add("#######");
+        expectResult.add("########");
+        expectResult.add("########");
+        expectResult.add("#####");
+        expectResult.add("#####");
+        expectResult.add("#####");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+        callTree.add(2, makeSpanAlign(SYNC, (short) 1));
+        callTree.add(3, makeSpanAlign(SYNC, (short) 2));
+        callTree.add(4, makeSpanAlign(SYNC, (short) 3));
+        callTree.add(5, makeSpanAlign(SYNC, (short) 4));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 5));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 6));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 7));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 8));
+        callTree.add(4, makeSpanAlign(SYNC, (short) 9));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 10));
+        callTree.add(5, makeSpanAlign(SYNC, (short) 11));
+        callTree.add(6, makeSpanAlign(SYNC, (short) 12));
+        callTree.add(7, makeSpanAlign(SYNC, (short) 13));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 14));
+        callTree.add(4, makeSpanAlign(SYNC, (short) 15));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 16));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 17));
+        assertDepth("addComplex", callTree, expectResult);
+    }
+
+    @Test
+    public void addSubTree() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("##");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+        SpanCallTree subTree = new SpanCallTree(makeSpanAlign());
+        callTree.add(subTree);
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 1));
+        assertDepth("addSubTree", callTree, expectResult);
+    }
+
+    @Test
+    public void addNestedSubTree() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("####");
+        expectResult.add("#####");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+        SpanCallTree subTree = new SpanCallTree(makeSpanAlign(ASYNC, (short) 0));
+        subTree.add(1, makeSpanAlign(ASYNC, (short) 1));
+
+        SpanCallTree subTree2 = new SpanCallTree(makeSpanAlign(ASYNC, (short) 0));
+        subTree.add(subTree2);
+        callTree.add(subTree);
+        assertDepth("addNestedSubTree", callTree, expectResult);
+    }
+
+    @Test
+    public void missing() {
+        expectResult.clear();
+        expectResult.add("#");
+
+        try {
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 20));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 21));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 22));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 23));
+        } catch (Exception ignored) {
+        }
+        assertDepth("missing-case-1", callTree, expectResult);
+    }
+
+    @Test
+    public void missingMiddleNodes() {
+        expectResult.clear();
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("###");
+        expectResult.add("####");
+
+        try {
+            callTree.add(1, makeSpanAlign(SYNC, (short) 0));
+            callTree.add(2, makeSpanAlign(SYNC, (short) 1));
+            callTree.add(3, makeSpanAlign(SYNC, (short) 2));
+            // callTree.add(4, makeSpanAlign(SYNC, (short) 3));
+            // callTree.add(5, makeSpanAlign(SYNC, (short) 4));
+            // callTree.add(-1, makeSpanAlign(SYNC, (short) 5));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 6));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 7));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 8));
+            callTree.add(4, makeSpanAlign(SYNC, (short) 9));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 10));
+            callTree.add(5, makeSpanAlign(SYNC, (short) 11));
+            callTree.add(6, makeSpanAlign(SYNC, (short) 12));
+            callTree.add(7, makeSpanAlign(SYNC, (short) 13));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 14));
+            callTree.add(4, makeSpanAlign(SYNC, (short) 15));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 16));
+            callTree.add(-1, makeSpanAlign(SYNC, (short) 17));
+        } catch (Exception ignored) {
+        }
+        assertDepth("missing-case-2", callTree, expectResult);
+    }
+
+    @Test
+    public void missingAsync() {
+        expectResult.add("#");
+        expectResult.add("##");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0, 1, -1));
+        try {
+            SpanCallTree subTree = new SpanCallTree(makeSpanAlign());
+            // subTree.add(1, makeSpanAlign(ASYNC, (short) 0, -1, 1));
+            subTree.add(2, makeSpanAlign(ASYNC, (short) 1, 2, 1));
+            callTree.add(subTree);
+        } catch (Exception ignored) {
+        }
+        assertDepth("missing-case-3", callTree, expectResult);
+    }
+
+    @Test
+    public void insertSortedByStartTime_greaterDepthAfterAsyncMerge() {
+        // Branch: depth > cursor.getDepth() with cursor.hasChild() (line 287-296)
+        // Scenario: cursor's children chain has out-of-order startTimes from prior subtree merges.
+        // A new sync child should be inserted at its startTime position, not appended at end.
+        SpanBo span = new SpanBo();
+
+        callTree.add(1, makeSpanAlign(span, SYNC, (short) 0, -1, -1, 10, -1));
+        // cursor at depth=1, startTime=10
+
+        // Pre-populate cursor's children with two subtrees at startTime 100 and 300.
+        // First merge attaches as cursor's child (no-child path).
+        // Second merge goes through addLastSibling -> insertSiblingSorted.
+        callTree.add(new SpanCallTree(makeSpanAlign(span, SYNC, (short) 0, -1, -1, 100, -1)));
+        callTree.add(new SpanCallTree(makeSpanAlign(span, SYNC, (short) 0, -1, -1, 300, -1)));
+
+        // Add a new sync child at depth=2, startTime=200.
+        callTree.add(2, makeSpanAlign(span, SYNC, (short) 1, -1, -1, 200, -1));
+
+        CallTreeNode parent = callTree.getRoot().getChild();
+        CallTreeNode first = parent.getChild();
+        assertEquals(100L, first.getAlign().getStartTimeMillis());
+        CallTreeNode second = first.getSibling();
+        assertEquals(200L, second.getAlign().getStartTimeMillis());
+        CallTreeNode third = second.getSibling();
+        assertEquals(300L, third.getAlign().getStartTimeMillis());
+        assertNull(third.getSibling());
+    }
+
+    @Test
+    public void insertSortedByStartTime_sameDepthAfterAsyncMerge() {
+        // Branch: depth == cursor.getDepth() (line 268-278)
+        // After cursor sits in the middle of its sibling chain (due to prior sorted insertion),
+        // a new sync sibling at the same depth should also be placed by startTime.
+        SpanBo span = new SpanBo();
+
+        callTree.add(1, makeSpanAlign(span, SYNC, (short) 0, -1, -1, 10, -1));
+        // pre-populate two children of cursor with startTime 100 and 300
+        callTree.add(new SpanCallTree(makeSpanAlign(span, SYNC, (short) 0, -1, -1, 100, -1)));
+        callTree.add(new SpanCallTree(makeSpanAlign(span, SYNC, (short) 0, -1, -1, 300, -1)));
+
+        // sync child C at depth=2, startTime=200 -> goes between 100 and 300, cursor=C
+        callTree.add(2, makeSpanAlign(span, SYNC, (short) 1, -1, -1, 200, -1));
+        // sync sibling D at the same depth=2, startTime=250 -> branch A
+        callTree.add(-1, makeSpanAlign(span, SYNC, (short) 2, -1, -1, 250, -1));
+
+        CallTreeNode parent = callTree.getRoot().getChild();
+        CallTreeNode first = parent.getChild();
+        assertEquals(100L, first.getAlign().getStartTimeMillis());
+        assertEquals(200L, first.getSibling().getAlign().getStartTimeMillis());
+        assertEquals(250L, first.getSibling().getSibling().getAlign().getStartTimeMillis());
+        assertEquals(300L, first.getSibling().getSibling().getSibling().getAlign().getStartTimeMillis());
+        assertNull(first.getSibling().getSibling().getSibling().getSibling());
+    }
+
+    @Test
+    public void missingAsyncEvent() {
+        expectResult.add("#");
+        expectResult.add("##");
+        expectResult.add("##");
+
+        callTree.add(1, makeSpanAlign(SYNC, (short) 0, 1, -1));
+        // callTree.add(makeSpanEventBo(ASYNC, (short) 0, 1));
+        callTree.add(-1, makeSpanAlign(SYNC, (short) 1, -1, -1));
+        assertDepth("missing-case-5", callTree, expectResult);
+    }
+
+    private void assertDepth(final String name, SpanCallTree tree, List<String> result) {
+        int index = 0;
+        CallTreeIterator iterator = tree.iterator();
+        CallTreeNode node = null;
+        while ((node = iterator.next()) != null) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i <= node.getDepth(); i++) {
+                sb.append("#");
+            }
+            final String expected = result.get(index++);
+            printDepth(name, index, sb.toString(), expected);
+        }
+    }
+
+    private void printDepth(final String name, final int index, final String depth, final String expected) {
+        if (!expected.equals(depth)) {
+            fail("Not Matched " + name + "(" + index + "): " + depth + ", expected=" + expected);
+        }
+    }
+
+    private Align makeSpanAlign() {
+        return makeSpanAlign(0, 0);
+    }
+
+    private static SpanBo newSpanBo(String applicationName, String agentId) {
+        SpanOwner owner = new SpanOwner();
+        owner.setApplicationName(applicationName);
+        owner.setAgentId(agentId);
+        return new SpanBo(TraceSourceType.PINPOINT, owner);
+    }
+
+    private Align makeSpanAlign(long startTime, int elapsed) {
+        SpanBo span = newSpanBo("applicationId", "agentId");
+        span.setTraceTime(SpanVersion.TRACE_V1, startTime, elapsed);
+
+        return new SpanAlign(span);
+    }
+
+    private Align makeSpanAlign(final boolean async, final short sequence) {
+        return makeSpanAlign(async, sequence, -1, -1);
+    }
+
+    private Align makeSpanAlign(final boolean async, final short sequence, final int nextAsyncId, final int asyncId) {
+        SpanBo span = newSpanBo("applicationName", "agentId");
+        return makeSpanAlign(span, async, sequence, nextAsyncId, asyncId, -1, -1);
+    }
+
+    private Align makeSpanAlign(SpanBo span, final boolean async, final short sequence, int nextAsyncId, final int asyncId, int startElapsed, int endElapsed) {
+        SpanEventBo event = new SpanEventBo();
+//        event.setAsyncId(async ? 1 : -1);
+        event.setSequence(sequence);
+        event.setNextAsyncId(nextAsyncId);
+//        event.setAsyncId(asyncId);
+        event.setStartElapsed(startElapsed);
+        event.setEndElapsed(endElapsed);
+        if (!async) {
+            return new SpanEventAlign(span, event);
+        }
+
+        SpanOwner spanOwner = span.getSpanOwner();
+        SpanOwner chunkOwner = new SpanOwner();
+        chunkOwner.setAgentId(spanOwner.getAgentId());
+        chunkOwner.setAgentName(spanOwner.getAgentName());
+        chunkOwner.setApplicationName(spanOwner.getApplicationName());
+        chunkOwner.setAgentStartTime(spanOwner.getAgentStartTime());
+
+        SpanChunkBo spanChunkBo = new SpanChunkBo(TraceSourceType.PINPOINT, chunkOwner);
+        spanChunkBo.setVersion(span.getVersion());
+        spanChunkBo.setTransactionId(span.getTransactionId());
+        spanChunkBo.setSpanId(span.getSpanId());
+        spanChunkBo.setApplicationServiceType(span.getApplicationServiceType());
+        spanChunkBo.setCollectorAcceptTime(span.getCollectorAcceptTime());
+        spanChunkBo.setEndPoint(span.getEndPoint());
+
+        return new SpanChunkEventAlign(span, spanChunkBo, event);
+    }
+}

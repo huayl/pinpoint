@@ -1,0 +1,649 @@
+# Service / ServiceMap 규칙
+
+`experimental.enableServiceMap`이 켜져 있을 때만 존재하는 개념이다. 꺼져 있으면 백엔드가
+모든 요청을 기본 service(`DEFAULT`)로 해석하므로, 화면도 service 개념이 없는 것처럼 동작해야 한다.
+
+## 켜짐 여부를 읽는 곳은 하나다
+
+configuration API의 `experimental.enableServiceMap.value`가 **기본값**이고, 사용자가 Experimental
+설정에서 값을 정하면 그 값이 이긴다. 저장되는 localStorage key는 `pp.serviceMap`
+(= `EXPERIMENTAL_CONFIG_KEYS.ENABLE_SERVICE_MAP`)이다 — 다른 experimental key와 달리 접두사가
+붙으므로 devtools에서 찾을 때 주의한다. 규칙은 `pickEnableServiceMap` 하나뿐이고,
+두 갈래로만 읽는다:
+
+| 읽는 곳 | 경로 |
+|---|---|
+| 화면(훅·컴포넌트) | `useEnableServiceMap()` |
+| 렌더 밖(fetch 인터셉터) | `getEnableServiceMap(configuration)` |
+
+- **`configuration?.['experimental.enableServiceMap.value']`를 직접 읽지 않는다.** 직접 읽으면
+  localStorage로 끈 사용자에게도 그 화면만 켜진 것처럼 동작하거나(반대로) 화면에는 service 개념이
+  없는데 헤더는 실려 나간다. 타입 검사로 잡히지 않는 어긋남이다.
+- **저장된 값이 없는 상태(`null`)를 boolean으로 눌러 담지 않는다.** 다른 experimental처럼
+  `useLocalStorage(key, !!config값)`으로 두면 configuration이 도착하기 전에 마운트되는 순간
+  `false`가 localStorage에 박혀, 사용자가 고른 적 없는 값이 서버 기본값을 영구히 덮어쓴다.
+  그래서 `useExperimentals`도 이 키만 초기값을 `null`로 두고 seed 하지 않는다.
+- 체크박스에 보이는 값도 같은 함수를 지난다(`useExperimentals`). 화면·헤더·체크박스가 갈리면
+  사용자는 켜 놓은 줄 알고 꺼진 화면을 본다.
+- 설정을 바꾸면 새로고침 없이 반영된다. `useLocalStorage`가 `local-storage` 이벤트로 같은 key를
+  읽는 인스턴스들을 깨우고, 인터셉터는 매 요청마다 localStorage를 다시 읽는다.
+
+## 어느 service로 조회하는지를 정하는 규칙은 하나다
+
+**`pickServiceName`** (`utils/serviceName.ts`) 하나뿐이다. 순서도 하나뿐이다:
+
+1. `enableServiceMap`이 꺼져 있으면 → **undefined** (service 개념 자체가 없다)
+2. 경로에 serviceName이 실려 있으면 → 그 값 (URL이 진실의 원천)
+3. 없으면 → 전역 선택값(`selectedServiceAtom`)
+4. 그것도 없으면 → `DEFAULT`
+
+켜짐 여부와 같은 두 갈래의 어댑터로만 읽는다. **그 밖에서 규칙을 다시 쓰지 않는다.**
+
+| 읽는 곳 | 경로 |
+|---|---|
+| 화면(훅·컴포넌트) | `useRequestService()` |
+| 렌더 밖(fetch 인터셉터, 캐시 키, 라우트 로더) | `getRequestService()` |
+
+- **켜져 있으면 언제나 문자열이다.** 마지막 폴백이 `DEFAULT`이므로 호출부가 `?? DEFAULT_SERVICE`를
+  다시 붙이지 않는다. 붙이던 곳들은 그것이 곧 규칙의 4단계였고, 네 군데에 흩어져 있었다.
+- **undefined는 "설정이 꺼져 있다"와 같은 뜻이다.** 그래서 설정 플래그를 따로 읽을 필요가 없는
+  곳들은 이 값이 비었는지만 본다(`useServerMapTargetServiceName`).
+- 요청 헤더와 캐시 키(`serviceScopedQueryKeyHashFn`)가 같은 함수를 지나야 한다. 다르면 헤더는
+  A service로 나가는데 캐시는 B service 키에 쌓인다. 설정이 꺼져 있으면 헤더도, 캐시 키의
+  service 차원도 없다.
+- 경로 빌더(`getServiceMapPath`·`getServiceMapRealtimePath`)는 serviceName이 비면 `DEFAULT`를
+  싣는다. 세그먼트를 비우면 application 세그먼트가 serviceName 자리로 밀려 라우트 매칭이 깨진다.
+- **예외는 하나뿐이고 그것은 다른 질문이다.** "경로에 serviceName이 실려 있는가"를 묻는 곳은
+  `getServiceNameFromPath`를 직접 읽고 전역 선택값으로 **폴백하지 않는다** —
+  `useFilteredMapParameters`, `useTransactionSearchParameters`, `ScatterOrHeatmapFullScreen`,
+  그리고 transaction 계열 로더. 그 값은 "어느 map에서 왔는가"(돌아갈 링크의 형태)를 정하고,
+  폴백하면 servermap에서 온 화면도 servicemap에서 온 것처럼 보인다.
+  경로와 전역 선택값을 **비교**하는 곳(`useSyncSelectedServiceWithPath`,
+  `useClearApplicationOnServiceChange`)도 같은 이유로 원본 값을 읽는다.
+  조회 자체의 service는 언제나 위 규칙이 정한다.
+
+## 로드맵 (중요 — 설계 판단의 전제)
+
+**servermap 메뉴는 없어지고 servicemap이 그 자리를 대체한다.** 코드나 git 이력만 봐서는 알 수 없는
+정보라서 여기에 적어둔다. 이 전제 때문에 아래 판단들이 나온다.
+
+### servicemap은 servermap의 껍데기를 재사용한다 (복제하지 않는다)
+
+```
+pages/ServiceMap.tsx  →  ServerMapPage 를 감싸는 얇은 래퍼 (MapView 만 교체)
+ServerMapPage         →  헤더 + application 선택 박스 + 날짜 선택기 + 좌우 분할 레이아웃
+                         └ 우측 패널로 ServerMapChartsBoard 를 직접 렌더
+```
+
+`ServerMap`이라는 이름이 붙어 있어도 **그 파일들이 servicemap 화면을 그리는 코드**다. servermap이
+사라지면 이 껍데기가 그대로 servicemap의 껍데기가 된다. 그래서 복제하지 않고 플래그로 분기한다.
+복제해 두면 나중에 두 벌 중 한 벌을 지우면서 그 사이 갈라진 수정들을 다시 맞춰야 한다.
+
+### `requiresApplication` 분기는 임시 코드가 아니다
+
+servermap이 사라진 뒤에도 **DEFAULT service 사용자는 여전히 application을 골라야 한다.**
+(이슈 #10373: "service 단위의 노드표현을 DEFAULT때도 표현해야하므로 DEFAULT service
+사용자들도 servicemap을 사용해야합니다.") 두 모드는 servicemap에 영구히 남는다.
+
+### servermap이 실제로 빠질 때 정리할 것
+
+- `ServerMapPage` / `ServerMapChartsBoard` → servicemap 전용이 되므로 rename
+- `ServiceMapPage`가 `ServerMapPage`를 감싸는 구조 → 한 페이지로 합치기
+- `loader/serverMap.ts`, `loader/serverMap.test.ts` → 파일째로 삭제
+  (그래서 serviceMap 로더는 날짜 정규화를 **일부러 복사**해 자기 완결적으로 두었다.
+  공용 모듈로 빼면 그 시점에 "호출자가 하나뿐인 모듈"을 다시 정리해야 한다.)
+
+  > **이 "복사" 근거는 servermap과 공유하는 코드에만 적용된다.** servicemap 로더끼리
+  > (`serviceMap.ts` ↔ `serviceMapRealtime.ts`) 겹치는 부분은 둘 다 끝까지 남으므로 복사하지
+  > 않는다. 경로 분해는 `parseServiceScopedPath` 하나를 공유한다 — 세그먼트 규칙이 바뀔 때
+  > 고칠 곳이 하나여야 한다.
+- 실시간 보기 → `/serviceMap/realtime`이 이미 있다. `RealtimePage`/`Realtime`(컴포넌트)은
+  `MapView` prop으로 map만 갈아 끼우는 구조이므로, servermap이 빠지면 `getRealtimePath`와
+  `loader/realtime.ts`, `pages/ServerMap/Realtime.tsx`를 지우고 기본값을 servicemap 쪽으로 옮긴다.
+- filteredMap → 경로에 serviceName이 항상 실리므로 `FilteredMapPage`의 돌아갈 map 분기
+  (`Servermap` ↔ `Servicemap`)와 로더의 serviceName 없는 형태 처리를 지운다.
+- `enableServiceMap` 설정 분기 → 설정이 없어지면 `useIsDefaultService`가 "DEFAULT인가?"만 보면 되고,
+  `useEnableServiceMap`/`pickEnableServiceMap`과 Experimental 항목도 함께 지운다
+
+## servicemap의 두 모드
+
+map이 어떤 application을 모으는가만 다르다. **DEFAULT도 다른 service와 똑같이 선택된
+service다** — 모든 조회에 `pServiceName` 헤더가 실리고 캐시도 service 단위로 갈린다.
+
+| service | map | application 선택 박스 |
+|---|---|---|
+| `DEFAULT` | 고른 application 하나를 기준으로 그린다 | 노출 (골라야 그린다) |
+| 그 외 | 소속된 **모든** application을 모아 그린다 | 미노출 (고를 대상이 없다) |
+
+- 판단은 `useIsDefaultService()` 하나로 한다. `ServerMapPage`에는 `requiresApplication` prop으로
+  전달된다(기본값 `true` → servermap은 영향 없음).
+- 백엔드도 같은 규칙이다: `MapController#getSourceApplications`.
+- application이 많아 노드가 과도해지면 service를 나누도록 가이드한다 (선택 박스를 주지 않는 이유).
+- 비DEFAULT 모드에서는 기준 application이 없으므로: 특정 노드를 센터링/선택하지 않고,
+  경로에 들어온 application 세그먼트는 지운다.
+- **두 모드는 실시간 보기(`/serviceMap/realtime`)에도 그대로 있다.** 비DEFAULT에서는 우측 패널
+  (스캐터/액티브 스레드)의 조회 대상이 map에서 클릭한 노드로 정해진다. 아무것도 고르지 않았으면
+  map만 그리고, 우측 패널은 조회를 시작하지 않은 채 노드를 고르라는 안내 문구를 띄운다
+  (`SERVER_MAP.SELECT_NODE_FOR_CHART`, `SERVER_MAP.REAL_TIME.SELECT_NODE`).
+  로딩 스켈레톤을 그대로 두면 영원히 로딩 중인 화면처럼 보이기 때문이다.
+- **service를 바꾸면 history에 쌓인다(replace가 아니다).** 사용자가 화면을 옮기는 행위라
+  뒤로가기로 이전 service의 화면에 돌아갈 수 있어야 한다. replace로 두면 A → B로 옮긴 뒤
+  뒤로가기가 A를 건너뛰고 service를 고르기 전 화면으로 나간다.
+  → `useClearApplicationOnServiceChange`
+  (경로가 이미 그 service를 가리키면 이동 자체를 하지 않으므로 항목이 중복으로 쌓이지 않는다.
+   로더가 붙이는 from/to 리다이렉트도 항목을 하나 더 만들지 않는다 — service 전환 1회 = 항목 1개.)
+
+## filteredMap 연결
+
+servicemap에서 필터를 걸면 `/filteredMap/{serviceName}/{application}@{serviceType}`으로 새 탭이
+열린다. 화면은 복제하지 않는다 — map을 그리는 API(`/api/servermap/filterServerMap`)가 같아서
+`FilteredMapPage` 하나로 servermap/servicemap 양쪽을 받는다.
+
+- **경로에 serviceName이 실려 있는지가 "어느 map에서 왔는가"다.** 그것으로 헤더의 돌아갈 링크를
+  정한다(`Servicemap / Filtered` ↔ `Servermap / Filtered`). 그래서 `useFilteredMapParameters`의
+  `serviceName`은 전역 선택값으로 **폴백하지 않는다**(`useRequestService`와 다른 점).
+  폴백하면 servermap에서 온 화면도 servicemap에서 온 것처럼 보인다.
+- 같은 이유로 **로더는 빠진 serviceName 세그먼트를 채워 넣지 않는다.** servicemap 로더와 반대다.
+- 경로에 serviceName을 실을지는 `ServerMapPage`의 `serviceName` prop으로 정한다(servicemap
+  계열에서만 주어진다). filteredMap 안에서 필터를 더 걸 때는 지금 경로의 serviceName이 그 역할이다.
+- **실리는 값은 기준 application이 속한 service다**(보고 있던 service가 아니다 →
+  `getFilterTargetServiceName`). 다른 service의 WAS → 보고 있는 service의 application 링크는
+  출발지가 기준이 되어 정방향으로 탐색하므로 헤더(pServiceName)도 출발지 service여야 한다.
+  필터에 service가 없으면(2단 id) 주어진 serviceName을 그대로 쓴다.
+- **필터에도 service를 싣는다.** 링크는 `fs`/`ts`, 노드는 `s`(백엔드 `FilterDescriptor`).
+  값은 클릭한 id에서 `parseNodeServiceName`으로 읽는다. 2단 id에는 없으므로 키가 빠지고
+  백엔드가 DEFAULT로 읽는다 — servermap에서 건 필터는 예전과 같다.
+- 펼친 service group 안의 링크는 응답에서 group의 `subLinks`에만 있다. 링크를 찾아
+  `sourceIsWas`를 정하는 곳(우클릭 메뉴, 필터 위저드)은 `withServiceGroupChildren`으로 찾는다.
+  못 찾으면 출발지가 WAS여도 도착지가 기준이 된다.
+- 날짜 정규화는 `loader/mapDateRange.ts`를 servicemap 로더와 공유한다. 둘 다 servermap이 빠진
+  뒤에도 남는 화면이라 규칙이 바뀔 때 고칠 곳이 하나여야 한다.
+  (예전에는 filteredMap이 servermap 로더를 그대로 써서, 날짜를 고치는 리다이렉트가 화면을
+  `/serverMap/...`으로 보내며 filter까지 떨어뜨렸다. from/to 외의 query string은 목적지에도 싣는다.)
+
+### TODO: DEFAULT가 아닌 service
+
+**service 단위 필터(Service→Application 등)는 아직 논의 중이다.** 지금은 DEFAULT와 똑같이 필터 대상 application을 싣는다
+(`/filteredMap/myService/{application}@{serviceType}`). map은 service 전체를 그리지만
+filteredMap은 기준 application 없이는 조회가 성립하지 않기 때문이다
+(`useGetFilteredServerMapData`가 `applicationName`을 필수로 요구한다).
+service 전체를 대상으로 필터를 걸 수 있게 할지 정해지면 경로 형태를 그때 맞춘다.
+
+## serviceName은 URL 경로에 싣는다
+
+`/{page}/{serviceName}/{applicationName}@{serviceType}?` — **세그먼트 표기 하나만** 쓴다.
+
+- 진실의 원천은 URL이다. 전역 선택값(`selectedServiceAtom`)은 탭 간 공유 저장소라, 링크를 새 탭에
+  열어 둔 뒤 원래 탭에서 service를 바꾸면 화면과 어긋난다.
+- **`pServiceName`을 정하는 순서는 하나다** (`serviceNameFetchInterceptor`):
+  1. 요청에 이미 실려 있으면 → 건드리지 않고 그대로 보낸다(호출자가 직접 실은 값이 항상 이긴다).
+     설정이 꺼져 있어도 이 규칙은 그대로다 — 실린 헤더를 지우지는 않는다.
+  2. 그 외에는 `getRequestService()`가 정한다 (위 "어느 service로 조회하는지를 정하는 규칙은
+     하나다"). 설정이 꺼져 있으면 undefined이므로 헤더를 싣지 않는다.
+- 요청 헤더와 캐시 키(`serviceScopedQueryKeyHashFn`)가 **같은 함수**에서 파생돼야 한다.
+  다르면 헤더는 A service로 나가는데 캐시는 B service 키에 쌓인다.
+- **렌더 밖에서 경로를 읽을 때 `window.location`을 보지 않는다** — `getCurrentRouterPath()`를 쓴다.
+  뒤로/앞으로 가기(popstate)에서는 브라우저가 주소를 먼저 바꾸고 react-router의 location 상태는
+  그 다음 렌더에 반영된다. 그 사이 한 렌더 동안 조회 파라미터는 이전 경로의 것인데 service만
+  새 경로의 것이 되어, 캐시에 없는 키가 만들어지고 곧바로 요청이 나갔다(service를 넘나드는
+  뒤로가기에서 map 조회가 한 번 더 나가던 원인). `getCurrentRouterPath()`는 라우터가 렌더한 경로를
+  돌려주므로 파라미터와 service가 항상 같은 렌더에서 함께 바뀐다.
+  → `useSyncRenderedRouterPath` (조회 화면들보다 위에서 한 번 호출: `InitialFetchOutlet`).
+  호출을 빠뜨리면 `window.location` 폴백으로 동작한다(고쳐지지 않을 뿐 깨지지는 않는다).
+- **새 탭으로 열리는 화면은 특히 경로에 실어야 한다.** transaction 화면들(map의 drag&drop →
+  transactionList)과 스캐터/히트맵의 확대 화면(fullScreenMode)이 그렇다. 새 탭을 열어 둔 뒤
+  원래 탭에서 service를 바꾸면 전역 선택값이 따라 바뀌므로, 그것에 기대면 보고 있는 화면과
+  조회가 어긋난다. fullScreenMode의 돌아갈 링크도 경로의 serviceName으로 정한다
+  (`Servicemap / Scatter` ↔ `Servermap / Scatter`) — filteredMap과 같은 규칙이다.
+- **어느 화면이 serviceName을 싣는지는 라우트 정의가 정한다** (`apps/web/src/routes`).
+  라우트 경로에 `:serviceName`이 있으면 그 자리를 serviceName으로 읽는다. 앱이 라우터를 만들기 전에
+  같은 배열을 `registerAppRoutes`로 넘긴다(`utils/helper/application.ts`). 화면 목록을 따로 두지
+  않는다 — 경로의 첫 세그먼트는 화면마다 뜻이 달라(`/config/alarm`, `/serviceMap/realtime/...`)
+  모양으로 가릴 수 없고, 목록이 라우트와 갈리면 경로에는 A service가 적혀 있는데 헤더·캐시 키는
+  전역 선택값인 B service로 나간다. **화면에 serviceName 세그먼트를 추가할 때 고칠 곳은 라우트
+  하나다** — 이 패키지 밖(앱)의 화면도 같다(경로 빌더는 `getServiceScopedApplicationPath`).
+  **앞으로는 serviceName을 싣는 것이 기본**이고, 아직 안 옮긴 화면은 줄어드는 예외다.
+  그 경로에서는 serviceName을 읽을 수 없어 전역 선택값으로 폴백한다.
+  - 로더가 리다이렉트 목적지를 만들 때 쓰는 페이지 접두사도 같은 매칭에서 뽑는다
+    (`getServiceNameSegmentPage` — 라우트 경로의 `:serviceName` 앞까지). 판정이 갈리면 serviceName은
+    읽었는데 리다이렉트 목적지에서만 빠진다.
+  - 하위 경로끼리의 우선순위(`/serviceMap/realtime` ↔ `/serviceMap`)는 react-router의 경로 랭킹이
+    정한다. 라우터가 실제로 고르는 라우트와 언제나 같으므로 순서를 맞출 필요가 없다.
+  - **라우트로는 화면만 고르고, serviceName 자체는 원본(raw) 세그먼트로 읽는다.** 매칭 결과의
+    `params`는 디코딩된 값이라 '%40'이 '@'로 풀려 service 이름 `a@b`와 application `app@TOMCAT`을
+    구별할 수 없다.
+  - 등록을 빠뜨리면 어느 경로에서도 serviceName을 읽지 못해 전역 선택값으로 폴백한다(깨지지는
+    않는다). 첫 로더가 경로를 읽으므로 `createBrowserRouter`보다 **먼저** 등록한다.
+  - 테스트에는 앱이 없으므로 같은 모양의 라우트(`utils/helper/__fixtures__/appRoutes.ts`)를 매 테스트
+    전에 등록한다(`jest.setupAfterEnv.cjs`). 실제 라우트에 serviceName 세그먼트를 추가·제거하면
+    여기도 맞춘다. 로더 테스트가 react-router를 mock할 때는 `jest.requireActual`을 펼쳐
+    `matchRoutes`를 남긴다.
+  - 아직 싣지 않는 화면: servermap 계열(`/serverMap`, `/serverMap/realtime` — servicemap이 켜져 있으면
+    감춰지는 화면이라 service 개념이 없다), config 화면들.
+- **모든 serviceName 세그먼트는 `enableServiceMap`이 켜져 있을 때만 싣는다.** 꺼져 있으면 경로
+  빌더가 undefined를 받아 세그먼트를 붙이지 않고(예전과 같은 경로), 경로에 serviceName이 없어도
+  화면은 그대로 동작한다. 켜져 있을 때 세그먼트가 빠진 경로로 들어와도 조회는 전역 선택값으로
+  폴백하므로 깨지지 않는다(`pickServiceName`).
+- **사이드 메뉴의 화면(inspector, urlStatistic, errorAnalysis, openTelemetryMetric, systemMetric)과
+  threadDump는 로더가 serviceName을 채운다.** servicemap 로더와 같은 규칙이다 — 세그먼트가 없으면
+  `getRequestService()`(지금 보고 있는 service)를 붙여 표준 형태로 옮긴다. 세그먼트가 생기기 전
+  형태의 북마크가 들어오기 때문이다. 설정이 꺼져 있으면 붙이지 않는다.
+  **메뉴 링크는 이 채우기에 기대지 않는다** — application(systemMetric은 hostGroup)을 아직 고르지
+  않았어도 경로 빌더가 `/{page}/{serviceName}`을 만든다. DEFAULT가 아닌 servicemap에는 기준
+  application이 없어 메뉴 링크가 늘 이 형태인데, 페이지 경로만 주면 새 탭으로 연 화면의 로더가
+  탭 간 공유 저장소인 전역 선택값으로 service를 채운다. → `loader/serviceScopedPage.ts` (`resolveServiceScopedPage`).
+  transaction·fullScreenMode 로더는 채우지 않는다 — 새 탭으로만 열리고 여는 쪽이 언제나 싣는다.
+- **systemMetric은 경로 형태를 `enableServiceMap`이 정한다.** hostGroup 세그먼트는 `{app}@{type}`처럼
+  구분자가 없어 `/systemMetric/X`의 X가 service인지 hostGroup인지 모양으로 알 수 없다. 켜져 있으면
+  첫 세그먼트가 언제나 serviceName이고, 꺼져 있으면 마지막 세그먼트가 hostGroup이다
+  (`parseSystemMetricPath`). 켜진 상태에서 세그먼트가 하나뿐이면 로더가 service 목록(`getServices`)과
+  대조해, service가 아니면 옛 형태로 보고 `/systemMetric/{service}/{hostGroup}`으로 옮긴다.
+  이때 붙일 service를 **지금 경로로 판정하지 않는다**(`getRequestService(APP_PATH.SYSTEM_METRIC)`).
+  첫 로드에서는 렌더한 경로가 없어 `getRequestService`가 주소창, 즉 그 옛 경로 자체를 읽으므로
+  hostGroup을 service로 읽어 `/systemMetric/{hostGroup}/{hostGroup}`으로 옮기게 된다.
+  (백엔드의 systemMetric API는 service를 읽지 않는다 — 헤더는 실리지만 조회 결과는 같다.
+  URL 형태를 다른 메뉴와 맞추려고 싣는다.)
+- 이 화면들로 가는 링크도 조회 대상의 service를 싣는다. map 우측 패널의 서버 목록 → inspector
+  (`ServerListFetcher`), 실시간 액티브 스레드 → threadDump(`AgentActiveTable`)는 **고른 노드의
+  service**다(아래 "화면의 service ≠ 조회 대상의 service"). 액티브 스레드는 비DEFAULT 실시간 보기에서
+  경로에 application이 없으므로 application도 고른 노드에서 받는다.
+- serviceName은 백엔드가 형식을 검증하지 않으므로(`ServiceNameRequest`에 제약이 없다) `/`나 `@`가
+  들어올 수 있다. 반드시 `encodeURIComponent`로 싣는다.
+- **읽을 때는 인코딩된 raw pathname을 넘긴다.** react-router의 `params`는 디코딩된 값이라
+  `%2F`가 `/`로 풀려 세그먼트 경계가 어긋난다. 로더에서 특히 주의.
+  - **로더의 `request.url`에는 라우터 basename(`BASE_PATH`)이 붙어 있다.** `APP_PATH` 길이로 자르기 전에
+    `toRouterPath`로 뗀다(`resolveServiceScopedPage`, `systemMetricRouteLoader`). 떼지 않으면 하위 경로
+    배포에서만 세그먼트가 어긋난다 — `/pinpoint/threadDump/{app}@{type}`가 application을 못 읽어
+    servermap으로 쫓겨났다. 개발 서버와 테스트는 basename이 비어 있어 이 차이를 보지 못하므로
+    `loader/basePath.test.ts`가 따로 확인한다. 리다이렉트 목적지는 basename 없이 만든다(react-router가
+    상대 경로 redirect에 붙인다).
+- 첫 세그먼트가 `{app}@{type}`으로 파싱되면 serviceName이 아니다. serviceName 세그먼트가 생기기
+  전 형태(`/serviceMap/myApp@TOMCAT`)의 링크·북마크를 살리기 위한 가드다.
+
+## 화면의 service ≠ 조회 대상의 service
+
+경로의 serviceName은 **map을 그리는 service**다. 그런데 map에는 다른 service의 application도
+함께 그려진다(service group을 펼쳐 고른 자식 노드). 그런 노드를 고르면 우측 패널의 조회는
+경로의 service가 아니라 **그 노드의 service**로 나가야 한다.
+
+```
+(A service) -> (B service)
+```
+A의 servicemap에서 B의 `b-1`을 고르면 chartBoard 조회는 `pServiceName: B`로 나간다.
+A로 나가면 백엔드가 A service에서 `b-1`을 찾으므로 데이터가 비어서 온다. (이슈 #10497)
+
+### 전달은 prop으로 한다
+
+`useServerMapTargetServiceName`이 고른 대상의 service를 읽고, 우측 패널의 컴포넌트들에
+`serviceName` prop으로 내려준다. 받은 컴포넌트는 조회 훅과 링크 생성에 그 값을 쓴다.
+**prop을 받지 않으면 화면의 service로 조회한다**(`serviceName ?? useRequestService()`).
+그래서 filteredMap·inspector처럼 이 값을 넘기지 않는 화면은 동작이 그대로다.
+
+- **기본값은 언제나 화면의 service(`useRequestService`)다.** 노드를 골랐다고 바뀌지 않는다.
+  요구사항이 그렇다 — "pServiceName 헤더는 global로 설정한 serviceName"(이슈 #10587).
+  아직 고른 대상이 없을 때도 undefined가 아니라 이 값을 준다. map이 도착해 기준 노드가
+  잡히기까지 한 박자가 걸리는데, 그동안 undefined를 주면 헤더는 인터셉터가 어차피 같은 값으로
+  채우는데 **queryKey만 갈려** 같은 요청이 두 번 나간다.
+- **노드의 `serviceName`으로 갈아타는 판단은 `enableServiceMap` 하나로 한다.** 그 설정이 곧
+  "어느 map이 보이는가"이므로(꺼짐 → servermap만, 켜짐 → servicemap만) 경로를 따로 보지 않는다.
+  켜져 있으면 이 훅까지 온 노드는 언제나 servicemap이 그린 것이다.
+  > 두 map이 함께 보이던 시절에는 경로가 servicemap인지 따로 봐야 했다. 백엔드는 **servermap
+  > 응답에도** 노드마다 `serviceName`을 실어 보내는데(`NodeView`가 `application.getService()`를
+  > 무조건 쓴다) 그 값은 *application이 저장된 service*(대개 `DEFAULT`)이지 조회할 service가
+  > 아니다. 그대로 쓰면 기준 노드가 잡히기 전 첫 조회는 global service로, 잡힌 뒤 두 번째 조회는
+  > `DEFAULT`로 나가 **헤더도 캐시 키도 갈려** 같은 화면을 두 번 조회하고 두 번째 결과는 엉뚱한
+  > service의 것이 됐다. (이슈 #10587 — DEFAULT가 아닌 service를 고른 채 servermap에 들어가면
+  > `/getApdexScore`, `/heatmap/applicationData`, `/histogram/statistics`가 두 번씩 호출되던 원인)
+  > 이제 그 상태 자체가 만들어지지 않는다.
+- `enableServiceMap`이 꺼져 있으면 `useServerMapTargetServiceName`이 undefined를 반환한다.
+  설정이 꺼진 저장소로 헤더가 새어 나가지 않도록 **그 한 곳에서** 막는다. 판단은 화면의
+  service가 비었는지로 한다 — `useRequestService`는 설정이 꺼져 있을 때만 undefined이므로
+  (켜져 있으면 마지막 폴백이 `DEFAULT`) 설정 플래그를 여기서 또 읽지 않는다.
+- **prop을 내려주는 곳을 빠뜨리면 그 차트만 조용히 화면의 service로 조회한다.** 화면은 멀쩡히
+  그려지고 숫자만 비어서, 타입 검사로도 잡히지 않는다. 우측 패널에 조회하는 컴포넌트를 새로
+  추가하면 `serviceName`도 함께 내려야 한다.
+  → 지금 내려주는 곳: `ServerMapChartsBoardFetcher`, `Realtime`
+
+### 헤더와 캐시 키는 같은 값에서 나온다
+
+- 조회 훅은 `queryFn(url, { serviceName })`으로 헤더를 직접 싣고, **queryKey에도 같은 값을 넣는다.**
+  헤더만 갈리고 캐시 키가 같으면 이름이 같은 다른 service의 application끼리 캐시가 섞인다.
+- fetch 인터셉터는 **이미 실린 헤더를 덮어쓰지 않는다.** 인터셉터는 경로/전역 선택값만 보므로
+  "고른 노드가 다른 service 소속"이라는 사실을 알 수 없다.
+
+### serviceName은 기준 application과 같은 commit에 바뀌어야 한다
+
+조회 훅 상당수가 파라미터를 state에 담고 `useEffect`로 동기화한다(그 자리에서 계산하지 않는다).
+그래서 대상이 바뀌는 렌더에서는 파라미터가 한 박자 뒤처진다. serviceName을 prop 그대로 쓰면
+그 한 렌더 동안 **(이전 application, 새 service)** 짝의 queryKey가 만들어지고, 캐시에 없는 키라
+React Query가 곧바로 요청을 날린다 — 그 service에 없는 application을 묻는 요청이라 400이 온다.
+
+그래서 serviceName도 **파라미터를 갱신하는 그 effect 안에서** 함께 state로 옮긴다(두 setState가
+같은 commit에 배치되므로 짝이 어긋나지 않는다). queryKey와 헤더에는 prop이 아니라 그 state
+(`requestServiceName`)를 쓴다. deferred를 쓰는 스캐터는 serviceName도 같이 deferred로 넘긴다.
+
+→ `useGetScatterData`, `useGetScatterRealtimeData`, `HeatmapRealtimeFetcher`
+
+**파라미터를 그 자리에서 계산하는 훅은 이 처리가 필요 없다** — 애초에 어긋날 렌더가 없으므로
+serviceName도 prop을 그대로 쓴다(`useGetAgentOverview`, `useGetApdexScore`,
+`useGetHistogramStatistics`, `HeatmapFetcher`).
+링크 생성에 쓰는 값은 요청이 아니므로 최신 prop을 그대로 쓴다(`HeatmapFetcher`, `HeatmapRealtimeFetcher`).
+
+### state를 없앨 수 있는지는 그 state가 무엇을 담고 있는지로 갈린다
+
+**props의 사본이면 없앨 수 있다.** effect에 조건이 없고 deps가 입력 전부를 덮고 있으면 그 state는
+"한 박자 늦추기"만 한다. queryKey는 구조를 직렬화해 비교하므로(`serviceScopedQueryKeyHashFn`)
+매 렌더 새 객체를 만들어도 내용이 같으면 재조회되지 않는다 — 객체 identity를 고정하려고 state를
+쓸 이유는 없다. 다만 state는 "대상이 사라져도 이전 파라미터를 유지"하는 역할도 겸하므로,
+호출자가 대상 없이 훅을 마운트한 채로 두지 않는지 함께 봐야 한다
+(`ApdexScore`는 대상이 없으면 fetcher를 마운트하지 않고, `useGetHeatmapAppData`·
+`useGetHistogramStatistics`는 `enabled`로 막는다).
+
+**props로 알 수 없는 값이 들어 있으면 없앨 수 없다.** 그 값은 렌더 중에 계산할 방법이 없다.
+
+| 대상 | state에 담긴, props가 아닌 값 |
+|---|---|
+| `HeatmapRealtimeFetcher` | `lastToTimestamp` ref — 응답마다 바뀌므로 렌더에서 읽으면 5초 tick을 벗어나 요청이 연달아 나간다. effect가 tick마다 한 번씩 표본을 뜬다 |
+| `useGetScatterData` / `useGetScatterRealtimeData` | ① 응답의 `resultFrom`으로 다음 `to`를 정하는 역방향 페이징 ② 캔버스 픽셀 크기로 정해지는 `xGroupUnit`/`yGroupUnit` — `setQueryParams`를 반환해 호출부(`ScatterChartFetcher`, `ScatterChartRealtimeFetcher`)가 넣는다. `getQueryString`이 필수로 요구하므로 차트가 크기를 알려줄 때까지 조회가 시작되지 않는다 |
+
+이 경우 serviceName만 prop으로 되돌릴 수도 없다(짝이 어긋난다). state를 남겨야 한다면
+**파라미터와 serviceName을 한 state에 담아** 그 규칙을 자료 구조로 지킨다
+(`HeatmapRealtimeFetcher`의 `request`). 단 `setQueryParams`를 바깥으로 반환하는 훅은
+setter 모양이 공개 API라서 합치는 비용이 더 크다 — 스캐터 두 훅은 그대로 둔다.
+
+### 통계 API의 기준 application은 map의 루트다 (고른 노드가 아니다)
+
+**고른 노드로 갈아서 보내면 안 된다.** 코드만 봐서는 `applicationName`이 "조회할 대상"처럼 보이는데,
+백엔드에서 그 자리는 **map을 그린 루트**다. 고른 노드는 `nodeKey`로 따로 싣는다.
+
+`ServerMapHistogramController#getStatisticsFromServerMap`이 둘을 비교한다:
+
+| `applicationName` vs `nodeKey` | 백엔드 동작 |
+|---|---|
+| 같다 (루트를 클릭) | 루트를 기준으로 map을 떠서 **모든** 호출자/피호출자와의 히스토그램 |
+| 다르다 (다른 노드를 클릭) | 히스토그램 대상은 `nodeKey`의 노드, **루트를 그 노드의 상대(from/to)로 넣는다** — "루트에서 본 그 노드"의 수치 |
+
+루트를 상대편으로 넣는다는 것 자체가 둘이 서로 다른 것이라는 전제다. 고른 노드로 맞춰 버리면
+언제나 "같다"가 되어 `nodeKey` 파라미터와 불일치 분기가 죽은 코드가 된다.
+
+**게다가 `currentTarget`의 `applicationName`·`serviceType`은 조회용 식별자가 아니다** — 화면 표시용
+필드다. 그대로 기준으로 실으면 타입 검사에 걸리지 않고 조용히 빈 데이터나 400이 된다:
+
+| 노드 | `applicationName` / `serviceType` (표시용) | `nodeKey` (조회용) | 결과 |
+|---|---|---|---|
+| USER | `USER` / `USER` — 이름이 리터럴로 치환된다 | `ApiGateway_SPRING_BOOT^USER` — 이쪽도 합성값이라 루트가 못 된다 | 존재하지 않는 app이 루트가 되어 **빈 히스토그램** |
+| MySQL | `{dbId}` / `MYSQL` (desc) | `{dbId}^MYSQL_EXECUTE_QUERY` (name) | 백엔드는 name으로 해석 → 2100≠2101 → **빈 히스토그램** |
+| MSSQL | `{dbId}` / `MSSQLSERVER` (desc) | `{dbId}^MSSQL_EXECUTE_QUERY` | 그 이름의 타입이 없어 **400** + 에러 토스트 |
+
+`USER`는 `Node#getApplicationTextName()`이 리터럴로 치환하고, DB류는 `*_EXECUTE_QUERY`(name)와
+desc가 갈린다(`MYSQL`/`ORACLE`/`POSTGRESQL`/`MONGO`/`CUBRID`/`INFORMIX`/`CLICK_HOUSE`/`UNKNOWN_DB`,
+그리고 이름 자체가 없는 `MSSQLSERVER`·`JDK_HTTPCONNECTOR`). **WAS 노드는 둘이 일치해서 아무 문제가
+없어 보인다** — 그래서 WAS만 눌러 보면 빌드·테스트·CI가 전부 통과한 채로 이 버그가 지나간다.
+
+```ts
+const baseApplication = isCrossServiceTarget
+  ? selectedTargetApplication
+  : (application ?? selectedTargetApplication);
+```
+
+노드가 기준으로 쓰이는 경로가 두 개 있다. 둘 다 경로에 쓸 수 있는 루트가 없는 경우다:
+
+| 경로 | 언제 |
+|---|---|
+| `isCrossServiceTarget` | 다른 service의 노드를 고름. 요청이 그 노드의 service로 나가는데 경로의 application은 화면 service 소속이라 그 service에 없어 루트가 성립하지 않는다 (이슈 #10497) |
+| `application ?? selectedTargetApplication` | 경로에 application이 아예 없음 = **비DEFAULT servicemap** |
+
+이 두 경로에서 노드의 식별자를 **표시용 필드로 쓰면 안 된다.** 노드 종류에 따라 두 갈래로 뽑는다:
+
+| 노드 | 기준 application | 왜 |
+|---|---|---|
+| USER | **나가는 링크의 `targetInfo`** → `findCalleeApplication` | 이 USER가 호출하는 WAS. USER 노드 자신은 기준이 될 수 없다(아래) |
+| 그 외 | **`nodeKey`를 쪼갠 값** → `parseNodeKeyApplication` | 그 application을 직접 열어 본 것과 같은 결과 |
+
+`nodeKey`로 뽑으면 `applicationName == nodeKey`가 되어 백엔드는 "같다" 분기를 탄다. 즉 그 노드를
+루트로 map을 떠서 **모든** 상대와의 수치를 낸다 — "직접 열어 본 것과 같은 결과"라는 기존 의도와 일치한다.
+
+**USER 노드만 예외인 이유: 이름이 합성값이다.** 내부 application 이름이
+`{앱이름}_{호출되는쪽 타입이름}`이다(`UserNodeUtils#newUserNodeName`) — `ApiGateway@SPRING_BOOT`를
+호출하는 USER 노드는 `ApiGateway_SPRING_BOOT^USER`다. 그런 이름의 application은 실제로 없으므로
+루트가 될 수 없고, **문자열을 쪼개 되돌릴 수도 없다**:
+
+- 앱 이름에 `_`가 들어갈 수 있다 — `IdValidateUtils.ID_PATTERN_VALUE` = `[a-zA-Z0-9._\-]+`
+- 타입 이름에도 `_`가 들어간다 — `SPRING_BOOT`, `MYSQL_EXECUTE_QUERY`, `KAFKA_CLIENT` …
+- 그래서 `my_app_TOMCAT`은 `my_app`+`TOMCAT`일 수도, `my`+`app_TOMCAT`일 수도 있다. 첫 `_`든
+  마지막 `_`든 일반적으로 틀린다. (`serviceKey`의 applicationName 토큰도 같은 합성값이라 같은 문제다.)
+
+응답의 `targetInfo`에 그 값이 파싱 없이 들어 있으므로 그것을 쓴다. 백엔드는 USER가 그 WAS의
+호출자임을 `isToNode`로 알아내 `toApplications`에 넣는다 — 즉 servermap이 경로의 application을
+루트로 보내던 것과 같은 요청이 된다.
+
+servermap은 경로에 항상 application이 있어 이 두 경로를 타지 않으므로 영향이 없다 — 그래서 이
+버그는 servicemap에서만 드러난다.
+- **어느 application을 기준으로 삼을지는 훅이 아니라 호출부가 정한다.** `useGetHistogramStatistics`는
+  `applicationName`/`serviceType`을 받기만 한다 — 그 판단은 화면의 사정이라 훅이 알 수 없다.
+  → `ServerMapChartBoard`의 `baseApplication`
+- 링크(엣지)를 고르면 출발지 노드가 기준이다. merged 묶음은 기준이 없다
+  → `getSelectedTargetApplication`
+- `/histogram/statistics/links`(linkKey)는 `applicationName`을 **아예 쓰지 않는다.** `linkKey`를
+  `~`로 쪼개 양쪽 application을 만드는 것이 전부다(`getLinkTimeHistogramData`는 `appForm`을 읽지
+  않는다). 그래서 **링크 선택은 이 절의 문제와 무관하다** — 기준 application을 무엇으로 보내도
+  결과가 같고, 타입 해석조차 하지 않으므로 400도 나지 않는다. `linkKey`의 두 쪽은 각각 `nodeKey`와
+  같은 `getName()` 형식이고 실제 application 이름이라(`LinkName#getLinkKey` → `NodeName.toNodeKey`)
+  이미 정확하다. 링크의 출발지는 호출하는 쪽이라 WAS 아니면 USER인데 WAS는 name==desc라
+  어긋날 값도 없다. **그래서 링크 쪽은 표시용 `sourceInfo`를 그대로 둔다.**
+
+#### 이 필드의 의미는 한 번 바뀌었다 (그래서 헷갈린다)
+
+같은 `/statistics` 경로에 `params`로 갈리는 변형이 여럿이고, **변형마다 `applicationName`의 의미가
+다르다.** FE가 쓰는 변형이 2025-08-11에 바뀌었으므로 그 전 코드를 근거로 삼으면 안 된다.
+
+| 시기 | FE가 쓰던 것 | `applicationName` | 노드를 알려주는 방법 |
+|---|---|---|---|
+| ~2025-08-11 | 호출 안 함 — 노드 히스토그램은 **servermap 응답**(`nodeData.histogram`)에 실려 왔다 | — | — |
+| 〃 (agent 상세만) | `getResponseTimeHistogramDataV2` = **from/to 명시 변형** | **고른 노드** | `serviceTypeCode`(숫자) + `fromApplicationNames`/`toApplicationNames`를 FE가 계산해 명시 |
+| 2025-08-11~ (`e5037bf950`) | `/histogram/statistics` = **nodeKey 변형** | **map의 루트** | `nodeKey` |
+
+- **옛 변형에서 노드를 `applicationName`으로 보낸 건 맞았다.** from/to를 호출자가 명시하니 백엔드가
+  루트를 필요로 하지 않았고, 타입을 **코드(숫자)** 로 보내 desc/name 어긋남도 없었다.
+  그 직관을 nodeKey 변형에 그대로 옮기면 안 된다 — 거기서 그 자리는 루트다.
+- from/to 명시 변형은 백엔드에 아직 살아 있고(`getNodeHistogramData`), `GetHistogramStatistics.Parameters`의
+  `fromApplicationNames`/`fromServiceTypeCodes`/`toApplicationNames`/`toServiceTypeCodes`와 계산 헬퍼
+  `useServerMapLinkedData`도 남아 있다(`ServerListFetcher`가 쓴다). "노드 자신의 전체 수치"가
+  필요해지면 라벨을 루트 자리에 밀어넣는 것보다 이 변형으로 가는 편이 정합적이다.
+
+액티브 스레드(실시간)는 WebSocket이라 헤더가 없다. 지금도 service를 싣지 않는다.
+
+## map 노드/링크 id 형식이 API마다 다르다
+
+| API | render | node key |
+|---|---|---|
+| `/api/servermap/serverMap` | `NodeRender.forServerMap()` | **항상** `applicationName^serviceType` (2단) |
+| `/api/servermap/serviceMap` | `NodeRender.forServiceMap()` | **항상** `serviceName^applicationName^serviceType` (3단) |
+| `/api/servermap/filterServerMap` | `NodeRender.detailedRender(mapProperties)` | **`enableServiceMap` 설정에 따라 2단/3단** |
+
+link key는 노드 이름 둘을 `~`로 이은 것이라 같은 규칙을 따른다(`{from}~{to}`).
+
+> **filteredMap의 형식은 "어디서 왔는가"가 아니라 설정에 달려 있다.** servermap에서 들어온
+> filteredMap도 `enableServiceMap`이 켜져 있으면 3단으로 온다. 경로에 serviceName이 실렸는지와
+> 무관하다.
+
+- **id에서 application을 읽을 때는 `parseNodeApplication`을 쓴다.** 뒤 두 토큰이 application이다.
+  URL 세그먼트용인 `getApplicationTypeAndName`으로 읽으면 3단에서 applicationName에
+  `serviceName^applicationName`이 들어온다(정규식이 greedy).
+- **`key`에서 읽은 것을 조회 파라미터로 보내지 않는다.** `key`의 serviceType은 `getDesc()`라
+  백엔드가 이름으로 찾을 때 어긋난다. 조회에 쓸 값은 `nodeKey`에서 뽑는다
+  → `parseNodeKeyApplication` (위 "통계 API의 기준 application은 map의 루트다").
+  `parseNodeApplication`은 화면 표시·비교·URL 세그먼트용이다.
+- **노드/링크를 application으로 찾을 때는 `findNodeOfApplication`·`findLinkOfApplications`를 쓴다.**
+  `key`의 뒤 두 토큰으로 비교하므로 2단/3단 어느 쪽이든 찾는다.
+- serviceName은 escape되지 않으므로(applicationName만 `ApplicationNameEscaper`로 escape된다)
+  앞쪽 토큰이 더 늘어날 수 있다. 그래서 **앞에서 세지 않고 뒤에서 센다.**
+- **2단짜리 `nodeKey`/`linkKey` 필드와 비교하는 것으로는 부족하다.** 그 필드의 serviceType은
+  `ServiceType.getName()` 형식인데 `key`와 URL은 `getDesc()` 형식이고, 둘이 다른 타입이 있다
+  (`UNKNOWN_DB_EXECUTE_QUERY`→`UNKNOWN_DB`, `SPRING_ORM_IBATIS`→`SPRING`).
+- 스캐터(`applicationScatterData`)의 키는 `ScatterDataMapView`가 `NodeName`으로 만들어
+  **항상 2단**이다. `getApplicationKey`로 그대로 조회하면 된다.
+- servicemap의 **service group**(접힌 service) 노드·링크는 id가 serviceName 하나뿐이라 기준
+  application이 없다. filteredMap은 기준 application 없이 조회가 성립하지 않으므로 연결하지
+  않는다 → 아래 "filteredMap으로 연결되는 것은 Application→Application뿐" 참고.
+- 접히는 기준은 백엔드 `ServiceMapViewBuilder`의 `expandedServiceNames`다. 보고 있는 service는
+  펼쳐지므로 그 service의 노드는 3단 app 노드로, 다른 service는 group으로 온다.
+
+### filteredMap으로 연결되는 것은 Application→Application뿐
+
+servicemap의 edge는 네 가지다. 이 중 **Application→Application만** filteredMap으로 연결한다.
+나머지 셋(Application→Service, Service→Application, Service→Service)은 한쪽 끝이 service
+group이라 그쪽 application이 없고, 그대로 열면 필터가 반쪽만 걸린 filteredMap이 열린다.
+service 단위로 필터를 걸 수 있게 할지는 위 TODO와 같은 미결 사안이다.
+
+**판별은 `subLinks`/`subNodes`로 한다.** 백엔드는 양쪽 끝이 모두 펼쳐진 service일 때만 평범한
+링크로 내려주고(`ServiceMapViewBuilder#buildLinks`의 `fromExpanded && toExpanded`), 한쪽이라도
+접혀 있으면 `type:'service'`로 묶어 내려준다. `flattenServiceMapResponse`가 그것을 `subLinks`에
+담으므로, **`subLinks`가 있으면 곧 Application→Application이 아니다.** 노드도 같다(`subNodes`).
+servermap/filteredMap 응답에는 이 필드가 없어 그 화면들의 동작은 달라지지 않는다.
+→ `findServiceGroupNode`, `findServiceGroupLink` (`utils/helper/serviceMap.ts`)
+
+막는 방식은 **우클릭 메뉴를 아예 열지 않는 것**이다. 필터를 걸 수 없는 노드에 메뉴를 띄우지 않는
+기존 처리(`getTransactionInfo`가 undefined면 메뉴 없음)와 같은 방식이다. 메뉴를 띄우고 항목만
+무반응으로 두면 눌러도 아무 일이 없는 죽은 버튼이 된다.
+
+- **엣지의 `transactionInfo`를 비우는 방식은 안 된다.** 그 필드는 엣지 라벨(호출 수·평균
+  응답시간, `renderEdgeLabel`)이 쓴다. group 엣지도 합산 수치는 보여줘야 하므로 별도 판별이 필요하다.
+- 안전망으로 `getFilterTargetApplication`은 **링크의 양쪽 끝이 모두 application일 때만** 기준을
+  돌려준다. 기준으로 삼을 한쪽만 보고 통과시키면 Application→Service가 새어나간다(출발지가
+  WAS라 출발지를 기준으로 잡고 열린다). 어느 쪽이 기준인지(`sourceIsWas`)와 무관하게 양쪽을 본다.
+
+## service group 펼치기/접기 (더블클릭)
+
+접힌 service group 노드를 더블클릭하면 자식 application들이 부모(compound) 상자 안에 풀려 그려지고,
+상자를 더블클릭하면 다시 접힌다. 상자를 한 번 클릭하면 접힌 group과 같은 자식 목록 팝업이 열린다.
+
+- **백엔드에 다시 묻지 않는다.** group 노드는 `subNodes`, group 링크는 `subLinks`에 원본을 전부
+  담아 온다(service 안쪽끼리의 링크도 `B→B` group 링크에 있다). 화면에서 다시 짠다 →
+  `expandServiceGroups` (`utils/helper/serviceMap.ts`)
+- **펼친 상태는 `ServerMapCore`의 state다.** cytoscape만 만지면 데이터가 다시 올 때(실시간 2초 주기)
+  diff가 펼친 노드를 지워 도로 접힌다. 기준 application(`baseNodeId`)이 바뀌면 비운다.
+- **링크는 끝을 다시 잇고 필요하면 다시 묶는다.** 끝이 접힌 group 소속이면 group key로 잇고, 양 끝이
+  모두 application일 때만 평범한 링크로 둔다 — 백엔드의 `fromExpanded && toExpanded`와 같은 규칙이라
+  필터 메뉴 판별(`findServiceGroupLink`)이 그대로 동작한다. 그래서 **group 판별은 응답이 아니라
+  그려진 것(`mapView`)으로 한다.** 화면에서 다시 묶은 링크는 응답에 없다.
+- **상자와 group 링크의 클릭은 상위로 넘기지 않는다.** 상자는 응답에 없는 노드이고, 다시 묶은 링크는
+  상위(`ServiceMapFetcher`)가 응답에서 찾을 수 없어 group인지 모른 채 선택으로 만든다.
+- **위치는 전체 배치를 다시 돌리지 않고 정한다** (`packages/server-map/src/core/anchor.ts`).
+  노드의 `anchorId`가 "새로 생기면 이 노드가 있던 자리에 놓아라"다. 추가된 노드가 모두 이 경우면
+  `forceLayoutUpdate`여도 dagre를 돌리지 않는다.
+  - 펼침: 자식들을 group이 있던 자리를 가운데로 놓고, 상자와 **같은 행/열**의 노드만 커진 만큼의
+    절반씩 민다(무관한 노드는 제자리). 민 양은 기록해 두었다가 접을 때 되돌린다.
+  - 접힘: 자식 위치의 가운데에 group을 놓는다. 상자의 가운데(`position()`)는 자식 라벨까지 포함해
+    아래로 치우쳐, 쓰면 펼치고 접을 때마다 group이 조금씩 내려간다.
+  - cytoscape layout을 쓰지 않는다. `layoutready`가 화면을 기준 노드로 다시 센터링한다.
+    반대로 전체 배치(`layoutstart`)가 돌면 민 기록은 무효라 지운다.
+  - 민 기록은 노드 id로 적는다. 다른 group이 펼쳐지거나 접혀 그 id가 사라지면 새 노드(group ↔ 자식)로
+    옮겨 적는다(`migrateShifts`). 안 옮기면 펼친 순서와 다르게 접을 때 한쪽 group이 밀린 채 남는다.
+  - 실시간 갱신으로 **이미 펼친 상자의 자식이 늘거나 줄면** 상자 안을 원래 가운데(빠진 자식까지 포함한
+    자식 위치의 가운데)를 기준으로 다시 배치하고, 더 커진 만큼 더 민다.
+    - 늘 때: 새 자식은 anchor(접힌 group 노드)가 그래프에 없다. 안 하면 원점에 놓여 상자가 길게
+      늘어난다(비DEFAULT는 기준 노드도 없어 위치를 정할 곳이 없다).
+    - 줄 때: 안 하면 남은 자식의 가운데가 쏠려, 접을 때 group이 펼치기 전 자리로 돌아오지 못한다.
+    - 다른 group이 이 group을 밀어 둔 기록도 지금 자식들의 id로 옮긴다. 안 하면 그 group을 접을 때
+      새 자식만 밀린 채 남아 상자가 찢어진다.
+  - 실시간 갱신으로 **펼쳐 둔 group이 통째로 사라지면** 그것이 밀어 둔 노드를 그 자리에서 되돌리고,
+    다른 기록 속의 사라진 노드 id도 지운다 → `releaseRemovedGroups` (`placeGroupChanges`보다 나중에 부른다 — 기록을
+    새 id로 옮기기 전에는 옮겨질 id가 사라진 것처럼 보인다). 지우지 않으면 같은 id로 다시 나타난
+    노드를, 밀린 적도 없는데 묶을 때 끌어당긴다. `ServerMapCore`도 사라진 group을 펼친 상태에서 뺀다 —
+    남기면 다시 나타날 때 놓일 자리 없이 펼쳐진다.
+  - **펼침·접힘·자식 변화는 한꺼번에, 두 단계로 반영한다** → `placeGroupChanges`. 실시간 응답 하나에
+    여러 group의 변화가 함께 실릴 수 있다. 먼저 모두를 제자리에 놓고(바로 전 위치 기준의 절대 위치, 기록
+    옮겨 적기도 여기서 끝낸다), 그다음 모두 민다(상대 이동이라 순서가 결과를 바꾸지 않는다). 하나씩 놓고
+    밀기를 번갈아 하면 뒤에 놓은 group이 앞의 group에 밀린 것을 지워 버리는데, 앞 group의 기록에는
+    민 것으로 남아 그 group을 접을 때 뒤 group을 끌어당긴다.
+  - **이 규칙들은 하나씩 해 보는 테스트로는 드러나지 않는다** — 순서가 엇갈릴 때만 깨진다. 펼치기·접기·
+    자식 늘고 줄기·group 사라졌다 나타나기를 무작위 순서로 섞은 뒤 모두 접으면 처음 자리로 돌아오는지 본다
+    (`test/core/anchor.sequence.test.ts`). 한 갱신에 두 group의 변화를 함께 싣는 경우도 섞는다.
+    위치 규칙을 바꾸면 이 테스트를 먼저 돌린다.
+- **링크는 노드와 따로 맞춘다** (`packages/server-map/src/core/edge.ts`의 `syncEdges`). 펼친 상자 안에
+  새 호출이 생기면 노드는 그대로이고 링크만 는다. 노드를 더하고 지울 때만 링크를 다루면 그 링크는
+  그려지지 않는다.
+- **하이라이트는 노드가 늘 때만이 아니라 링크가 바뀌거나 선택을 대신 그리는 요소가 달라질 때도 다시
+  입힌다** (`ServerMap`, `core/selection.ts`의 `getHighlightTarget`). 새로 그린 링크에는 하이라이트가 없고,
+  묶음 링크의 `memberIds`에서 선택된 링크가 빠지면 그 묶음 링크에 하이라이트가 남는다. 지금 하이라이트한
+  요소와 같고 그려진 것도 그대로면 스타일을 건드리지 않는다(실시간 보기의 대부분의 갱신).
+- 상자 안의 노드는 자동 merge 대상이 아니다. 합친 노드는 부모 하나에 속할 수 없다.
+
+## map의 선택은 경로에 묶인다
+
+`serverMapCurrentTargetAtom`(map에서 고른 노드/링크)은 **그것을 고른 경로와 함께** 저장된다.
+경로가 바뀌면 이전 경로의 선택은 그 즉시 남의 것이다.
+
+페이지들이 경로 변경 effect에서 이 값을 비우지만 **effect는 한 박자 늦다.** 그 사이 우측 패널이
+**(새 application, 이전 경로에서 고른 노드)** 라는 있지도 않은 짝으로 한 번 렌더되고, 조회 훅들이
+그 짝으로 파라미터를 갱신해 화면을 떠난 대상 조회가 한 번 더 나갔다 — application 선택 박스로
+바꿀 때도, 브라우저 뒤로/앞으로 갈 때도 똑같이 생겼다. (이슈 #10587)
+
+- **조회 파라미터를 만드는 곳은 아톰을 직접 읽지 않는다.** `useServerMapCurrentTarget` /
+  `useServerMapCurrentTargetData`로 읽으면 경로가 바뀐 그 렌더부터 undefined다.
+  → 지금 쓰는 곳: `ServerMapChartsBoardFetcher`, `ServerListFetcher`, `Realtime`,
+    `AgentActiveThreadFetcher`, `useServerMapTargetServiceName`
+- **경로 도장은 아톰의 write 함수 한 곳에서 찍는다.** 값을 넣는 곳이 여러 군데(map fetcher들,
+  페이지들, 병합 노드 목록)라 호출부마다 경로를 넘기게 하면 한 곳만 빠뜨려도 조용히 어긋난다.
+- **도장과 비교는 같은 출처(`getCurrentRouterPath`)를 쓴다.** 비교하는 쪽만 `useLocation()`의
+  값을 쓰면 basename이 붙고 안 붙는 차이로 늘 어긋난다. `useLocation()`은 경로가 바뀔 때 다시
+  렌더시키는 구독 용도다.
+- **선택을 정하는 쪽(`ServerMapPage`의 `serverMapData` effect)도 이 훅으로 읽는다.** 새 map이
+  왔을 때 "이전 선택을 유지할지 기준 노드로 갈아끼울지"를 판단하는데, 아톰을 그대로 읽으면
+  `nodes`를 들고 있는 선택(merged 노드)은 이 map에 있는지 확인하지 않고 유지되며 **지금 경로로
+  도장을 다시 찍는다.** 그러면 이 map에 없는 노드가 선택된 상태가 되어, 조회 대상이 없는데도
+  우측 패널이 그려지고 `applicationName` 없는 요청이 나간다 —
+  servermap에서 노드를 고른 뒤 비DEFAULT servicemap으로 이동할 때 실제로 겪었다
+  (`/heatmap/applicationData` → 400 "Required parameter 'applicationName' is not present.").
+- query string만 바뀌는 이동(기간·조회 옵션 변경)은 경로가 그대로라 선택이 유지된다.
+- **조회 훅에도 대상 없음 가드를 둔다.** 위 규칙만으로 막으면 새 컴포넌트가 하나 늘 때 다시
+  샌다. `applicationName`이 필수인 API는 훅의 `enabled`에서 막는다
+  (`useGetHeatmapAppData` — `queryString`은 물음표 때문에 항상 truthy라 그것으로는 못 막는다).
+
+## 함정 (실제로 겪은 것들)
+
+- **아톰은 화면 remount로 지워지지 않는다.** `InitialFetchOutlet`의 `key={requestService}`는
+  컴포넌트 state만 초기화한다. service를 바꿀 때 이전 service의 map에서 고른 선택
+  (`serverMapCurrentTargetAtom`, `currentServerAtom`)을 명시적으로 비워야 한다. 안 비우면
+  ChartsBoard가 없는 노드를 기준으로 조회를 시작하고, 새 경로에는 기준 application도 없어서
+  `applicationName` 없는 요청이 나가 400을 받는다. → `useClearApplicationOnServiceChange`
+- **통계 조회의 기준을 고른 노드로 갈아 끼우면 안 된다.** 그 자리는 map의 루트이고, 고른 노드는
+  `nodeKey`로 이미 실려 나간다. 갈아 끼우면 USER 노드와 DB 노드가 조용히 비거나 400이 된다.
+  → 위 "통계 API의 기준 application은 map의 루트다"
+- **경로에 남은 application 세그먼트가 통계 조회의 기준이 된다.** 비DEFAULT 모드에서 다른 화면
+  링크를 타고 application이 실려 들어오면, 클릭한 노드와 다른 application의 수치를 보여준다.
+- **통계 API는 기준 application이 필수다.** service 전체 map에는 URL에 application이 없으므로,
+  선택된 노드(링크는 출발지 노드)를 기준으로 삼는다. → `getSelectedTargetApplication`
+- **`useSuspenseQuery`는 `enabled`를 지원하지 않는다.** `useGetApdexScore`처럼 `shouldPoll`에 따라
+  suspense를 쓰는 훅은 `enabled`로 막을 수 없다. `skipToken`을 쓰면 영원히 suspend 되므로,
+  컴포넌트에서 조회 대상이 없을 때 fetcher를 마운트하지 않는 쪽으로 막는다.
+- **이전 선택을 effect로 버리면 한 박자 늦다.** → 아래 "map의 선택은 경로에 묶인다".
+
+## 관련 파일
+
+| 관심사 | 위치 |
+|---|---|
+| 켜짐 여부 판단 (화면) | `hooks/utility/useEnableServiceMap.ts` |
+| 켜짐 여부 판단 (렌더 밖) | `utils/experimental.ts` (`pickEnableServiceMap`, `getEnableServiceMap`) |
+| 조회할 service 판단 (규칙) | `utils/serviceName.ts` (`pickServiceName`) |
+| 조회할 service 판단 (화면) | `hooks/utility/useRequestService.ts` |
+| 조회할 service 판단 (렌더 밖) | `hooks/api/serviceNameFetchInterceptor.ts` (`getRequestService`) |
+| Experimental 설정 항목 | `hooks/utility/useExperimentals.ts`, `pages/config/Experimentals.tsx` |
+| DEFAULT 여부 판단 | `hooks/utility/useIsDefaultService.ts` |
+| 경로에 실린 serviceName 읽기 | `utils/helper/application.ts` (`getServiceNameFromPath`, `registerAppRoutes`) |
+| 경로 분해 (로더용) | `utils/helper/application.ts` (`parseServiceScopedPath`) |
+| 경로 만들기 | `utils/helper/route.ts` (`getServiceMapPath`, `getServiceMapRealtimePath`, `getFilteredMapPath`, `getTransactionListPath`, `getScatterFullScreenPath`, `getHeatmapFullScreenPath`) |
+| 조회 대상의 service | `hooks/serverMap/useServerMapTargetServiceName.ts` |
+| 지금 경로에서 고른 선택 | `hooks/serverMap/useServerMapCurrentTarget.ts` |
+| 선택에 경로 도장 찍기 | `atoms/serverMap.ts` (`serverMapCurrentTargetAtom`) |
+| 렌더 밖에서 읽는 지금 경로 | `utils/helper/route.ts` (`getCurrentRouterPath`), `hooks/utility/useSyncRenderedRouterPath.ts` |
+| 요청 헤더 주입 | `hooks/api/serviceNameFetchInterceptor.ts` |
+| service 단위 캐시 키 | `hooks/api/reactQueryHelper.tsx` (`serviceScopedQueryKeyHashFn`) |
+| service 변경 시 초기화 | `hooks/utility/useClearApplicationOnServiceChange.ts` |
+| 라우트 로더 | `loader/serviceMap.ts`, `loader/serviceMapRealtime.ts`, `loader/filteredMap.ts` |
+| 메뉴 화면 로더의 serviceName 채우기 | `loader/serviceScopedPage.ts`, `loader/systemMetric.ts` |
+| 로더의 날짜 정규화 (공유) | `loader/mapDateRange.ts` |
+| filteredMap 경로 읽기 | `hooks/searchParameters/useFilteredMapParameters.ts` |
+| service group 펼치기 (데이터) | `utils/helper/serviceMap.ts` (`expandServiceGroups`) |
+| service group 펼치기 (위치) | `packages/server-map/src/core/anchor.ts` |

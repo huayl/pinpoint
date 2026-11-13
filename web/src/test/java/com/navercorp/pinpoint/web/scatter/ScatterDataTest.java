@@ -16,28 +16,29 @@
 
 package com.navercorp.pinpoint.web.scatter;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
-import com.navercorp.pinpoint.web.vo.scatter.Dot;
-import org.junit.Assert;
-import org.junit.Test;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Taejin Koo
  */
 public class ScatterDataTest {
 
-    String agentId = "agent";
-    String transactionAgentId = "transactionAgent";
+    private static final String agentId = "agent";
+    private static final String transactionAgentId = "transactionAgent";
 
     @Test
-    public void addDotTest() throws Exception {
+    public void addDotTest() {
         int count = 100;
 
         long from = 1000;
@@ -53,11 +54,11 @@ public class ScatterDataTest {
         }
 
         List<Dot> dots = extractDotList(builder.build());
-        Assert.assertEquals(count, dots.size());
+        assertThat(dots).hasSize(count);
     }
 
     @Test
-    public void addDotTest2() throws Exception {
+    public void addDotTest2() {
         long from = 1000;
         long to = 10000;
         int xGroupUnit = 100;
@@ -67,8 +68,8 @@ public class ScatterDataTest {
 
         long currentTime = System.currentTimeMillis();
 
-        TransactionId transactionId1 = new TransactionId(transactionAgentId, currentTime, 1);
-        TransactionId transactionId2 = new TransactionId(transactionAgentId, currentTime, 2);
+        ServerTraceId transactionId1 = new PinpointServerTraceId(transactionAgentId, currentTime, 1);
+        ServerTraceId transactionId2 = new PinpointServerTraceId(transactionAgentId, currentTime, 2);
 
         long acceptedTime = Math.max(Math.abs(ThreadLocalRandom.current().nextLong(Long.MAX_VALUE)), from);
         int executionTime = (int) Math.abs(ThreadLocalRandom.current().nextLong(60 * 1000));
@@ -83,16 +84,16 @@ public class ScatterDataTest {
         ScatterData scatterData = builder.build();
 
         List<DotGroups> values = scatterData.getScatterData();
-        Assert.assertTrue(values.size() == 1);
+        assertThat(values).hasSize(1);
 
         for (DotGroups dotGroups : values) {
             Map<Dot, DotGroup> dotGroupLeaders = dotGroups.getDotGroupLeaders();
-            Assert.assertTrue(dotGroupLeaders.keySet().size() == 2);
+            assertThat(dotGroupLeaders.keySet()).hasSize(2);
         }
     }
 
     @Test
-    public void addDotTest3() throws Exception {
+    public void addDotTest3() {
         long from = 1000;
         long to = 10000;
         int xGroupUnit = 100;
@@ -102,7 +103,7 @@ public class ScatterDataTest {
 
         long currentTime = System.currentTimeMillis();
 
-        TransactionId transactionId = new TransactionId(transactionAgentId, currentTime, 1);
+        ServerTraceId transactionId = new PinpointServerTraceId(transactionAgentId, currentTime, 1);
 
         long acceptedTime = Math.max(Math.abs(ThreadLocalRandom.current().nextLong(Long.MAX_VALUE)), from);
         int executionTime = (int) Math.abs(ThreadLocalRandom.current().nextLong(60 * 1000));
@@ -116,15 +117,15 @@ public class ScatterDataTest {
         builder.addDot(dot2);
 
         List<Dot> dots = extractDotList(builder.build());
-        Assert.assertEquals(2, dots.size());
+        assertThat(dots).hasSize(2);
     }
 
     private List<Dot> createDotList(String agentId, String transactionAgentId, int createSize, long from) {
         long currentTime = System.currentTimeMillis();
 
-        List<TransactionId> transactionIdList = new ArrayList<>(createSize);
+        List<ServerTraceId> transactionIdList = new ArrayList<>(createSize);
         for (int i = 0; i < createSize; i++) {
-            transactionIdList.add(new TransactionId(transactionAgentId, currentTime, i));
+            transactionIdList.add(new PinpointServerTraceId(transactionAgentId, currentTime, i));
         }
 
         long acceptedTime = Math.max(Math.abs(ThreadLocalRandom.current().nextLong(Long.MAX_VALUE)), from);
@@ -136,8 +137,7 @@ public class ScatterDataTest {
             dotList.add(new Dot(transactionIdList.get(i), Math.max(Math.abs(ThreadLocalRandom.current().nextLong(Long.MAX_VALUE)), from), executionTime, exceptionCode, agentId));
         }
 
-        long seed = System.nanoTime();
-        Collections.shuffle(dotList, new Random(seed));
+        Collections.shuffle(dotList);
 
         return dotList;
     }

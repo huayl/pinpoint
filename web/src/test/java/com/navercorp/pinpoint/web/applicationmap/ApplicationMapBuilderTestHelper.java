@@ -16,17 +16,15 @@
 
 package com.navercorp.pinpoint.web.applicationmap;
 
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataDuplexMap;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
 import com.navercorp.pinpoint.common.trace.ServiceType;
 import com.navercorp.pinpoint.common.trace.ServiceTypeFactory;
 import com.navercorp.pinpoint.web.applicationmap.appender.histogram.NodeHistogramAppenderFactory;
-import com.navercorp.pinpoint.web.applicationmap.appender.metric.DefaultMetricInfoAppenderFactory;
-import com.navercorp.pinpoint.web.applicationmap.appender.metric.MetricInfoAppenderFactory;
 import com.navercorp.pinpoint.web.applicationmap.appender.server.ServerInfoAppenderFactory;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkData;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkDataDuplexMap;
-import com.navercorp.pinpoint.web.vo.AgentInfo;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkData;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfo;
 
 import java.util.concurrent.Executor;
 
@@ -45,11 +43,10 @@ public class ApplicationMapBuilderTestHelper {
     private static final ServiceType TERMINAL_TYPE = ServiceTypeFactory.of(2000, "TERMINAL", TERMINAL, INCLUDE_DESTINATION_ID);
     private static final ServiceType RPC_TYPE = ServiceTypeFactory.of(9000, "RPC", RECORD_STATISTICS);
 
-    public static ApplicationMapBuilder createApplicationMapBuilder(Range range, Executor executor) {
+    public static ApplicationMapBuilder createApplicationMapBuilder(TimeWindow timeWindow, Executor executor) {
         NodeHistogramAppenderFactory nodeHistogramAppenderFactory = new NodeHistogramAppenderFactory(executor);
         ServerInfoAppenderFactory serverInfoAppenderFactory = new ServerInfoAppenderFactory(executor);
-        MetricInfoAppenderFactory metricInfoAppenderFactory = new DefaultMetricInfoAppenderFactory();
-        return new ApplicationMapBuilder(range, nodeHistogramAppenderFactory, serverInfoAppenderFactory, metricInfoAppenderFactory);
+        return new ApplicationMapBuilder(timeWindow, nodeHistogramAppenderFactory, serverInfoAppenderFactory);
     }
 
     public static int getExpectedNumNodes(int calleeDepth, int callerDepth) {
@@ -100,7 +97,7 @@ public class ApplicationMapBuilderTestHelper {
         Application toApplication = createApplicationFromDepth(toDepth);
         LinkData targetLinkData = new LinkData(fromApplication, toApplication);
         targetLinkData.addLinkData(
-                fromApplication.getName(), WAS_TYPE,
+                fromApplication.getApplicationName(), WAS_TYPE,
                 createAgentIdFromDepth(toDepth), WAS_TYPE,
                 System.currentTimeMillis(), WAS_TYPE.getHistogramSchema().getNormalSlot().getSlotTime(), 1);
         return targetLinkData;
@@ -112,7 +109,7 @@ public class ApplicationMapBuilderTestHelper {
         Application fromApplication = createUserApplication(toApplication);
         LinkData targetLinkData = new LinkData(fromApplication, toApplication);
         targetLinkData.addLinkData(
-                fromApplication.getName(), USER_TYPE,
+                fromApplication.getApplicationName(), USER_TYPE,
                 createAgentIdFromDepth(toDepth), WAS_TYPE,
                 System.currentTimeMillis(), WAS_TYPE.getHistogramSchema().getNormalSlot().getSlotTime(), 1);
         return targetLinkData;
@@ -161,18 +158,18 @@ public class ApplicationMapBuilderTestHelper {
     }
 
     public static Application createUserApplication(Application toApplication) {
-        String userApplicationName = toApplication.getName() + "_" + toApplication.getServiceType().getName();
+        String userApplicationName = toApplication.getApplicationName() + "_" + toApplication.getServiceType().getName();
         return new Application(userApplicationName, USER_TYPE);
     }
 
     public static Application createTerminalApplication(Application fromApplication) {
-        int depth = getDepthFromApplicationName(fromApplication.getName());
+        int depth = getDepthFromApplicationName(fromApplication.getApplicationName());
         String terminalApplicationName = "destinationId_" + depth;
         return new Application(terminalApplicationName, TERMINAL_TYPE);
     }
 
     public static Application createUnknownApplication(Application fromApplication) {
-        int depth = getDepthFromApplicationName(fromApplication.getName());
+        int depth = getDepthFromApplicationName(fromApplication.getApplicationName());
         return new Application(createHostnameFromDepth(depth), UNKNOWN_TYPE);
     }
 

@@ -17,13 +17,12 @@
 package com.navercorp.pinpoint.collector.receiver.grpc;
 
 import com.navercorp.pinpoint.common.server.util.AddressFilter;
-
 import io.grpc.Attributes;
 import io.grpc.Grpc;
 import io.grpc.ServerTransportFilter;
 import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -33,7 +32,7 @@ import java.util.Objects;
  * @author jaehong.kim
  */
 public class PermissionServerTransportFilter extends ServerTransportFilter {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final String debugString;
     private final AddressFilter addressFilter;
@@ -75,10 +74,9 @@ public class PermissionServerTransportFilter extends ServerTransportFilter {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("PermissionServerTransportFilter{");
-        sb.append("debugString='").append(debugString).append('\'');
-        sb.append(", addressFilter=").append(addressFilter);
-        sb.append('}');
-        return sb.toString();
+        return "PermissionServerTransportFilter{" +
+                "debugString='" + debugString + '\'' +
+                ", addressFilter=" + addressFilter +
+                '}';
     }
 }

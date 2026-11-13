@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  // [MOCK #10497] dev-mock 은 임시입니다. 삭제 방법은 dev-mock/README.md 참고.
+  "include": ["vite.config.ts", "dev-mock/**/*.ts"]
+}

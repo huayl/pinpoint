@@ -15,7 +15,31 @@
  */
 package com.navercorp.pinpoint.web.controller;
 
-import static org.hamcrest.Matchers.hasKey;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import com.navercorp.pinpoint.common.server.util.json.Jackson;
+import com.navercorp.pinpoint.common.server.util.json.TypeRef;
+import com.navercorp.pinpoint.user.dao.UserGroupDao;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.test.context.web.WebAppConfiguration;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.util.List;
+import java.util.Map;
+
+import static com.navercorp.pinpoint.web.TestTraceUtils.hasKey;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,35 +48,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-import org.springframework.test.context.web.WebAppConfiguration;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.navercorp.pinpoint.web.dao.AlarmDao;
-
 /**
  * @author minwoo.jung
  */
-@Ignore
-@RunWith(SpringJUnit4ClassRunner.class)
+@Disabled
+@ExtendWith(SpringExtension.class)
 @WebAppConfiguration
-@ContextConfiguration(locations = {"classpath:servlet-context-web.xml", "classpath:applicationContext-web.xml"})
+@ContextConfiguration(locations = {"classpath:applicationContext-web.xml"})
 public class AlarmControllerTest {
     private final static String APPLICATION_ID = "test-application";
     private final static String APPLICATION_ID_UPDATED = "test-application-tomcat";
@@ -76,23 +78,24 @@ public class AlarmControllerTest {
 
     private final static String NOTES = "for unit test";
     private final static String NOTES_UPDATED = "";
-    
+
     @Autowired
     private WebApplicationContext wac;
     
     @Autowired
-    private AlarmDao alarmDao;
+    private UserGroupDao userGroupDao;
+
+    private final ObjectMapper mapper = Jackson.newMapper();
 
     private MockMvc mockMvc;
     
-    @Before
+    @BeforeEach
     public void setup() {
         this.mockMvc = MockMvcBuilders.webAppContextSetup(this.wac).build();
-        this.alarmDao.deleteRuleByUserGroupId(USER_GROUP_ID);
-        this.alarmDao.deleteRuleByUserGroupId(USER_GROUP_ID_UPDATED);
+        this.userGroupDao.deleteRuleByUserGroupId(USER_GROUP_ID);
+        this.userGroupDao.deleteRuleByUserGroupId(USER_GROUP_ID_UPDATED);
     }
     
-    @SuppressWarnings("unchecked")
     @Test
     public void insertAndSelectAndDeleteRule() throws Exception {
         String jsonParm = "{" +
@@ -106,18 +109,17 @@ public class AlarmControllerTest {
                             "\"notes\" : \"" + NOTES + "\"" + 
                           "}"; 
                            
-        MvcResult result = this.mockMvc.perform(post("/alarmRule.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
+        MvcResult result = this.mockMvc.perform(post("/api/alarmRule").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
                                             .andExpect(status().isOk())
                                             .andExpect(content().contentType("application/json;charset=UTF-8"))
                                             .andReturn();
         String content = result.getResponse().getContentAsString();
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        Map<String, String> resultMap = objectMapper.readValue(content, HashMap.class);
-        Assert.assertEquals(resultMap.get("result"), "SUCCESS");
-        Assert.assertNotNull(resultMap.get("ruleId"));
+        Map<String, Object> resultMap = mapper.readValue(content, TypeRef.map());
+        Assertions.assertEquals(resultMap.get("result"), "SUCCESS");
+        Assertions.assertNotNull(resultMap.get("ruleId"));
         
-        this.mockMvc.perform(get("/alarmRule.pinpoint?userGroupId=" + USER_GROUP_ID))
+        this.mockMvc.perform(get("/api/alarmRule?userGroupId=" + USER_GROUP_ID))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("application/json;charset=UTF-8"))
                 .andExpect(jsonPath("$[0]", hasKey("applicationId")))
@@ -130,7 +132,7 @@ public class AlarmControllerTest {
                 .andExpect(jsonPath("$[0]", hasKey("notes")))
                 .andReturn();
         
-        this.mockMvc.perform(delete("/alarmRule.pinpoint").contentType(MediaType.APPLICATION_JSON).content("{\"ruleId\" : \"" + resultMap.get("ruleId") + "\"}"))
+        this.mockMvc.perform(delete("/api/alarmRule").contentType(MediaType.APPLICATION_JSON).content("{\"ruleId\" : \"" + resultMap.get("ruleId") + "\"}"))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
@@ -138,7 +140,6 @@ public class AlarmControllerTest {
                         .andReturn();
     }
     
-    @SuppressWarnings("unchecked")
     @Test
     public void updateRule() throws Exception {
         String jsonParm = "{" +
@@ -152,16 +153,15 @@ public class AlarmControllerTest {
                             "\"notes\" : \"" + NOTES + "\"" + 
                           "}"; 
                            
-        MvcResult result = this.mockMvc.perform(post("/alarmRule.pinpoint").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
+        MvcResult result = this.mockMvc.perform(post("/api/alarmRule").contentType(MediaType.APPLICATION_JSON).content(jsonParm))
                                             .andExpect(status().isOk())
                                             .andExpect(content().contentType("application/json;charset=UTF-8"))
                                             .andReturn();
         String content = result.getResponse().getContentAsString();
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        Map<String, String> resultMap = objectMapper.readValue(content, HashMap.class);
-        Assert.assertEquals(resultMap.get("result"), "SUCCESS");
-        Assert.assertNotNull(resultMap.get("ruleId"));
+        Map<String, Object> resultMap = mapper.readValue(content, TypeRef.map());
+        Assertions.assertEquals(resultMap.get("result"), "SUCCESS");
+        Assertions.assertNotNull(resultMap.get("ruleId"));
         
         String updatedJsonParm = "{" +
                 "\"ruleId\" : \"" + resultMap.get("ruleId") + "\"," + 
@@ -175,14 +175,14 @@ public class AlarmControllerTest {
                 "\"notes\" : \"" + NOTES_UPDATED + "\"" + 
               "}"; 
         
-        this.mockMvc.perform(put("/alarmRule.pinpoint").contentType(MediaType.APPLICATION_JSON).content(updatedJsonParm))
+        this.mockMvc.perform(put("/api/alarmRule").contentType(MediaType.APPLICATION_JSON).content(updatedJsonParm))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("application/json;charset=UTF-8"))
                 .andExpect(jsonPath("$", hasKey("result")))
                 .andExpect(jsonPath("$.result").value("SUCCESS"))
                 .andReturn();
         
-        this.mockMvc.perform(delete("/alarmRule.pinpoint").contentType(MediaType.APPLICATION_JSON).content("{\"ruleId\" : \"" + resultMap.get("ruleId") + "\"}"))
+        this.mockMvc.perform(delete("/api/alarmRule").contentType(MediaType.APPLICATION_JSON).content("{\"ruleId\" : \"" + resultMap.get("ruleId") + "\"}"))
                         .andExpect(status().isOk())
                         .andExpect(content().contentType("application/json;charset=UTF-8"))
                         .andExpect(jsonPath("$", hasKey("result")))
@@ -192,15 +192,15 @@ public class AlarmControllerTest {
     
     @Test
     public void checkerTest() throws Exception {
-        MvcResult result = this.mockMvc.perform(get("/alarmRule/checker.pinpoint").contentType(MediaType.APPLICATION_JSON))
+        MvcResult result = this.mockMvc.perform(get("/api/alarmRule/checker").contentType(MediaType.APPLICATION_JSON))
                                 .andExpect(status().isOk())
                                 .andExpect(content().contentType("application/json;charset=UTF-8"))
                                 .andExpect(jsonPath("$").isArray())
                                 .andReturn();
         
         String content = result.getResponse().getContentAsString();
-        ObjectMapper objectMapper = new ObjectMapper();
-        List<String> checkerList = objectMapper.readValue(content, List.class);
-        Assert.assertNotEquals(checkerList.size(), 0);
+
+        List<String> checkerList = mapper.readValue(content, new TypeReference<>() {});
+        assertThat(checkerList).isEmpty();
     }
 }

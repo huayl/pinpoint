@@ -25,7 +25,7 @@ public class ServiceTypeProvider {
 
     private static final ServiceTypeLocator UNREGISTERED = new ServiceTypeLocator() {
         @Override
-        public ServiceType findServiceType(short code) {
+        public ServiceType findServiceType(int code) {
             throw new IllegalStateException("ServiceTypeRegistry not registered");
         }
 
@@ -47,8 +47,7 @@ public class ServiceTypeProvider {
     }
 
     public static ServiceType getByCode(int serviceTypeCode) {
-        Short code = (short) serviceTypeCode;
-        ServiceType serviceType = registry.findServiceType(code);
+        ServiceType serviceType = registry.findServiceType(serviceTypeCode);
         if (ServiceType.UNDEFINED == serviceType) {
             throw new IllegalStateException("Unknown ServiceType code: " + serviceTypeCode);
         }

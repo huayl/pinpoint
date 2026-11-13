@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.navercorp.pinpoint.inspector.web.dao.pinot.PinotAgentStatDao">
+
+    <resultMap id="inspectorMetricPointResultMap" type="DoubleDataPoint">
+        <constructor>
+            <arg column="avgTime" javaType="_long"/>
+            <arg column="avgValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="tagInfoMap" type="TagInformation">
+        <constructor>
+            <arg column="applicationName" javaType="string"/>
+            <arg column="agentId" javaType="string"/>
+            <arg column="metricName" javaType="string"/>
+            <arg column="fieldName" javaType="string"/>
+            <arg column="tags" javaType="list" typeHandler="MultiValueTagTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <!--TODO : (minwoo) Need to think about integrating AVG and MAX sum into one. -->
+    <select id="selectInspectorAvgData" parameterType="inspectorQueryParameter" resultMap="inspectorMetricPointResultMap" >
+        SELECT
+            AVG(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY avgTime
+        ORDER BY avgTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorMaxData" parameterType="inspectorQueryParameter" resultMap="inspectorMetricPointResultMap" >
+        SELECT
+            MAX(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY avgTime
+        ORDER BY avgTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorSumData" parameterType="inspectorQueryParameter" resultMap="inspectorMetricPointResultMap" >
+        SELECT
+            SUM(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY avgTime
+        ORDER BY avgTime asc
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorData" parameterType="inspectorQueryParameter" resultMap="inspectorMetricPointResultMap" >
+        SELECT
+            fieldValue AS avgValue,
+            cast(eventTime AS long) AS avgTime
+        FROM ${tableName}
+        WHERE
+        sortKey = #{sortKey}
+        AND serviceName = #{serviceName}
+        AND fieldName = #{fieldName}
+        AND eventTime BETWEEN #{range.from} AND #{range.to}
+        <foreach collection="tagList" item="tag" separator=" ">
+            AND tags = #{tag}
+        </foreach>
+        ORDER BY eventTime asc
+        LIMIT ${limit}
+    </select>
+
+    <resultMap id="agentStatPointResultMap" type="AgentStatPoint">
+        <constructor>
+            <arg column="agentId" javaType="string"/>
+            <arg column="avgTime" javaType="_long"/>
+            <arg column="avgValue" javaType="_double"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectInspectorAvgDataByAgentIds" parameterType="inspectorQueryGroupParameter" resultMap="agentStatPointResultMap">
+        SELECT
+            agentId,
+            AVG(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey IN
+            <foreach collection="sortKeys" item="sortKey" open="(" separator="," close=")">#{sortKey}</foreach>
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY agentId, avgTime
+        ORDER BY agentId ASC, avgTime ASC
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorMaxDataByAgentIds" parameterType="inspectorQueryGroupParameter" resultMap="agentStatPointResultMap">
+        SELECT
+            agentId,
+            MAX(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey IN
+            <foreach collection="sortKeys" item="sortKey" open="(" separator="," close=")">#{sortKey}</foreach>
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY agentId, avgTime
+        ORDER BY agentId ASC, avgTime ASC
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectInspectorSumDataByAgentIds" parameterType="inspectorQueryGroupParameter" resultMap="agentStatPointResultMap">
+        SELECT
+            agentId,
+            SUM(fieldValue) AS avgValue,
+            DATETIME_CONVERT(eventTime, '1:MILLISECONDS:EPOCH', '1:MILLISECONDS:EPOCH', '#{timePrecision.timeSize}:${timePrecision.timeUnit}') AS avgTime
+        FROM ${tableName}
+        WHERE
+            sortKey IN
+            <foreach collection="sortKeys" item="sortKey" open="(" separator="," close=")">#{sortKey}</foreach>
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        GROUP BY agentId, avgTime
+        ORDER BY agentId ASC, avgTime ASC
+        LIMIT ${limit}
+    </select>
+
+    <select id="selectTagInfo" parameterType="inspectorQueryParameter" resultType="Tag">
+        SELECT DISTINCT(tags)
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+    </select>
+
+    <select id="selectTagInfoContainedSpecificTag" parameterType="inspectorQueryParameter" resultMap="tagInfoMap">
+        SELECT applicationName, agentId, metricName, fieldName, tags
+        FROM ${tableName}
+        WHERE
+            sortKey = #{sortKey}
+            AND serviceName = #{serviceName}
+            AND fieldName = #{fieldName}
+            AND eventTime BETWEEN #{range.from} AND #{range.to}
+            <foreach collection="tagList" item="tag" separator=" ">
+                AND tags = #{tag}
+            </foreach>
+        LIMIT 1
+    </select>
+
+</mapper>

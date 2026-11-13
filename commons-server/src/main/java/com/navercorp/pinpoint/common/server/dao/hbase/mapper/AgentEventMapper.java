@@ -1,0 +1,74 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.common.server.dao.hbase.mapper;
+
+import com.navercorp.pinpoint.common.buffer.Buffer;
+import com.navercorp.pinpoint.common.buffer.OffsetFixedBuffer;
+import com.navercorp.pinpoint.common.hbase.RowMapper;
+import com.navercorp.pinpoint.common.hbase.util.CellUtils;
+import com.navercorp.pinpoint.common.server.bo.event.AgentEventBo;
+import com.navercorp.pinpoint.common.server.util.AgentEventType;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.client.Result;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @author HyunGil Jeong
+ * @author jaehong.kim - Add case for version 1
+ */
+@Component
+public class AgentEventMapper implements RowMapper<List<AgentEventBo>> {
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public List<AgentEventBo> mapRow(Result result, int rowNum) throws Exception {
+        if (result.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<AgentEventBo> agentEvents = new ArrayList<>();
+        for (Cell cell : result.rawCells()) {
+            final int code = CellUtils.qualifierToInt(cell);
+            final AgentEventType eventType = AgentEventType.getTypeByCode(code);
+            if (eventType == null) {
+                continue;
+            }
+
+            final Buffer buffer = new OffsetFixedBuffer(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
+
+            final int version = buffer.readInt();
+            switch (version) {
+                case AgentEventBo.LEGACY_VERSION, AgentEventBo.CURRENT_VERSION -> {
+                    final String agentId = buffer.readPrefixedString();
+                    final long startTimestamp = buffer.readLong();
+                    final long eventTimestamp = buffer.readLong();
+                    final byte[] eventMessage = buffer.readPrefixedBytes();
+                    final AgentEventBo agentEvent = new AgentEventBo(version, agentId, startTimestamp, eventTimestamp, eventType);
+                    agentEvent.setEventBody(eventMessage);
+                    agentEvents.add(agentEvent);
+                }
+            }
+        }
+
+        return agentEvents;
+    }
+
+}

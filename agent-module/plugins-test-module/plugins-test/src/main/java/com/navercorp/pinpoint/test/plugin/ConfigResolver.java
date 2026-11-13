@@ -1,0 +1,210 @@
+package com.navercorp.pinpoint.test.plugin;
+
+import com.navercorp.pinpoint.test.plugin.api.ClassLoading;
+import com.navercorp.pinpoint.test.plugin.api.ClassLoding;
+import com.navercorp.pinpoint.test.plugin.api.Dependency;
+import com.navercorp.pinpoint.test.plugin.api.ImportPlugin;
+import com.navercorp.pinpoint.test.plugin.api.JvmArgument;
+import com.navercorp.pinpoint.test.plugin.api.JvmVersion;
+import com.navercorp.pinpoint.test.plugin.api.OnClassLoader;
+import com.navercorp.pinpoint.test.plugin.api.PinpointAgent;
+import com.navercorp.pinpoint.test.plugin.api.PinpointProfile;
+import com.navercorp.pinpoint.test.plugin.api.Repository;
+import com.navercorp.pinpoint.test.plugin.api.SharedDependency;
+import com.navercorp.pinpoint.test.plugin.api.SharedTestLifeCycle;
+import com.navercorp.pinpoint.test.plugin.api.SharedTestLifeCycleClass;
+import com.navercorp.pinpoint.test.plugin.api.TransformInclude;
+import com.navercorp.pinpoint.test.plugin.util.ArrayUtils;
+import com.navercorp.pinpoint.test.plugin.util.CodeSourceUtils;
+import com.navercorp.pinpoint.test.plugin.util.StringUtils;
+import com.navercorp.pinpoint.test.plugin.util.TestPluginVersion;
+
+import java.io.File;
+import java.lang.management.ManagementFactory;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+public class ConfigResolver {
+
+    public static final int NO_JVM_VERSION = -1;
+
+    public AgentPathAndVersion getAgentPathAndVersion(PinpointAgent agent) {
+        Path agentPath = getAgentPath(agent);
+        String version = getVersion(agent);
+        return new AgentPathAndVersion(agentPath, version);
+    }
+
+    public Path resolveAgentPath(AgentPathAndVersion agent) {
+        Path relativePath = getRelativePath(agent.getPath(), agent.getVersion());
+
+        Path parent = workDir().toPath();
+        while (true) {
+            Path candidate = parent.resolve(relativePath);
+            if (Files.exists(candidate)) {
+                return candidate.toAbsolutePath();
+            }
+
+            parent = parent.getParent();
+
+            if (parent == null) {
+                throw new IllegalArgumentException("Cannot find agent path: " + relativePath);
+            }
+        }
+    }
+
+    public Path getAgentPath(PinpointAgent agent) {
+        final Path defaultPath = Paths.get("agent/target/pinpoint-agent-" + TestPluginVersion.getVersion());
+        if (agent == null) {
+            return defaultPath;
+        }
+        if (StringUtils.hasLength(agent.value())) {
+            return Paths.get(agent.value());
+        }
+        return defaultPath;
+    }
+
+    private String getVersion(PinpointAgent agent) {
+        if (agent == null) {
+            return TestPluginVersion.getVersion();
+        }
+        if (StringUtils.hasLength(agent.version())) {
+            return agent.version();
+        }
+        return TestPluginVersion.getVersion();
+    }
+
+    public String resolveProfile(PinpointProfile profile) {
+        if (profile == null) {
+            return PinpointProfile.DEFAULT_PROFILE;
+        }
+        return profile.value();
+    }
+
+    @SuppressWarnings("deprecation")
+    public ClassLoading getClassLoading(OnClassLoader onClassLoader) {
+        if (onClassLoader == null) {
+            return ClassLoading.Child;
+        }
+        // the deprecated type() attribute wins while a test still sets it to a non-default value
+        final ClassLoding legacy = onClassLoader.type();
+        if (legacy != ClassLoding.Child) {
+            return ClassLoading.valueOf(legacy.name());
+        }
+        return onClassLoader.value();
+    }
+
+    public List<String> getJvmArguments(JvmArgument jvmArgument) {
+        if (jvmArgument == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(jvmArgument.value());
+    }
+
+    public int[] getJvmVersion(JvmVersion jvmVersion) {
+        if (jvmVersion == null) {
+            return new int[]{NO_JVM_VERSION};
+        }
+        return jvmVersion.value();
+    }
+
+    public List<String> getImportPlugin(ImportPlugin importPlugin) {
+        if (importPlugin == null) {
+            return null;
+        }
+        String[] ids = importPlugin.value();
+        if (ArrayUtils.isEmpty(ids)) {
+            return null;
+        }
+        return Arrays.asList(ids);
+    }
+
+    public List<String> getRepository(Repository repository) {
+        if (repository == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(repository.value());
+    }
+
+    /**
+     * @return null when the test class carries no {@link Dependency}, which selects the JDK-only case
+     */
+    public String[] getDependency(Dependency dependency) {
+        if (dependency == null) {
+            return null;
+        }
+        return dependency.value();
+    }
+
+    public String[] getSharedDependency(SharedDependency sharedDependency) {
+        if (sharedDependency == null) {
+            return new String[0];
+        }
+        return sharedDependency.value();
+    }
+
+    public Class<? extends SharedTestLifeCycle> getSharedTestLifeCycleClass(SharedTestLifeCycleClass sharedTestLifeCycleClass) {
+        if (sharedTestLifeCycleClass == null) {
+            return null;
+        }
+        return sharedTestLifeCycleClass.value();
+    }
+
+    public List<String> getTransformInclude(TransformInclude transformInclude) {
+        if (transformInclude == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(transformInclude.value());
+    }
+
+
+    private Path getRelativePath(Path path, String version) {
+        String agentJar = String.format("pinpoint-bootstrap-%s.jar", version);
+        return path.resolve(agentJar);
+    }
+
+    public Path resolveConfigFileLocation(String configFile) {
+        String resource = configFile.startsWith("/") ? configFile : "/" + configFile;
+        URL url = getClass().getResource(resource);
+
+        if (url != null) {
+            return toPathString(url);
+        }
+
+        Path config = Paths.get(configFile);
+        if (!Files.exists(config)) {
+            throw new RuntimeException("Cannot find pinpoint configuration file: " + configFile);
+        }
+        return config.toAbsolutePath();
+    }
+
+    public static Path toPathString(URL url) {
+        try {
+            return Paths.get(url.toURI()).toAbsolutePath();
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean isDebugMode() {
+        return ManagementFactory.getRuntimeMXBean().getInputArguments().toString().contains("jdwp");
+    }
+
+    public Path resolveTestClassLocation(Class<?> testClass) {
+        final URL testClassLocation = CodeSourceUtils.getCodeLocation(testClass);
+        if (testClassLocation == null) {
+            throw new IllegalStateException(testClass + " url not found");
+        }
+        return toPathString(testClassLocation);
+    }
+
+    public static File workDir() {
+        return new File(".").getAbsoluteFile();
+    }
+
+}

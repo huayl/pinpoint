@@ -16,15 +16,19 @@
 
 package com.navercorp.pinpoint.web.vo.chart;
 
-import com.navercorp.pinpoint.web.util.TimeWindow;
-import com.navercorp.pinpoint.web.util.TimeWindowSampler;
-import com.navercorp.pinpoint.web.vo.Range;
-import org.junit.Assert;
-import org.junit.Test;
+import com.navercorp.pinpoint.common.timeseries.point.Point;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.window.FixedTimeWindowSampler;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindowSampler;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author HyunGil Jeong
@@ -32,22 +36,11 @@ import java.util.List;
 public class TimeSeriesChartBuilderTest {
 
     private static final int TIME_WINDOW_SIZE = 10;
-    private static final TimeWindowSampler TIME_WINDOW_SAMPLER = new TimeWindowSampler() {
-        @Override
-        public long getWindowSize(Range range) {
-            return TIME_WINDOW_SIZE;
-        }
-    };
+    private static final TimeWindowSampler TIME_WINDOW_SAMPLER = new FixedTimeWindowSampler(TIME_WINDOW_SIZE);
 
     private static class TestPoint implements Point {
 
         private static final int UNCOLLECTED_VALUE = -1;
-        private static final UncollectedPointCreator<TestPoint> UNCOLLECTED_POINT_CREATOR = new UncollectedPointCreator<TestPoint>() {
-            @Override
-            public TestPoint createUnCollectedPoint(long xVal) {
-                return new TestPoint(xVal, UNCOLLECTED_VALUE);
-            }
-        };
 
         private final long xVal;
         private final int yVal;
@@ -58,12 +51,16 @@ public class TimeSeriesChartBuilderTest {
         }
 
         @Override
-        public long getXVal() {
+        public long getTimestamp() {
             return xVal;
         }
 
         public int getYVal() {
             return yVal;
+        }
+
+        public static TestPoint newPoint(long xVal) {
+            return new TestPoint(xVal, UNCOLLECTED_VALUE);
         }
     }
 
@@ -71,32 +68,32 @@ public class TimeSeriesChartBuilderTest {
     public void empty() {
         // Given
         int numSlots = 10;
-        TimeWindow timeWindow = new TimeWindow(Range.newRange(0, TIME_WINDOW_SIZE * numSlots), TIME_WINDOW_SAMPLER);
-        TimeSeriesChartBuilder<TestPoint> builder = new TimeSeriesChartBuilder<>(timeWindow, TestPoint.UNCOLLECTED_POINT_CREATOR);
+        TimeWindow timeWindow = new TimeWindow(Range.between(0, TIME_WINDOW_SIZE * numSlots), TIME_WINDOW_SAMPLER);
+        TimeSeriesChartBuilder<TestPoint> builder = new TimeSeriesChartBuilder<>(TestPoint::newPoint);
         List<TestPoint> points = Collections.emptyList();
         // When
-        Chart<TestPoint> chart = builder.build(points);
+        Chart<TestPoint> chart = builder.build(timeWindow, points);
         // Then
         List<TestPoint> sampledPoints = chart.getPoints();
-        Assert.assertTrue(sampledPoints.isEmpty());
+        assertThat(sampledPoints).isEmpty();
     }
 
     @Test
     public void sampled() {
         // Given
         int numSlots = 100;
-        TimeWindow timeWindow = new TimeWindow(Range.newRange(0, TIME_WINDOW_SIZE * numSlots), TIME_WINDOW_SAMPLER);
-        TimeSeriesChartBuilder<TestPoint> builder = new TimeSeriesChartBuilder<>(timeWindow, TestPoint.UNCOLLECTED_POINT_CREATOR);
+        TimeWindow timeWindow = new TimeWindow(Range.between(0, TIME_WINDOW_SIZE * numSlots), TIME_WINDOW_SAMPLER);
+        TimeSeriesChartBuilder<TestPoint> builder = new TimeSeriesChartBuilder<>(TestPoint::newPoint);
         List<TestPoint> points = new ArrayList<>(TIME_WINDOW_SIZE * numSlots);
         for (int i = 0; i <= TIME_WINDOW_SIZE * numSlots; i++) {
             points.add(new TestPoint(i, i / TIME_WINDOW_SIZE));
         }
         // When
-        Chart<TestPoint> chart = builder.build(points);
+        Chart<TestPoint> chart = builder.build(timeWindow, points);
         // Then
         List<TestPoint> sampledPoints = chart.getPoints();
         for (int i = 0; i < sampledPoints.size(); i++) {
-            Assert.assertEquals(i, sampledPoints.get(i).getYVal());
+            Assertions.assertEquals(i, sampledPoints.get(i).getYVal());
         }
 
     }

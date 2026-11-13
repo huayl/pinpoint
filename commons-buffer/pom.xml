@@ -21,12 +21,19 @@
     <parent>
         <groupId>com.navercorp.pinpoint</groupId>
         <artifactId>pinpoint</artifactId>
-        <version>2.3.0-SNAPSHOT</version>
+        <version>4.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>pinpoint-commons-buffer</artifactId>
     <name>pinpoint-commons-buffer</name>
     <packaging>jar</packaging>
+
+    <properties>
+        <jdk.version>17</jdk.version>
+        <jdk.home>${env.JAVA_17_HOME}</jdk.home>
+        <test.jdk.home>${jdk.home}</test.jdk.home>
+    </properties>
+
 
     <dependencies>
         <dependency>
@@ -36,13 +43,8 @@
 
         <!-- Logging dependencies -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-slf4j-impl</artifactId>
+            <artifactId>log4j-api</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -52,8 +54,8 @@
         </dependency>
 
         <dependency>
-            <groupId>commons-lang</groupId>
-            <artifactId>commons-lang</artifactId>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
             <scope>test</scope>
         </dependency>
 

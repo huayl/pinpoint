@@ -22,7 +22,10 @@ import com.navercorp.pinpoint.batch.alarm.vo.sender.payload.CheckerDetectedValue
 import com.navercorp.pinpoint.batch.alarm.vo.sender.payload.DetectedAgent;
 import com.navercorp.pinpoint.web.alarm.vo.Rule;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 /**
@@ -43,7 +46,7 @@ public abstract class AgentChecker<T> extends AlarmChecker<T> {
 
         Map<String, T> agents = getAgentValues();
         
-        for(Entry<String, T> agent : agents.entrySet()) {
+        for (Entry<String, T> agent : agents.entrySet()) {
             if (decideResult(agent.getValue())) {
                 detected = true;
                 detectedAgents.put(agent.getKey(), agent.getValue());
@@ -59,7 +62,7 @@ public abstract class AgentChecker<T> extends AlarmChecker<T> {
     }
 
     public List<String> getSmsMessage() {
-        List<String> messages = new LinkedList<>();
+        List<String> messages = new ArrayList<>();
         
         for (Entry<String, T> detected : detectedAgents.entrySet()) {
             messages.add(String.format("[PINPOINT Alarm - %s] %s is %s%s (Threshold : %s%s)", detected.getKey(), rule.getCheckerName(), detected.getValue(), unit, rule.getThreshold(), unit));
@@ -67,19 +70,27 @@ public abstract class AgentChecker<T> extends AlarmChecker<T> {
         
         return messages;
     }
-    
+
+    protected static final String INSPECTOR_LINK_FORMAT = " <a href=\"%s/inspector/%s@%s/5m/%s/%s\" >inspector of %s</a>";
+    protected static final String LINE_FEED = "<br>";
+
     @Override
-    public String getEmailMessage() {
+    public String getEmailMessage(String pinpointUrl, String applicationName, String serviceType, String currentTime) {
         StringBuilder message = new StringBuilder();
         
         for (Entry<String, T> detected : detectedAgents.entrySet()) {
-            message.append(String.format(" Value of agent(%s) is %s%s during the past 5 mins.(Threshold : %s%s)", detected.getKey(), detected.getValue(), unit, rule.getThreshold(), unit));
+            String agentId = detected.getKey();
+            message.append(String.format(" Value of agent(%s) is %s%s during the past 5 mins.(Threshold : %s%s)", agentId, detected.getValue(), unit, rule.getThreshold(), unit));
+            message.append(String.format(INSPECTOR_LINK_FORMAT, pinpointUrl, applicationName, serviceType, currentTime, agentId, agentId));
+            message.append(LINE_FEED);
         }
         
         return message.toString();
     }
     
-    public Map<String, T> getDetectedAgents() { return detectedAgents; }
+    public Map<String, T> getDetectedAgents() {
+        return detectedAgents;
+    }
     
     protected abstract Map<String, T> getAgentValues();
     
@@ -88,7 +99,7 @@ public abstract class AgentChecker<T> extends AlarmChecker<T> {
         List<DetectedAgent<T>> detectedAgents = new ArrayList<>();
         
         for (Map.Entry<String, T> entry : this.detectedAgents.entrySet()) {
-            detectedAgents.add(new DetectedAgent(entry.getKey(), entry.getValue()));
+            detectedAgents.add(new DetectedAgent<>(entry.getKey(), entry.getValue()));
         }
         
         return new AgentCheckerDetectedValue<>(detectedAgents);

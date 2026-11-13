@@ -18,9 +18,11 @@ package com.navercorp.pinpoint.batch.service;
 import com.navercorp.pinpoint.batch.alarm.checker.AlarmChecker;
 import com.navercorp.pinpoint.batch.alarm.vo.CheckerResult;
 import com.navercorp.pinpoint.batch.dao.AlarmDao;
+import com.navercorp.pinpoint.web.alarm.vo.Rule;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,21 +43,21 @@ public class AlarmServiceImpl implements AlarmService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, CheckerResult> selectBeforeCheckerResults(String applicationId) {
-        Map<String, CheckerResult> checkerResults = new HashMap<>();
-        List<CheckerResult> CheckerResultList = alarmDao.selectBeforeCheckerResultList(applicationId);
-        
-        if (!CheckerResultList.isEmpty()) {
-            for (CheckerResult checkerResult : CheckerResultList) {
-                checkerResults.put(checkerResult.getRuleId(), checkerResult);
-            }
+    public Map<String, CheckerResult> selectBeforeCheckerResults(String applicationName) {
+        List<CheckerResult> checkerResultList = alarmDao.selectBeforeCheckerResultList(applicationName);
+        if (checkerResultList.isEmpty()) {
+            return Collections.emptyMap();
         }
-        
+
+        Map<String, CheckerResult> checkerResults = new HashMap<>();
+        for (CheckerResult checkerResult : checkerResultList) {
+            checkerResults.put(checkerResult.getRuleId(), checkerResult);
+        }
         return checkerResults;
     }
 
     @Override
-    public void updateBeforeCheckerResult(CheckerResult beforeCheckerResult, AlarmChecker checker) {
+    public void updateBeforeCheckerResult(CheckerResult beforeCheckerResult, AlarmChecker<?> checker) {
         alarmDao.deleteCheckerResult(beforeCheckerResult.getRuleId());
         
         if (checker.isDetected()) {
@@ -63,7 +65,9 @@ public class AlarmServiceImpl implements AlarmService {
             beforeCheckerResult.increseCount();
             alarmDao.insertCheckerResult(beforeCheckerResult);
         } else {
-            alarmDao.insertCheckerResult(new CheckerResult(checker.getRule().getRuleId(), checker.getRule().getApplicationId(), checker.getRule().getCheckerName(), false, 0, 1));
+            final Rule rule = checker.getRule();
+            CheckerResult checkerResult = new CheckerResult(rule.getRuleId(), rule.getApplicationName(), rule.getCheckerName(), false, 0, 1);
+            alarmDao.insertCheckerResult(checkerResult);
         }
         
          

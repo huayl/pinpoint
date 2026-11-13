@@ -1,0 +1,152 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.profiler.context.provider.stat.filedescriptor;
+
+import com.google.inject.Inject;
+import com.google.inject.Provider;
+import com.navercorp.pinpoint.common.annotations.VisibleForTesting;
+import com.navercorp.pinpoint.common.util.JvmType;
+import com.navercorp.pinpoint.common.util.JvmUtils;
+import com.navercorp.pinpoint.common.util.JvmVersion;
+import com.navercorp.pinpoint.common.util.OsType;
+import com.navercorp.pinpoint.common.util.OsUtils;
+import com.navercorp.pinpoint.profiler.context.config.ContextConfig;
+import com.navercorp.pinpoint.profiler.monitor.metric.filedescriptor.FileDescriptorMetric;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.lang.reflect.Constructor;
+import java.util.Objects;
+
+/**
+ * @author Roy Kim
+ */
+public class FileDescriptorMetricProvider implements Provider<FileDescriptorMetric> {
+
+    private static final String UNSUPPORTED_METRIC = "UNSUPPORTED_FILE_DESCRIPTOR_METRIC";
+
+    private static final String ORACLE_FILE_DESCRIPTOR_METRIC = "com.navercorp.pinpoint.profiler.monitor.metric.filedescriptor.oracle.OracleFileDescriptorMetric";
+    private static final String IBM_FILE_DESCRIPTOR_METRIC = "com.navercorp.pinpoint.profiler.monitor.metric.filedescriptor.ibm.IbmFileDescriptorMetric";
+
+    private static final JvmType[] ORACLE_JDK = new JvmType[]{JvmType.ORACLE, JvmType.OPENJDK};
+    private static final OsType[] SUPPORTED_OS = new OsType[]{OsType.MAC, OsType.SOLARIS, OsType.LINUX, OsType.AIX, OsType.HP_UX, OsType.BSD};
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final String vendorName;
+    private final String osName;
+
+    @Inject
+    public FileDescriptorMetricProvider(ContextConfig contextConfig) {
+        Objects.requireNonNull(contextConfig, "contextConfig");
+        vendorName = contextConfig.getProfilerJvmVendorName();
+        osName = contextConfig.getProfilerOSName();
+    }
+
+    @Override
+    public FileDescriptorMetric get() {
+
+        final JvmVersion jvmVersion = JvmUtils.getVersion();
+        final JvmType jvmType = getJvmType();
+        final OsType osType = getOsType();
+
+        final String classToLoad = getMetricClassName(osType, jvmVersion, jvmType);
+
+        FileDescriptorMetric fileDescriptorMetric = createFileDescriptorMetric(classToLoad);
+        logger.info("loaded : {}", fileDescriptorMetric);
+        return fileDescriptorMetric;
+    }
+
+    @VisibleForTesting
+    String getMetricClassName(OsType osType, JvmVersion jvmVersion, JvmType jvmType) {
+        if (!isSupportedOS(osType)) {
+            logger.warn("Unsupported operating system {}/{}/{}", osType, jvmVersion, jvmType);
+            return UNSUPPORTED_METRIC;
+        }
+        if (isOracleJdk(jvmType)) {
+            if (jvmVersion.onOrAfter(JvmVersion.JAVA_5)) {
+                return ORACLE_FILE_DESCRIPTOR_METRIC;
+            }
+        }
+
+        if (jvmType == JvmType.IBM) {
+            if (jvmVersion.onOrAfter(JvmVersion.JAVA_8)) {
+                return IBM_FILE_DESCRIPTOR_METRIC;
+            }
+        }
+
+        return UNSUPPORTED_METRIC;
+    }
+
+    private boolean isOracleJdk(JvmType jvmType) {
+        for (JvmType type : ORACLE_JDK) {
+            if (type == jvmType) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSupportedOS(OsType osType) {
+        for (OsType os : SUPPORTED_OS) {
+            if (os == osType) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private JvmType getJvmType() {
+        final JvmType jvmType = JvmType.fromVendor(vendorName);
+        if (jvmType == JvmType.UNKNOWN) {
+            return JvmUtils.getType();
+        }
+        return jvmType;
+    }
+
+    private OsType getOsType() {
+        final OsType osType = OsType.fromVendor(osName);
+        if (osType == OsType.UNKNOWN) {
+            return OsUtils.getType();
+        }
+        return osType;
+    }
+
+    private FileDescriptorMetric createFileDescriptorMetric(String classToLoad) {
+        if (classToLoad == null) {
+            return FileDescriptorMetric.UNSUPPORTED_FILE_DESCRIPTOR_METRIC;
+        }
+        if (UNSUPPORTED_METRIC.equals(classToLoad)) {
+            return FileDescriptorMetric.UNSUPPORTED_FILE_DESCRIPTOR_METRIC;
+        }
+
+        try {
+            @SuppressWarnings("unchecked")
+            Class<FileDescriptorMetric> fileDescriptorMetricClass = (Class<FileDescriptorMetric>) Class.forName(classToLoad);
+            try {
+                Constructor<FileDescriptorMetric> fileDescriptorMetricConstructor = fileDescriptorMetricClass.getConstructor();
+                return fileDescriptorMetricConstructor.newInstance();
+            } catch (NoSuchMethodException e) {
+                logger.warn("Unknown FileDescriptorMetric : {}", classToLoad);
+                return FileDescriptorMetric.UNSUPPORTED_FILE_DESCRIPTOR_METRIC;
+            }
+        } catch (ReflectiveOperationException e) {
+            logger.warn("Error creating FileDescriptorMetric [{}]", classToLoad);
+            return FileDescriptorMetric.UNSUPPORTED_FILE_DESCRIPTOR_METRIC;
+        }
+    }
+}

@@ -1,0 +1,228 @@
+/*
+ * Copyright 2026 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.otlp.trace.collector.service;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.navercorp.pinpoint.collector.service.ExceptionMetaDataService;
+import com.navercorp.pinpoint.collector.service.TraceService;
+import com.navercorp.pinpoint.common.profiler.logging.ThrottledLogger;
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
+import com.navercorp.pinpoint.common.server.bo.exception.ExceptionMetaDataBo;
+import com.navercorp.pinpoint.otlp.trace.collector.OtlpTraceCollectorRejectedSpan;
+import com.navercorp.pinpoint.otlp.trace.collector.OtlpTraceRejectReason;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAgentCacheKey;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAgentInfo;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpTraceMapper;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpTraceMapperData;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpTraceMapperUtils;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.proto.trace.v1.ResourceSpans;
+import jakarta.validation.constraints.NotNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Transport-agnostic OTLP trace ingestion: maps the incoming {@link ResourceSpans} into
+ * SpanBo/SpanChunkBo/AgentInfoBo/ExceptionMetaDataBo and writes them to storage.
+ * <p>
+ * Shared by both the gRPC ({@code GrpcOtlpTraceService}) and HTTP ({@code OtlpTraceController})
+ * transports so the mapping/insert logic — and the agentId dedup cache — live in a single place
+ * (previously duplicated, with the two copies already diverging). The single {@code agentIdCache}
+ * bean makes dedup effective across both transports and is thread-safe (Caffeine), unlike the
+ * former per-instance {@code LRUCache} which was not safe under the worker/servlet threads.
+ */
+@Service
+public class OtlpTraceExportService {
+
+    private static final String INSERT_ERROR_METRIC = "collector.otlptrace.insert.error";
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    // Throttled so an HBase outage (every span/chunk failing synchronously) does not flood the log.
+    // Mirrors HbaseOtlpTraceService's async-path pattern (throttled WARN + a per-op error counter so
+    // the true failure rate stays observable even while logs are throttled).
+    private final ThrottledLogger throttledLogger = ThrottledLogger.getUncountedIntervalLogger(logger);
+
+    @NotNull
+    private final TraceService[] traceServiceList;
+    private final HbaseOtlpAgentInfoService agentInfoService;
+    private final HbaseOtlpApplicationIndexV2Service applicationIndexV2Service;
+    @NotNull
+    private final OtlpTraceMapper otlpTraceMapper;
+    private final ExceptionMetaDataService exceptionMetaDataService;
+    // Thread-safe, bounded dedup of already-persisted (serviceUid, agentId) pairs. Shared across
+    // transports so an agent first seen on gRPC is not re-inserted when it later arrives over HTTP
+    // (and vice versa). Keyed per service: the same agentId under two services is two registrations.
+    private final Cache<String, Boolean> agentIdCache;
+    // Null unless both uristat flags are enabled (the bean is conditional).
+    private final OtlpUriStatService uriStatService;
+
+    // Span-level ingest volume (received / stored / rejected-by-reason), per transport.
+    private final OtlpTraceIngestMetrics ingestMetrics;
+
+    private final Counter spanInsertErrorCounter;
+    private final Counter spanChunkInsertErrorCounter;
+    private final Counter agentInfoInsertErrorCounter;
+    private final Counter exceptionInsertErrorCounter;
+    private final Counter uriStatInsertErrorCounter;
+
+    public OtlpTraceExportService(TraceService[] traceServiceList,
+                                  @Qualifier("hbaseOtlpAgentInfoService") HbaseOtlpAgentInfoService agentInfoService,
+                                  @Qualifier("hbaseOtlpApplicationIndexV2Service") HbaseOtlpApplicationIndexV2Service applicationIndexV2Service,
+                                  OtlpTraceMapper otlpTraceMapper,
+                                  Optional<ExceptionMetaDataService> exceptionMetaDataService,
+                                  Optional<OtlpUriStatService> uriStatService,
+                                  @Qualifier("otlpAgentIdCache") Cache<String, Boolean> agentIdCache,
+                                  OtlpTraceIngestMetrics ingestMetrics,
+                                  MeterRegistry meterRegistry) {
+        this.traceServiceList = Objects.requireNonNull(traceServiceList, "traceServiceList");
+        this.agentInfoService = Objects.requireNonNull(agentInfoService, "agentInfoService");
+        this.applicationIndexV2Service = Objects.requireNonNull(applicationIndexV2Service, "applicationIndexV2Service");
+        this.otlpTraceMapper = Objects.requireNonNull(otlpTraceMapper, "otlpTraceMapper");
+        this.exceptionMetaDataService = exceptionMetaDataService.orElse(null);
+        this.agentIdCache = Objects.requireNonNull(agentIdCache, "agentIdCache");
+        this.uriStatService = uriStatService.orElse(null);
+        this.ingestMetrics = Objects.requireNonNull(ingestMetrics, "ingestMetrics");
+        Objects.requireNonNull(meterRegistry, "meterRegistry");
+        this.spanInsertErrorCounter = insertErrorCounter(meterRegistry, "span");
+        this.spanChunkInsertErrorCounter = insertErrorCounter(meterRegistry, "spanChunk");
+        this.agentInfoInsertErrorCounter = insertErrorCounter(meterRegistry, "agentInfo");
+        this.exceptionInsertErrorCounter = insertErrorCounter(meterRegistry, "exception");
+        this.uriStatInsertErrorCounter = insertErrorCounter(meterRegistry, "uriStat");
+    }
+
+    /** Once per (serviceUid, agentId) for the collector's lifetime: see {@link OtlpAgentCacheKey}. */
+    static String agentCacheKey(OtlpAgentInfo agentInfo) {
+        return OtlpAgentCacheKey.trace(agentInfo.serviceUid(), agentInfo.agentInfoBo().getAgentId());
+    }
+
+    private static Counter insertErrorCounter(MeterRegistry meterRegistry, String op) {
+        return Counter.builder(INSERT_ERROR_METRIC)
+                .description("OTLP trace synchronous insert failures (HBase)")
+                .tag("op", op)
+                .register(meterRegistry);
+    }
+
+    /**
+     * Maps and stores one export request. {@code transport} only tags the ingest metrics; the
+     * response semantics are transport-agnostic (see {@link OtlpTraceResponseMapper}).
+     */
+    public OtlpTraceExportResult export(List<ResourceSpans> resourceSpanList, OtlpTransport transport) {
+        // Raw span count of the request, before mapping: the only place spans/sec can be measured
+        // (a request / worker task is a batch of arbitrary size).
+        ingestMetrics.spanReceived(transport, OtlpTraceMapperUtils.countSpans(resourceSpanList));
+
+        final OtlpTraceMapperData otlpTraceMapperData = otlpTraceMapper.map(resourceSpanList);
+        // Mapping rejects (invalid ids, unlinkable/orphan spans) are client-side data faults.
+        final OtlpTraceCollectorRejectedSpan clientRejected = otlpTraceMapperData.getRejectedSpan();
+        for (Map.Entry<OtlpTraceRejectReason, Long> rejected : clientRejected.countByReason().entrySet()) {
+            ingestMetrics.spanRejected(transport, rejected.getKey(), rejected.getValue());
+        }
+        ingestMetrics.spanStored(transport, otlpTraceMapperData.getSpanBoList().size());
+        ingestMetrics.spanChunkStored(transport, otlpTraceMapperData.getSpanChunkBoList().size());
+
+        int insertErrorCount = 0;
+        for (SpanBo spanBo : otlpTraceMapperData.getSpanBoList()) {
+            for (TraceService traceService : traceServiceList) {
+                try {
+                    traceService.insertSpan(spanBo);
+                } catch (Exception e) {
+                    insertErrorCount++;
+                    spanInsertErrorCounter.increment();
+                    throttledLogger.warn("Failed to insert spanBo", e);
+                }
+            }
+        }
+
+        for (SpanChunkBo spanChunkBo : otlpTraceMapperData.getSpanChunkBoList()) {
+            for (TraceService traceService : traceServiceList) {
+                try {
+                    traceService.insertSpanChunk(spanChunkBo);
+                } catch (Exception e) {
+                    insertErrorCount++;
+                    spanChunkInsertErrorCounter.increment();
+                    throttledLogger.warn("Failed to insert spanChunkBo", e);
+                }
+            }
+        }
+
+        int agentInfoErrorCount = 0;
+        for (OtlpAgentInfo agentInfo : otlpTraceMapperData.getAgentInfoList()) {
+            final AgentInfoBo agentInfoBo = agentInfo.agentInfoBo();
+            final String cacheKey = agentCacheKey(agentInfo);
+            if (agentIdCache.getIfPresent(cacheKey) == null) {
+                try {
+                    agentInfoService.insert(agentInfoBo);
+                    applicationIndexV2Service.insert(agentInfo.serviceUid(), agentInfoBo);
+                    agentIdCache.put(cacheKey, Boolean.TRUE);
+                } catch (Exception e) {
+                    agentInfoErrorCount++;
+                    agentInfoInsertErrorCounter.increment();
+                    throttledLogger.warn("Failed to insert agentInfoBo", e);
+                }
+            }
+        }
+
+        if (exceptionMetaDataService != null) {
+            for (ExceptionMetaDataBo exceptionMetaDataBo : otlpTraceMapperData.getExceptionMetaDataBoList()) {
+                try {
+                    exceptionMetaDataService.save(exceptionMetaDataBo);
+                } catch (Exception e) {
+                    exceptionInsertErrorCounter.increment();
+                    throttledLogger.warn("Failed to insert exceptionMetaData", e);
+                }
+            }
+        }
+
+        // Optional statistics side channel: a uriStat failure must not fail the trace export, so it
+        // is not counted toward serverErrorCount (spans are already stored at this point).
+        if (uriStatService != null) {
+            try {
+                uriStatService.store(otlpTraceMapperData.getUriStatSpanList());
+            } catch (Exception e) {
+                uriStatInsertErrorCounter.increment();
+                throttledLogger.warn("Failed to insert uriStat", e);
+            }
+        }
+
+        final int serverErrorCount = insertErrorCount + agentInfoErrorCount;
+        return new OtlpTraceExportResult(clientRejected, serverErrorCount, buildServerMessage(insertErrorCount, agentInfoErrorCount));
+    }
+
+    private static String buildServerMessage(int insertErrorCount, int agentInfoErrorCount) {
+        final StringBuilder sb = new StringBuilder();
+        if (insertErrorCount > 0) {
+            sb.append("insert error (").append(insertErrorCount).append(')');
+        }
+        if (agentInfoErrorCount > 0) {
+            if (!sb.isEmpty()) {
+                sb.append(", ");
+            }
+            sb.append("agentInfo error (").append(agentInfoErrorCount).append(')');
+        }
+        return sb.toString();
+    }
+}

@@ -1,0 +1,419 @@
+import {
+  ApplicationType,
+  APP_PATH,
+  BASE_PATH,
+  DEFAULT_SERVICE,
+  GetServerMap,
+  IMAGE_PATH,
+  FilteredMapType as FilteredMap,
+} from '@pinpoint-fe/ui/src/constants';
+import { convertParamsToQueryString } from '../string';
+import { getServiceNameSegmentPage, hasServiceNameInPath } from './application';
+
+/**
+ * 끝에 붙은 '/'를 뗀다. 라우터는 `/config/alarm`과 `/config/alarm/`을 같은 화면으로 매칭하므로,
+ * 경로를 그대로 비교하는 곳들('어느 메뉴가 이 경로의 주인인가', 'Alarms 화면의 어느 탭인가')은
+ * '/'가 붙은 링크·북마크에서 아무것도 못 찾는다. 루트('/')는 그 자체가 경로라 남긴다.
+ */
+export const withoutTrailingSlash = (pathname: string) =>
+  pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+
+/**
+ * The page path: the path without the serviceName segment, what follows it and a trailing '/'.
+ * `/config/alarm/{serviceName}` is the `/config/alarm` page, so code that compares paths exactly
+ * compares this value. `/inspector/{serviceName}/{app}@{type}` becomes `/inspector`.
+ *
+ * The serviceName is resolved from the raw pathname. The query side uses the same key, so the two
+ * do not evict each other from the cache that keeps the last result.
+ */
+export const getPagePath = (pathname: string) =>
+  withoutTrailingSlash(
+    (hasServiceNameInPath(pathname) && getServiceNameSegmentPage(pathname)) || pathname,
+  );
+
+/**
+ * `window.location.pathname`에는 라우터 basename(BASE_PATH)이 포함되므로, 라우터가 보는 경로
+ * (`useLocation().pathname`)와 비교하려면 접두사를 떼어내야 한다. BASE_PATH가 비어 있으면
+ * 그대로 반환한다.
+ *
+ * 렌더 밖에서 지금 경로를 알아야 하는 곳들이 같은 규칙을 써야 한다
+ * (`serviceNameFetchInterceptor`의 요청 헤더, `serverMapCurrentTargetAtom`의 선택 경로 도장).
+ */
+export const toRouterPath = (pathname: string) =>
+  BASE_PATH && pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) : pathname;
+
+/**
+ * 라우터가 **렌더한** 경로. `useSyncRenderedRouterPath`가 렌더 중에 갱신한다.
+ *
+ * `window.location`을 직접 보면 안 된다. 뒤로/앞으로 가기(popstate)에서는 브라우저가 주소를 먼저
+ * 바꾸고 react-router의 location 상태는 그 다음 렌더에 반영되므로, 그 사이 한 렌더 동안
+ * **"이전 경로의 파라미터 + 새 경로의 service"** 라는 짝이 만들어진다. 조회 파라미터는 라우터에서,
+ * service는 window.location에서 오기 때문이다. 그 짝은 캐시에 없는 키라 React Query가 곧바로
+ * 요청을 날린다 — service를 넘나드는 뒤로가기에서 map 조회가 한 번 더 나가던 원인이다.
+ * (이슈 #10587)
+ *
+ * 아직 한 번도 렌더되지 않았으면(부트스트랩, 라우트 로더) `window.location`으로 폴백한다.
+ * 그 시점에는 라우터도 같은 주소를 보고 있으므로 어긋날 여지가 없다.
+ */
+let renderedRouterPath: string | undefined;
+
+/**
+ * `useSyncRenderedRouterPath` 전용. 다른 곳에서 호출하지 않는다.
+ * undefined는 "그 훅을 부르는 레이아웃을 떠났다"는 뜻이다 — 다시 `window.location`으로 폴백한다.
+ */
+export const setRenderedRouterPath = (pathname: string | undefined) => {
+  renderedRouterPath = pathname;
+};
+
+export const getCurrentRouterPath = () =>
+  renderedRouterPath ?? toRouterPath(window.location.pathname);
+
+export const getServerImagePath = (application?: ApplicationType | GetServerMap.NodeData) => {
+  return `${IMAGE_PATH}/servers/${application?.serviceType || 'UNKNOWN'}.png`;
+};
+
+export const getServerIconPath = (application?: ApplicationType | GetServerMap.NodeData) => {
+  return `${IMAGE_PATH}/icons/${application?.serviceType || 'UNKNOWN'}.png`;
+};
+
+export const getApplicationPath =
+  (pagePath: string) =>
+  (
+    application?: ApplicationType | null,
+    queryParams?: {
+      [k: string]: string;
+    },
+  ) => {
+    let queryString = '';
+    if (application?.applicationName && application?.serviceType) {
+      const subPath = `/${application?.applicationName}@${application?.serviceType}`;
+      if (queryParams?.from && queryParams?.to) {
+        queryString = `${convertParamsToQueryString({
+          from: queryParams?.from,
+          to: queryParams?.to,
+        })}`;
+      }
+      return `${pagePath}${subPath}${queryString ? `?${queryString}` : queryString}`;
+    }
+
+    return `${pagePath}`;
+  };
+
+export const getHostGroupPath =
+  (pagePath: string) =>
+  (
+    hostGroup?: string | null,
+    queryParams?: {
+      [k: string]: string;
+    },
+  ) => {
+    let queryString = '';
+    if (hostGroup) {
+      const subPath = `/${hostGroup}`;
+      if (queryParams?.from && queryParams?.to) {
+        queryString = `${convertParamsToQueryString({
+          from: queryParams.from,
+          to: queryParams.to,
+        })}`;
+      }
+      return `${pagePath}${subPath}${queryString ? `?${queryString}` : queryString}`;
+    }
+
+    return `${pagePath}`;
+  };
+
+/** /serverMap */
+export const getServerMapPath = getApplicationPath(APP_PATH.SERVER_MAP);
+/**
+ * `/{page}/{serviceName}/{applicationName}@{serviceType}?` 형태의 servicemap 계열 경로 빌더.
+ *
+ * servicemap은 "어떤 service를 보는 중인지"가 URL의 진실의 원천이다. 그래서 DEFAULT도 예외 없이
+ * 항상 싣는다. 전역 선택값(`selectedServiceAtom`)은 탭 간 공유 저장소라, 그것만 믿으면 링크를
+ * 새 탭에서 열어 둔 뒤 원래 탭에서 service를 바꿨을 때 화면과 어긋난다.
+ *
+ * serviceName은 백엔드에서 형식이 검증되지 않으므로('ServiceNameRequest'에 제약이 없다) '/'나
+ * '@'가 들어올 수 있어 인코딩한다. 인코딩하지 않으면 '/'가 세그먼트를 쪼개 라우트 매칭이 깨지고,
+ * '@'는 application 세그먼트의 구분자와 구별되지 않는다.
+ * (applicationName/serviceType은 백엔드가 `[a-zA-Z0-9._\-]+`로 검증하므로 그대로 둔다.)
+ *
+ * serviceName이 없으면(`enableServiceMap`이 꺼진 상태에서 만들어진 경로 — 설정을 읽지 못한
+ * 라우트 로더가 그렇다) DEFAULT를 싣는다. 세그먼트를 비우면 application 세그먼트가 serviceName
+ * 자리로 밀려 라우트 매칭이 깨지고, 백엔드도 헤더 없는 요청을 DEFAULT로 해석하므로 조회 결과가
+ * 같다. 호출부마다 `?? DEFAULT_SERVICE`를 붙이지 않도록 이 한 곳에서 정한다.
+ */
+const getServiceScopedMapPath =
+  (pagePath: string) =>
+  (
+    serviceName: string | undefined,
+    application?: ApplicationType | null,
+    queryParams?: {
+      [k: string]: string;
+    },
+  ) => {
+    const applicationSegment =
+      application?.applicationName && application?.serviceType
+        ? `/${application.applicationName}@${application.serviceType}`
+        : '';
+    const queryString =
+      queryParams?.from && queryParams?.to
+        ? `?${convertParamsToQueryString({ from: queryParams.from, to: queryParams.to })}`
+        : '';
+
+    return `${pagePath}/${encodeURIComponent(
+      serviceName || DEFAULT_SERVICE,
+    )}${applicationSegment}${queryString}`;
+  };
+
+/**
+ * /serviceMap/{serviceName}/{applicationName}@{serviceType}
+ *
+ * application 세그먼트는 DEFAULT service에서만 붙는다. 그 외 service는 소속 application을 모두
+ * 모아 그리므로 기준 application이 없다.
+ *
+ * application이 없어도 기간(from/to)은 유지한다. 그 상태로도 map을 그리기 때문에,
+ * 다른 화면에서 돌아올 때 보고 있던 기간이 기본값으로 초기화되면 안 된다.
+ */
+export const getServiceMapPath = getServiceScopedMapPath(APP_PATH.SERVICE_MAP);
+/** /realtime */
+export const getRealtimePath = getApplicationPath(APP_PATH.SERVER_MAP_REALTIME);
+/**
+ * /serviceMap/realtime/{serviceName}/{applicationName}@{serviceType}
+ *
+ * servicemap의 실시간 보기. servermap의 실시간 보기와 화면이 같고 map을 그리는 API만 다르다
+ * (`/api/servermap/serverMap` → `/api/servermap/serviceMap`).
+ *
+ * application 세그먼트는 map을 그리는 규칙을 그대로 따른다. DEFAULT service는 고른 application
+ * 하나를 기준으로 그리므로 세그먼트가 붙고, 그 외 service는 소속 application을 모두 모아 그려
+ * 기준 application이 없으므로 붙지 않는다(라우트 로더가 실려 들어온 세그먼트를 지운다).
+ * 비DEFAULT에서 우측 패널(스캐터/액티브 스레드)의 조회 대상은 map에서 클릭한 노드로 정해진다.
+ *
+ * 기간은 "지금부터 5분 전"으로 화면이 직접 만들기 때문에 from/to는 싣지 않는다
+ * (라우트 로더가 실려 들어온 query string을 지운다).
+ */
+export const getServiceMapRealtimePath = getServiceScopedMapPath(APP_PATH.SERVICE_MAP_REALTIME);
+/**
+ * 필터 대상에서 filteredMap의 기준 application을 고른다. 고를 수 없으면 null이다.
+ *
+ * 노드에 걸린 필터는 그 노드가, 링크에 걸린 필터는 sourceIsWas에 따라 출발지/도착지가 기준이다.
+ * filteredMap은 기준 application 없이는 조회가 성립하지 않으므로(`useGetFilteredServerMapData`가
+ * applicationName을 필수로 요구한다) 호출자는 null이면 화면을 열지 않는다.
+ *
+ * servicemap의 service group(접힌 service) 노드·링크가 여기에 해당한다. 그 id는 serviceName
+ * 하나뿐이어서 어떤 application을 기준으로 삼을지 정해지지 않는다.
+ *
+ * **링크는 양쪽 끝이 모두 application이어야 한다.** 기준으로 삼을 한쪽만 보고 통과시키면
+ * Application→Service 링크가 새어나간다 — 출발지가 WAS라 출발지를 기준으로 잡고 열리지만,
+ * 도착지가 service group이라 `toApplication`이 빈 채로 필터가 반쪽만 걸린다. 어느 쪽이 기준이
+ * 되는지(sourceIsWas)는 map에서 링크를 찾아야 정해지므로, 그것과 무관하게 양쪽을 다 본다.
+ */
+export const getFilterTargetApplication = (
+  filterState: FilteredMap.FilterState,
+  sourceIsWas?: boolean,
+): ApplicationType | null => {
+  // 노드에 걸린 필터.
+  if (filterState?.applicationName) {
+    return filterState.serviceType
+      ? { applicationName: filterState.applicationName, serviceType: filterState.serviceType }
+      : null;
+  }
+
+  // 링크에 걸린 필터.
+  const fromApplication = filterState?.fromApplication;
+  const fromServiceType = filterState?.fromServiceType;
+  const toApplication = filterState?.toApplication;
+  const toServiceType = filterState?.toServiceType;
+
+  if (!fromApplication || !fromServiceType || !toApplication || !toServiceType) {
+    return null;
+  }
+
+  return sourceIsWas
+    ? { applicationName: fromApplication, serviceType: fromServiceType }
+    : { applicationName: toApplication, serviceType: toServiceType };
+};
+
+/**
+ * /filteredMap/{serviceName}?/{applicationName}@{serviceType}
+ *
+ * 필터를 거는 화면(map, filteredMap)이 그 결과를 볼 화면으로 넘기는 경로. application은 필터
+ * 대상에서 뽑는다(노드는 그 노드, 링크는 sourceIsWas에 따라 출발지/도착지).
+ *
+ * serviceName은 servicemap에서 왔을 때만 주어진다. 그래야 새 탭에서 열려도 어떤 service를 보던
+ * 중이었는지 URL에 남아 모든 조회에 pServiceName 헤더가 실린다(전역 선택값은 탭 간 공유
+ * 저장소라 믿을 수 없다). servermap에서 왔을 때는 주어지지 않아 경로 형태가 예전과 같다.
+ *
+ * serviceName은 백엔드에서 형식이 검증되지 않으므로 인코딩한다. 이유는 `getServiceScopedMapPath`와
+ * 같다. (applicationName/serviceType은 백엔드가 검증하므로 그대로 둔다.)
+ *
+ * **service 세그먼트는 기준 application이 속한 service다.** 보고 있던 service가 아니다.
+ * 다른 service의 WAS에서 들어오는 링크(`other^A^SPRING_BOOT~mine^B^SPRING_BOOT`)는 출발지 A가
+ * 기준이 되어 정방향으로 탐색하므로, 헤더(pServiceName)도 A의 service여야 조회가 성립한다.
+ * 필터에 serviceName이 없으면(2단 id) 주어진 serviceName을 그대로 쓴다.
+ *
+ * service 단위 링크(Service→Application 등)는 기준 application이 없어 여기까지 오지 않는다.
+ */
+export const getFilteredMapPath = (
+  filterState: FilteredMap.FilterState,
+  sourceIsWas?: boolean,
+  serviceName?: string,
+) =>
+  getFilteredMapPathOfApplication(
+    getFilterTargetApplication(filterState, sourceIsWas),
+    // servermap에서 왔을 때는 세그먼트를 붙이지 않는다. filteredMap의 id는 설정에 따라 3단이라
+    // 필터에 serviceName이 실려 있을 수 있지만, 그것으로 세그먼트를 만들면 servicemap에서 온
+    // 화면처럼 보인다(→ `useFilteredMapParameters`).
+    serviceName && (getFilterTargetServiceName(filterState, sourceIsWas) || serviceName),
+  );
+
+/**
+ * 필터 대상에서 기준 application이 속한 service를 고른다. 필터에 실려 있지 않으면 undefined다.
+ * 어느 쪽이 기준인지는 `getFilterTargetApplication`과 같은 규칙이다.
+ */
+export const getFilterTargetServiceName = (
+  filterState: FilteredMap.FilterState,
+  sourceIsWas?: boolean,
+): string | undefined => {
+  if (filterState?.applicationName) {
+    return filterState.serviceName;
+  }
+
+  return sourceIsWas ? filterState?.fromServiceName : filterState?.toServiceName;
+};
+
+/**
+ * /filteredMap/{serviceName}?/{applicationName}@{serviceType}
+ *
+ * 기준 application이 **이미 정해져 있을 때** 쓰는 형태. 지금 경로에 실려 있는 application을
+ * 그대로 유지해야 하는 곳(기간만 바꾸는 경우)이 여기에 해당한다.
+ *
+ * 그럴 때 `getFilteredMapPath`로 필터에서 다시 뽑으면 안 된다. 링크 필터의 기준은 `sourceIsWas`
+ * 로 갈리는데 그 값은 map에서 링크를 찾아야 알 수 있어서, 필터만 들고 다시 만들면 출발지가
+ * 기준이던 경로가 도착지로 뒤집힌다(`/filteredMap/A@STAND_ALONE` → `/filteredMap/B@SPRING_BOOT`).
+ * 기간을 바꿨을 뿐인데 조회 대상이 달라진다.
+ */
+export const getFilteredMapPathOfApplication = (
+  application?: ApplicationType | null,
+  serviceName?: string,
+) => {
+  const serviceSegment = serviceName ? `/${encodeURIComponent(serviceName)}` : '';
+
+  // 기준 application이 없으면 세그먼트를 붙이지 않는다(다른 경로 빌더와 같은 처리).
+  if (!application?.applicationName || !application.serviceType) {
+    return `${APP_PATH.FILTERED_MAP}${serviceSegment}`;
+  }
+
+  return `${APP_PATH.FILTERED_MAP}${serviceSegment}/${application.applicationName}@${application.serviceType}`;
+};
+
+/**
+ * serviceName이 주어지면 `/{page}/{serviceName}/{applicationName}@{serviceType}`를 만드는 경로
+ * 빌더. servicemap과 같은 세그먼트 표기다.
+ *
+ * 새 탭으로 열리는 화면(map의 drag&drop → transactionList, transactionList의 외부 링크 →
+ * transactionDetail, 스캐터/히트맵의 확대 버튼 → fullScreenMode, 서버 목록 → inspector,
+ * 액티브 스레드 → threadDump)도, 사이드 메뉴로 옮겨 다니는 화면(inspector, urlStatistic,
+ * errorAnalysis, openTelemetryMetric)도 같은 표기를 쓴다. 어떤 service를 보던 중이었는지 URL에
+ * 남겨야 그 화면의 모든 API에 pServiceName 헤더를 실을 수 있다. 전역 선택값은 탭 간 공유
+ * 저장소라 믿을 수 없다.
+ *
+ * application이 없어도 serviceName은 싣는다(`/{page}/{serviceName}`, servicemap과 같다). DEFAULT가
+ * 아닌 servicemap에는 기준 application이 없어 메뉴 링크가 늘 이 형태인데, 페이지 경로만 돌려주면
+ * 그 링크를 새 탭에 연 화면이 탭 간 공유 저장소인 전역 선택값으로 service를 정한다. 라우트 로더의
+ * 채우기(`resolveServiceScopedPage`)는 세그먼트가 생기기 전 형태의 북마크를 위한 것이다.
+ *
+ * enableServiceMap이 꺼져 있으면 service 개념이 없어 serviceName이 undefined로 들어온다.
+ * 그때는 세그먼트를 붙이지 않아 예전과 같은 경로가 된다.
+ *
+ * serviceName은 백엔드에서 형식이 검증되지 않으므로(`ServiceNameRequest`에 제약이 없다) '/'나
+ * '@'가 들어올 수 있어 인코딩한다. 인코딩하지 않으면 '/'가 세그먼트를 쪼개 라우트 매칭이 깨지고,
+ * '@'는 application 세그먼트의 구분자와 구별되지 않는다. applicationName/serviceType은
+ * 백엔드가 `[a-zA-Z0-9._\-]+`로 검증하므로(IdValidateUtils) 기존처럼 그대로 둔다.
+ *
+ * 앱이 자기 화면의 경로 빌더를 만들 때도 쓴다. 그 화면의 라우트 경로에 `:serviceName`이 있어야
+ * 경로에 실은 serviceName이 실제 조회에 쓰인다(`registerAppRoutes`).
+ */
+export const getServiceScopedApplicationPath =
+  (pagePath: string) =>
+  (
+    application?: ApplicationType | null,
+    queryParams?: {
+      [k: string]: string;
+    },
+    serviceName?: string,
+  ) => {
+    const serviceSegment = serviceName ? `/${encodeURIComponent(serviceName)}` : '';
+
+    if (!application?.applicationName || !application?.serviceType) {
+      return `${pagePath}${serviceSegment}`;
+    }
+
+    const queryString =
+      queryParams?.from && queryParams?.to
+        ? `?${convertParamsToQueryString({ from: queryParams.from, to: queryParams.to })}`
+        : '';
+
+    return `${pagePath}${serviceSegment}/${application.applicationName}@${application.serviceType}${queryString}`;
+  };
+
+/** /transactionList/{serviceName}?/{applicationName}@{serviceType} */
+export const getTransactionListPath = getServiceScopedApplicationPath(APP_PATH.TRANSACTION_LIST);
+/** /transactionDetail/{serviceName}?/{applicationName}@{serviceType} */
+export const getTransactionDetailPath = getServiceScopedApplicationPath(
+  APP_PATH.TRANSACTION_DETAIL,
+);
+/** /scatterFullScreenMode/{serviceName}?/{applicationName}@{serviceType} */
+export const getScatterFullScreenPath = getServiceScopedApplicationPath(
+  APP_PATH.SCATTER_FULL_SCREEN,
+);
+/** /scatterFullScreenMode/realtime/{serviceName}?/{applicationName}@{serviceType} */
+export const getScatterFullScreenRealtimePath = getServiceScopedApplicationPath(
+  APP_PATH.SCATTER_FULL_SCREEN_REALTIME,
+);
+/** /heatmapFullScreenMode/{serviceName}?/{applicationName}@{serviceType} */
+export const getHeatmapFullScreenPath = getServiceScopedApplicationPath(
+  APP_PATH.HEATMAP_FULL_SCREEN,
+);
+/** /heatmapFullScreenMode/realtime/{serviceName}?/{applicationName}@{serviceType} */
+export const getHeatmapFullScreenRealtimePath = getServiceScopedApplicationPath(
+  APP_PATH.HEATMAP_FULL_SCREEN_REALTIME,
+);
+/** /errorAnalysis/{serviceName}?/{applicationName}@{serviceType} */
+export const getErrorAnalysisPath = getServiceScopedApplicationPath(APP_PATH.ERROR_ANALYSIS);
+/** /urlStatistic/{serviceName}?/{applicationName}@{serviceType} */
+export const getUrlStatPath = getServiceScopedApplicationPath(APP_PATH.URL_STATISTIC);
+/** /inspector/{serviceName}?/{applicationName}@{serviceType} */
+export const getInspectorPath = getServiceScopedApplicationPath(APP_PATH.INSPECTOR);
+/** /openTelemetryMetric/{serviceName}?/{applicationName}@{serviceType} */
+export const getOpenTelemetryPath = getServiceScopedApplicationPath(APP_PATH.OPEN_TELEMETRY_METRIC);
+/** /threadDump/{serviceName}?/{applicationName}@{serviceType} */
+export const getThreadDumpPath = getServiceScopedApplicationPath(APP_PATH.THREAD_DUMP);
+
+/**
+ * /systemMetric/{serviceName}?/{hostGroupName}
+ *
+ * 다른 화면과 같은 세그먼트 표기다. hostGroup이 없어도 serviceName은 싣는다
+ * (`/systemMetric/{serviceName}`, 위 application 화면들과 같은 이유). enableServiceMap이 꺼져 있으면
+ * serviceName이 undefined로 들어와 예전과 같은 경로가 된다. 경로를 읽는 규칙은 `parseSystemMetricPath`.
+ *
+ * hostGroup은 예전처럼 그대로 싣는다(수집 시 `TelegrafMetricController`가 형식을 검증한다).
+ */
+export const getSystemMetricPath = (
+  hostGroup?: string | null,
+  queryParams?: {
+    [k: string]: string;
+  },
+  serviceName?: string,
+) => {
+  const serviceSegment = serviceName ? `/${encodeURIComponent(serviceName)}` : '';
+
+  if (!hostGroup) {
+    return `${APP_PATH.SYSTEM_METRIC}${serviceSegment}`;
+  }
+
+  const queryString =
+    queryParams?.from && queryParams?.to
+      ? `?${convertParamsToQueryString({ from: queryParams.from, to: queryParams.to })}`
+      : '';
+
+  return `${APP_PATH.SYSTEM_METRIC}${serviceSegment}/${hostGroup}${queryString}`;
+};

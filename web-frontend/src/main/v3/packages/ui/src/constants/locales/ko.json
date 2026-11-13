@@ -1,0 +1,1738 @@
+{
+  "COMMON": {
+    "NO_DATA": "데이터가 없습니다.",
+    "FAILED_TO_FETCH_DATA": "데이터를 가져오지 못했습니다.",
+    "NO_AGENTS": "실행 중인 에이전트가 없습니다.",
+    "MIN_LENGTH": "{{minLength}}문자 이상 입력하세요.",
+    "REQUIRED": "{{requiredField}}를(을) 입력하세요.",
+    "REQUIRED_SELECT": "{{requiredField}}를(을) 선택하세요.",
+    "DO_NOT_HAVE_PERMISSION": "권한이 없습니다.",
+    "FORBIDDEN_TITLE": "접근 권한이 없습니다.",
+    "FORBIDDEN_DESCRIPTION": "업무상 접근이 필요한 경우, 관리자에게 문의하세요.",
+    "CONFIRM": "확인",
+    "SUBMIT": "저장",
+    "UPDATE": "수정",
+    "UPDATE_SUCCESS": "수정했습니다.",
+    "UPDATE_FAIL": "수정에 실패하였습니다.",
+    "ADD": "등록",
+    "ADD_SUCCESS": "등록했습니다.",
+    "ADD_FAILED": "등록에 실패하였습니다.",
+    "CREATE": "생성",
+    "CREATE_SUCCESS": "생성했습니다.",
+    "CREATE_FAILED": "생성에 실패하였습니다.",
+    "SAVE": "저장",
+    "REMOVE": "삭제",
+    "DELETE": "삭제",
+    "DELETE_CONFIRM_QUESTION": "정말로 \"{{target}}\"을(를) 삭제하시겠습니까?",
+    "DELETE_CONFIRM_DESCRIPTION": "이 작업은 취소할 수 없습니다. {{target}}은(는) 서버에서 영구적으로 삭제됩니다.",
+    "CANCEL": "취소",
+    "CLOSE": "닫기",
+    "CONTINUE": "계속",
+    "APPLY": "적용",
+    "EDIT": "수정",
+    "SORT_STARTTIME_DESC": "최근 순",
+    "SORT_STARTTIME_ASC": "오래된 순",
+    "SORT_NAME_DESC": "이름 (Z-A)",
+    "SORT_NAME_ASC": "이름 (A-Z)",
+    "OPTIONAL": "선택",
+    "SEARCH_INPUT": "검색어를 입력하세요.",
+    "EMPTY": "등록된 목록이 없습니다.",
+    "EMPTY_ON_SEARCH": "검색결과가 없습니다.",
+    "CHART_INTERACTION_GUIDE_MESSAGE": "* 마우스 드래그로 차트의 해당 영역을 확대해서 볼 수 있습니다.",
+    "PAGE_REFRESH": "페이지 새로고침",
+    "TRY_AGAIN": "다시 시도",
+    "SOMETHING_WENT_WRONG": "예기치 않은 오류가 발생했습니다",
+    "SUBMIT_SUCCESS": "등록되었습니다.",
+    "SUBMIT_FAIL": "등록에 실패하였습니다.",
+    "REMOVE_SUCCESS": "삭제되었습니다.",
+    "TARGET_REMOVE_SUCCESS": "\"{{target}}\"이(가) 삭제되었습니다.",
+    "REMOVE_FAIL": "삭제에 실패하였습니다.",
+    "CONFIRM_LEAVE_PAGE": "정말로 이 페이지를 떠나시겠습니까?",
+    "CHANGE_NOT_SAVED": "이 페이지를 벗어나면 변경사항이 저장되지 않을 수 있습니다."
+  },
+  "APP_SELECT": {
+    "FAVORITE_APP_LIST": "즐겨찾기 목록",
+    "APP_LIST": "애플리케이션 목록",
+    "SELECT_YOUR_APP": "애플리케이션을 선택하세요.",
+    "INPUT_APP_NAME_PLACE_HOLDER": "애플리케이션 이름을 입력하세요."
+  },
+  "DATE_RANGE_PICKER": {
+    "MAX_SEARCH_PERIOD": "한번에 조회할 수 있는 최대 기간은 {{maxSearchPeriod}}일 입니다."
+  },
+  "URL_STAT": {
+    "SELECT_URL_INFO": "아래에서 Path 정보를 선택하세요."
+  },
+  "SERVER_MAP": {
+    "SCATTER_CHART_STATIC_WARN": "Agent별 scatter chart를 보기 위해\nheatmap을 scatter chart로 변경해 주세요.",
+    "HEATMAP_API_ERROR_MESSAGE": "Heatmap 호출 에러가 반복될 경우,\nscatter 차트를 참고해 주세요.",
+    "SELECT_NODE_FOR_CHART": "서버맵에서 노드를 선택하면 차트를 볼 수 있습니다.",
+    "QUERY_OPTION": {
+      "TITLE": "서버맵 조회 옵션",
+      "DESC": "서버맵 조회 옵션을 설정합니다",
+      "APPLICATION_ONLY": "애플리케이션만 보기",
+      "BIDIRECTIONAL": "양방향",
+      "INBOUND": "인바운드",
+      "OUTBOUND": "아웃바운드"
+    },
+    "REAL_TIME": {
+      "LOCK_SERVER": "현재 서버 고정",
+      "UNLOCK_SERVER": "현재 서버 고정 해제",
+      "NOT_WAS": "선택한 대상이 WAS가 아닙니다.",
+      "CONNECTION_CLOSED": "연결이 종료되었습니다.",
+      "SELECT_NODE": "서버맵에서 노드를 선택하면 액티브 요청을 볼 수 있습니다."
+    }
+  },
+  "TRANSACTION_LIST": {
+    "CALL_TREE_TIMELINE": "타임라인",
+    "JUMP": "Jump",
+    "LINKED_TRANSACTION_NOT_FOUND": "링크된 Transaction을 찾을 수 없습니다.",
+    "OPEN_IN_TRANSACTION_LIST": "Transaction 목록에서 열기",
+    "SELECT_TRANSACTION": "Transaction을 선택하세요.",
+    "TRANSACTION_RETRIEVE_ERROR": "Transaction 정보가 없습니다.",
+    "TRANSACTION_RETRIEVE_ERROR_DESC": "Servermap/Filtered 페이지에서 다시 시도해 주세요. (이 창을 닫으면 Servermap 페이지로 이동합니다)",
+    "CALL_TREE_FILTER": "필터",
+    "CALL_TREE_FILTER_PLACEHOLDER": "콜 트리 필터...",
+    "STEP_IN_SPAN": "Step In",
+    "STEP_OUT_SPAN": "Step Out",
+    "STEP_IN_SELECT_SPAN": "Step In 할 span을 선택하세요.",
+    "STEP_IN_NO_SPANS": "들어간 span은 이 화면에 그릴 내용이 없습니다."
+  },
+  "METRIC": {
+    "HOST_GROUP_LIST": "호스트 그룹 목록",
+    "SELECT_HOST_GROUP": "호스트 그룹을 선택하세요.",
+    "INPUT_HOST_GROUP": "호스트 그룹 이름을 입력하세요."
+  },
+  "OPEN_TELEMETRY": {
+    "METRIC": "메트릭",
+    "CREATE_METRIC_BUTTON": "새 메트릭 생성",
+    "CREATE_METRIC_DESC": "새로운 메트릭을 생성합니다.",
+    "SAVE_DASHBOARD": "대시보드 저장",
+    "SAVE_DASHBOARD_SUCCESS": "현재 대시보드 상태를 저장했습니다.",
+    "SAVE_DASHBOARD_FAIL": "현재 대시보드 상태 저장에 실패했습니다."
+  },
+  "CONFIGURATION": {
+    "GENERAL": {
+      "DESC": "설정 정보는 브라우저 캐쉬에 저장합니다. 서버 측 저장은 추후 지원할 예정입니다.",
+      "LANGUAGE": "언어",
+      "DATE_FORMAT": "날짜 형식"
+    },
+    "EXPERIMENTAL": {
+      "DESC": "실험 중인 기능을 적용해볼 수 있습니다."
+    },
+    "INSTALLATION": {
+      "APPLICATION_NAME_DUPLICATION_CHECK": "Application name 중복 여부를 확인할 수 있습니다.",
+      "AGENT_ID_DUPLICATION_CHECK": "Agent ID 중복 여부를 확인할 수 있습니다.",
+      "APPLICATION_NAME_PLACEHOLDER": "Application name을 입력하세요.",
+      "AGENT_ID_PLACEHOLDER": "Agent ID를 입력하세요."
+    },
+    "USER_GROUP": {
+      "USER_GROUP_ADD_PLACEHOLDER": "사용자 그룹명 입력",
+      "USER_GROUP_SEARCH_PLACEHOLDER": "사용자 그룹 검색",
+      "USER_GROUP_ADD_TITLE": "사용자 그룹 등록",
+      "USER_GROUP_REMOVE_TITLE": "사용자 그룹 삭제",
+      "USER_GROUP_REMOVE_DESC": "다음 사용자 그룹을 삭제합니다.",
+      "GROUP_MEMBER_REMOVE_TITLE": "그룹 멤버 삭제",
+      "GROUP_MEMBER_REMOVE_DESC": "다음 그룹 멤버를 삭제합니다.",
+      "GROUP_MEMBER_SEARCH_PLACEHOLDER": "그룹 멤버 검색",
+      "USER_SEARCH_PLACEHOLDER": "사용자 검색",
+      "LABEL": {
+        "USER_GROUP_NAME": "사용자 그룹명",
+        "USER_GROUP_ADD_BUTTON": "사용자 그룹 등록",
+        "GROUP_MEMBER_ADD_BUTTON": "그룹 멤버 등록"
+      },
+      "VALIDATION": "영문자와 숫자, '-', '_'를 입력할 수 있습니다.(4~30)"
+    },
+    "AGENT_MANAGEMENT": {
+      "REMOVE_APPLICATION_TITLE": "Application 삭제",
+      "REMOVE_APPLICATION_DESC": "다음 Application을 삭제합니다.",
+      "REMOVE_AGENT_TITLE": "Agent 삭제",
+      "REMOVE_AGENT_DESC": "다음 Agent를 삭제합니다.",
+      "LABEL": {
+        "REMOVE_APPLICATION": "Application 삭제"
+      },
+      "REMOVE_PASSWORD_DESCRIPTION": "설정한 비밀번호가 있다면 입력하세요."
+    },
+    "AGENT_STATISTIC": {
+      "ZOOM_GUIDE": "마우스를 통해 차트를 Zoom In/Out 할 수 있습니다.",
+      "LOAD_GUIDE": "Agent의 통계 정보를 가져오는 작업은 많은 시간을 소요합니다.",
+      "LOADING": "데이터 가져오기",
+      "RELOAD": "데이터 다시 가져오기"
+    },
+    "USERS": {
+      "USER_ADD_TITLE": "사용자 등록",
+      "USER_INFO_TITLE": "사용자 정보",
+      "USER_SEARCH_PLACEHOLDER": "사용자 검색",
+      "USER_REMOVE_TITLE": "사용자 삭제",
+      "USER_REMOVE_DESC": "다음 사용자를 삭제합니다.",
+      "LABEL": {
+        "USER_ADD_BUTTON": "사용자 등록",
+        "USER_ID": "사용자 ID",
+        "USER_NAME": "이름",
+        "USER_DEPARTMENT": "부서",
+        "USER_PHONE_NUMBER": "전화번호",
+        "USER_EMAIL": "이메일"
+      },
+      "VALIDATION": {
+        "USER_ID": "영문 소문자와 숫자, '-', '_'만 입력할 수 있습니다.(4~24)",
+        "USER_NAME": "영문자와 한글, 숫자, '_', '-', '.'만 입력할 수 있습니다.(1~30)",
+        "USER_DEPARTMENT": "영문자와 한글, 숫자, '_', '-', '.'만 입력할 수 있습니다.(3~40)",
+        "USER_PHONE_NUMBER": "유효한 형식의 전화번호를 입력해주세요.",
+        "USER_EMAIL": "유효한 형식의 이메일을 입력해주세요."
+      }
+    },
+    "COMMON": {
+      "LABEL": {
+        "ACTIONS": "작업"
+      },
+      "NAME": "이름",
+      "USER_ID": "사용자 ID",
+      "DEPARTMENT": "부서",
+      "PHONE": "전화번호",
+      "EMAIL": "이메일",
+      "USER_GROUP": "사용자 그룹 ID",
+      "CHECKER": "알람 항목",
+      "THRESHOLD": "기준점",
+      "TYPE": "알림 형식",
+      "NOTES": "메모",
+      "WEBHOOK": "웹훅",
+      "SELECT_APPLICATION_FIRST": "먼저 애플리케이션을 선택해 주세요."
+    },
+    "ALARM": {
+      "NAME": "알람",
+      "EMPTY": "등록된 알람이 없습니다.",
+      "ADD": "알람 등록",
+      "EDIT": "알람 수정",
+      "DETAIL": "알람 상세",
+      "DESC": "애플리케이션의 상태는 주기적으로 확인되며 사전 구성된 특정 조건(규칙)이 충족되면 알람이 트리거됩니다.\npinpoint-batch 서버는 매 3분간 최근 5분간의 데이터를 기반으로 체크를 하며, 조건이 충족되면 사용자 그룹에 나열된 사용자에게 sms/email/webhook을 전송합니다.",
+      "RULE_NAME": "규칙 이름",
+      "USER_GROUP": "사용자 그룹",
+      "SELECT_RULE": "규칙을 선택하세요",
+      "SELECT_USER_GROUP": "사용자 그룹을 선택하세요",
+      "THRESHOLD_MIN": "{{min}}보다 커야 합니다",
+      "THRESHOLD_MAX": "{{max}}보다 작아야 합니다"
+    },
+    "ALARM_V2": {
+      "NAME": "알람",
+      "DESC": "알람 규칙과 알림 채널을 설정합니다.",
+      "RULES": "규칙",
+      "CHANNELS": "채널",
+      "TEMPLATES": "템플릿",
+      "TEMPLATE": "템플릿",
+      "STANDALONE": "독립 규칙",
+      "STANDALONE_RULES": "템플릿 없이 만든 규칙",
+      "OVERRIDES": "재정의 항목",
+      "NONE": "없음",
+      "NO_OVERRIDES": "재정의 항목 없음",
+      "OVERRIDE": "재정의",
+      "NO_TEMPLATES_AVAILABLE": "사용 가능한 알람 템플릿이 없습니다.",
+      "TEMPLATE_CHANNELS_USED": "선택한 템플릿의 알림 채널을 사용합니다.",
+      "NO_TEMPLATE_CHANNELS": "선택한 템플릿에 연결된 알림 채널이 없습니다.",
+      "ADD_RULE": "규칙 추가",
+      "ADD_CHANNEL": "채널 추가",
+      "EDIT_CHANNEL": "채널 수정",
+      "ADD_TEMPLATE": "템플릿 추가",
+      "SEARCH_RULES": "규칙 검색",
+      "SEARCH_CHANNELS": "채널 검색",
+      "SEARCH_TEMPLATES": "템플릿 검색",
+      "RULE_DETAIL": "규칙 상세",
+      "CHANNEL_DETAIL": "채널 상세",
+      "TEMPLATE_DETAIL": "템플릿 상세",
+      "DELETE_RULE_TITLE": "\"{{name}}\" 규칙을 삭제하시겠습니까?",
+      "DELETE_RULE_DESC": "이 작업은 되돌릴 수 없습니다. 알람 규칙이 영구적으로 삭제됩니다.",
+      "DELETE_CHANNEL_TITLE": "\"{{name}}\" 채널을 삭제하시겠습니까?",
+      "DELETE_CHANNEL_DESC": "이 채널은 템플릿 {{templateCount}}개와 규칙 {{affectedRuleCount}}개에서 사용 중입니다. 삭제하면 현재 활성화된 규칙 {{enabledAffectedRuleCount}}개에서 이 채널을 통한 신규 알림 전송이 중지됩니다. 다른 채널을 통한 알림과 이미 생성된 알림은 계속 전송됩니다. 삭제하시겠습니까?",
+      "SAVE_TEMPLATE_TITLE": "\"{{name}}\" 변경 사항을 저장할까요?",
+      "SAVE_TEMPLATE_DESC": "이 템플릿은 {{applicationCount}}개 애플리케이션에 적용되어 있고, 거기에서 생성된 {{ruleCount}}개 룰이 다음 평가부터 새 설정을 사용합니다. 항목을 재정의한 룰은 자기 값을 유지합니다.",
+      "DELETE_TEMPLATE_TITLE": "\"{{name}}\" 템플릿을 삭제하시겠습니까?",
+      "DELETE_TEMPLATE_DESC": "이 작업은 되돌릴 수 없습니다. 알람 템플릿과 연결된 규칙 {{count}}개가 함께 영구적으로 삭제됩니다.",
+      "RULE_DELETED": "규칙이 삭제되었습니다.",
+      "RULE_DELETE_FAILED": "규칙 삭제에 실패했습니다.",
+      "RULE_UPDATED": "규칙이 업데이트되었습니다.",
+      "RULE_UPDATE_FAILED": "규칙 업데이트에 실패했습니다.",
+      "CHANNEL_DELETED": "채널이 삭제되었습니다.",
+      "CHANNEL_DELETE_FAILED": "채널 삭제에 실패했습니다.",
+      "TEMPLATE_DELETED": "템플릿이 삭제되었습니다.",
+      "TEMPLATE_DELETE_FAILED": "템플릿 삭제에 실패했습니다.",
+      "TEMPLATE_UPDATED": "템플릿이 업데이트되었습니다.",
+      "TEMPLATE_UPDATE_FAILED": "템플릿 업데이트에 실패했습니다.",
+      "SEVERITY": "심각도",
+      "DATA_SOURCE": "데이터 소스",
+      "ENABLED": "활성화",
+      "ENABLED_SHORT": "활성",
+      "DEFINITION_COUNT_LABEL": "규칙",
+      "APPLICATION_COUNT_LABEL": "앱",
+      "TEMPLATES_SHORT": "템플릿",
+      "USED_BY": "사용 중",
+      "RULE_COUNT": "규칙 {{count}}개",
+      "ENABLED_RULE_RATIO": "활성 규칙 {{count}}/{{total}}",
+      "CHANNEL_COUNT": "{{count}}개",
+      "OVERRIDE_NAME": "이름",
+      "OVERRIDE_DESCRIPTION": "설명",
+      "OVERRIDE_SEVERITY": "심각도",
+      "OVERRIDE_CHECK_INTERVAL": "검사 주기",
+      "OVERRIDE_ACTION_INTERVAL": "알림 주기",
+      "OVERRIDE_CONDITIONS": "조건",
+      "OVERRIDE_FILTERS": "필터",
+      "DESTINATION": "대상",
+      "DESCRIPTION": "설명",
+      "CHANNEL_UPDATED": "채널이 업데이트되었습니다.",
+      "CHANNEL_UPDATE_FAILED": "채널 업데이트에 실패했습니다.",
+      "CHECK_INTERVAL": "검사 주기",
+      "ACTION_INTERVAL": "알림 주기",
+      "INTERVAL": "주기",
+      "INTERVAL_CHECK_ACTION": "검사 / 알림",
+      "INTERVAL_MINUTE": "{{value}}분",
+      "INTERVAL_HOUR": "{{value}}시간",
+      "INTERVAL_SECOND": "{{value}}초",
+      "CONDITION": "조건",
+      "AGGREGATION": "집계",
+      "METRIC": "메트릭",
+      "OPERATOR": "연산자",
+      "THRESHOLD": "임계값",
+      "WINDOW_SEC": "윈도우",
+      "NEW_GROUP_DESC": "NEW_GROUP 트리거: 새로운 에러 그룹이 발생하면 실행됩니다. 임계값/윈도우 설정이 필요 없습니다.",
+      "FILTERS": "필터",
+      "ADD_FILTER": "필터 추가",
+      "FILTER_KEY": "키",
+      "FILTER_OP": "연산자",
+      "FILTER_VALUE": "값",
+      "RULE_NAME_PLACEHOLDER": "알람 규칙 이름",
+      "NEW_RULE_NAME": "새 규칙",
+      "OPTIONAL": "(선택)",
+      "COPY_OF_NAME": "{{name}} 복사본",
+      "TEMPLATE_NAME_PLACEHOLDER": "알람 템플릿 이름",
+      "TEMPLATE_CHANNELS_DESC": "채널은 템플릿 단위로 연결되며, 이 템플릿으로 만든 모든 규칙에 적용됩니다.",
+      "ADD_FROM_TEMPLATE": "템플릿으로 추가",
+      "APPLY_TEMPLATE": "템플릿 적용",
+      "UNLINK_TEMPLATE": "템플릿 해제",
+      "UNLINK_TEMPLATE_TITLE": "\"{{name}}\" 템플릿을 이 애플리케이션에서 해제하시겠습니까?",
+      "UNLINK_TEMPLATE_DESC": "이 템플릿으로 만든 규칙 {{count}}개가 이 애플리케이션에서 삭제됩니다. 템플릿 자체는 유지됩니다.",
+      "ALREADY_APPLIED": "적용됨",
+      "TEMPLATE_APPLIED": "템플릿이 적용되었습니다.",
+      "TEMPLATE_APPLY_FAILED": "템플릿 적용에 실패했습니다.",
+      "TEMPLATE_UNAPPLIED": "템플릿이 해제되었습니다.",
+      "TEMPLATE_UNAPPLY_FAILED": "템플릿 해제에 실패했습니다.",
+      "START_FROM_PRESET": "프리셋으로 시작",
+      "START_FROM_TEMPLATE": "내 템플릿 복제",
+      "START_FROM_RULES": "독립 규칙에서 가져오기",
+      "START_SELECTION_HINT": "선택한 규칙은 복사되며, 새 템플릿은 원본 프리셋·템플릿·독립 규칙과 연결되지 않습니다. 아무것도 선택하지 않고 진행하면 빈 템플릿으로 시작합니다.",
+      "START_INTRO": "시작할 규칙을 선택하세요. 선택한 규칙은 새 템플릿으로 복사되며, 다음 단계에서 추가·삭제·값 조정을 할 수 있습니다.",
+      "START_WITH_RULES": "규칙 {{count}}개로 시작",
+      "START_EMPTY": "빈 템플릿으로 시작",
+      "NO_STANDALONE_RULES": "가져올 독립 규칙이 없습니다.",
+      "NO_ITEMS": "규칙이 없는 템플릿입니다.",
+      "DESCRIPTION_PLACEHOLDER": "설명 (선택사항)",
+      "CHANNEL_NAME_PLACEHOLDER": "채널 이름",
+      "SELECT_USER_GROUP": "사용자 그룹 선택",
+      "WEBHOOK_LABEL": "웹훅 URL",
+      "WEBHOOK_URL_PLACEHOLDER": "https://example.com/webhook",
+      "WEBHOOK_FORMAT": "포맷",
+      "WEBHOOK_FORMAT_DEFAULT": "기본",
+      "WEBHOOK_FORMAT_SLACK": "Slack",
+      "USER_GROUP_LABEL": "사용자 그룹",
+      "SELECT_APP_FIRST": "애플리케이션을 먼저 선택하세요.",
+      "NO_RECIPIENT": "수신처 0명",
+      "NO_RECIPIENT_DESCRIPTION": "이 그룹에 받는 사람이 0명입니다. 알람이 울려도 아무도 받지 못합니다.",
+      "NO_CHANNELS": "설정된 채널이 없습니다.",
+      "NO_TEMPLATES": "설정된 알람 템플릿이 없습니다.",
+      "ACTIONS": "작업",
+      "LINKED_CHANNELS": "알림 채널",
+      "LINKED_CHANNELS_DESC": "이 규칙이 발동될 때 알림을 받을 채널을 선택하세요.",
+      "NO_CHANNELS_AVAILABLE": "사용 가능한 채널이 없습니다. 먼저 채널을 생성하세요.",
+      "CHANNEL_LINK_FAILED": "채널 연결에 실패했습니다.",
+      "HISTORY": "히스토리",
+      "RULE_HISTORY": "규칙 히스토리",
+      "EMPTY_HISTORY": "히스토리가 없습니다.",
+      "FIRED": "발동",
+      "RESOLVED": "해제",
+      "CHECK_FAILED": "체크 실패",
+      "FIRED_CONTEXT": "발동 메트릭",
+      "ACTUAL_VALUE": "실제값",
+      "ADD_CONDITION": "조건 추가",
+      "ADD_GROUP": "그룹 추가",
+      "TOOLTIP_RULE_NAME": "이 알람 규칙을 식별하는 고유한 이름입니다.",
+      "TOOLTIP_DESCRIPTION": "규칙에 대한 메모입니다 (예: 목적, 담당자). 선택 사항입니다.",
+      "TOOLTIP_SEVERITY": "CRITICAL: 즉각 조치가 필요한 높은 우선순위 알람입니다.\nWARNING: 긴급하지 않은 정보성 알람입니다.",
+      "TOOLTIP_DATA_SOURCE": "규칙이 측정할 저장소입니다. 선택지는 설치된 모듈이 제공합니다.",
+      "TOOLTIP_CHECK_INTERVAL": "배치 잡이 이 규칙을 평가하는 주기입니다. 최소 1분입니다.",
+      "TOOLTIP_ACTION_INTERVAL": "알람이 지속 발동 중일 때 알림을 재전송하는 최소 간격입니다. 알림 폭주를 방지합니다.",
+      "TOOLTIP_CONDITION": "알람이 발동될 조건을 정의합니다. AND/OR 논리로 여러 조건을 조합할 수 있습니다.",
+      "TOOLTIP_FILTERS": "평가 대상 데이터의 범위를 좁힙니다. 모든 필터 조건을 만족하는 이벤트만 집계에 포함됩니다 (예: environment=production).",
+      "TOOLTIP_LINKED_CHANNELS": "이 알람이 발동될 때 알림을 받을 채널입니다.",
+      "TOOLTIP_METRIC": "측정할 데이터 항목입니다 (예: error_count = 윈도우 내 총 에러 수).",
+      "TOOLTIP_AGGREGATION": "에이전트별 값을 하나로 줄이는 방식입니다. MAX는 에이전트 하나라도 임계값을 넘으면 발동합니다.",
+      "TOOLTIP_OPERATOR": "비교 연산자입니다. 알람 발동 조건: 실제값 {연산자} 임계값.",
+      "TOOLTIP_THRESHOLD": "비교 기준값입니다. 메트릭이 이 값을 초과/미만일 때 알람이 발동됩니다.",
+      "TOOLTIP_WINDOW_SEC": "데이터를 집계할 시간 범위입니다. 예: \"1시간 윈도우의 error_count >= 100\"은 최근 1시간의 에러를 집계합니다.",
+      "TOOLTIP_GROUP_OPERATOR": "AND: 그룹 내 모든 조건이 참이어야 발동됩니다.\nOR: 하나라도 참이면 발동됩니다.",
+      "GROUP": "그룹",
+      "STATUS_NORMAL": "정상",
+      "STATUS_FIRING": "발동 중",
+      "STATUS_CHECK_FAILED": "체크 실패",
+      "SEVERITY_CRITICAL": "위험",
+      "SEVERITY_WARNING": "경고",
+      "VALIDATION_REQUIRED": "필수 항목입니다",
+      "VALIDATION_NAME_REQUIRED": "이름을 입력하세요",
+      "VALIDATION_DESTINATION_REQUIRED": "대상을 입력하세요",
+      "VALIDATION_INVALID_URL": "HTTP 또는 HTTPS URL을 입력하세요",
+      "VALIDATION_MAX_FILTERS": "필터는 최대 {{max}}개까지 추가할 수 있습니다",
+      "VALIDATION_MAX_CONDITION_NODES": "조건은 최대 {{max}}개까지 추가할 수 있습니다",
+      "VALIDATION_MAX_LENGTH": "최대 {{max}}자까지 입력할 수 있습니다",
+      "VALIDATION_CONDITION_INCOMPLETE": "조건의 모든 항목을 입력하세요",
+      "CONDITION_RESET_UNSUPPORTED_METRIC": "이 데이터 소스가 더 이상 제공하지 않는 지표({{metrics}})를 사용하는 조건이 있어 초기화했습니다.",
+      "CONDITION_IN": "{{window}} 동안",
+      "CONDITION_IN_LABEL": "기간"
+    },
+    "WEBHOOK": {
+      "NAME": "웹훅",
+      "EMPTY": "생성된 웹훅이 없습니다.",
+      "CREATE": "웹훅 생성",
+      "EDIT": "웹훅 수정",
+      "DETAIL": "웹훅 상세",
+      "ALIAS": "별칭",
+      "URL": "URL",
+      "INVALID_URL_FORMAT": "올바르지 않은 URL 형식입니다",
+      "ALIAS_PLACEHOLDER": "입력하지 않으면 입력한 URL로 설정됩니다"
+    },
+    "SERVICE_SETTING": {
+      "NEW_SERVICE": "새 서비스",
+      "SWITCH_TO": "전환",
+      "SWITCH_SUCCESS": "{{name}}으로 전환되었습니다.",
+      "CURRENT": "현재 선택됨",
+      "DELETE_TITLE": "서비스 삭제",
+      "DELETE_DESC": "다음 서비스를 삭제합니다.",
+      "DELETE_SUCCESS": "\"{{name}}\" 서비스가 삭제되었습니다.",
+      "DELETE_WARNING": "삭제한 서비스는 되돌릴 수 없습니다. 서비스는 애플리케이션과 에이전트를 묶는 키이므로, 삭제하면 이 서비스를 사용하는 모든 곳에 영향을 줄 수 있습니다.",
+      "DELETE_CONFIRM_LABEL": "확인을 위해 아래에 <b>{{name}}</b>을(를) 입력하세요.",
+      "DELETE_CONFIRM_BUTTON": "결과를 이해했으며, 이 서비스를 삭제합니다",
+      "ADD_SERVICE_TITLE": "서비스 추가",
+      "SERVICE_NAME_PLACEHOLDER": "서비스 이름을 입력하세요.",
+      "ADD_SUCCESS": "서비스가 추가되었습니다.",
+      "DUPLICATE_NAME": "\"{{name}}\" 서비스 이름이 이미 존재합니다.",
+      "RESERVED_NAME": "\"{{name}}\"은(는) 예약어이므로 사용할 수 없습니다.",
+      "INVALID_NAME_PATTERN": "영문, 숫자, '.', '_', '-'만 사용할 수 있습니다.",
+      "INVALID_NAME_LENGTH": "서비스 이름은 {{min}}자 이상 {{max}}자 이하로 입력해야 합니다.",
+      "SEARCH_PLACEHOLDER": "서비스 검색",
+      "LABEL": {
+        "NAME": "이름",
+        "DELETE": "삭제"
+      }
+    }
+  },
+  "HELP_VIEWER": {
+    "NAVBAR": {
+      "TITLE": "NAVBAR",
+      "CATEGORY": [
+        {
+          "TITLE": "응용프로그램<br/> 목록",
+          "DESC": "핀포인트가 설치된 응용프로그램 목록입니다.",
+          "ITEMS": [
+            {
+              "NAME": "아이콘",
+              "DESC": "응용프로그램의 종류"
+            },
+            {
+              "NAME": "텍스트",
+              "DESC": "응용프로그램의 이름입니다. Pinpoint agent 설정에서 applicationName에 지정한 값입니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "Inbound, Outbound",
+          "DESC": "핀포인트가 설치된 응용프로그램 목록입니다.",
+          "ITEMS": [
+            {
+              "NAME": "Inbound",
+              "DESC": "선택된 노드를 기준으로 들어오는 탐색 깊이"
+            },
+            {
+              "NAME": "Outbound",
+              "DESC": "선택된 노드를 기준으로 나가는 탐색 깊이"
+            }
+          ]
+        },
+        {
+          "TITLE": "조회 시간 설정",
+          "DESC": "데이터 조회 시간을 선택합니다.",
+          "ITEMS": [
+            {
+              "NAME": "<FaClock />",
+              "DESC": "현재 시간을 기준으로 선택한 시간 이전부터 현재시간 사이에 수집된 데이터를 조회합니다. 최근 5m, 10m, 3h 조회는 자동 새로고침 기능을 지원합니다."
+            },
+            {
+              "NAME": "<FaCalendarAlt />",
+              "DESC": "지정된 시간 사이에 수집된 데이터를 조회합니다. 조회 시간은 분단위로 최대 48시간을 지정할 수 있습니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "Bidirectional Search",
+          "DESC": "서버맵의 탐색 방법을 설정합니다.",
+          "ITEMS": [
+            {
+              "NAME": "Bidirectional",
+              "DESC": "모든 노드들에 대해 양방향 탐색을 하여 선택된 노드와 직접적인 연관이 없는 노드들도 탐색됩니다. 주의 : 이 옵션을 선택하시면 필요 이상으로 복잡한 서버맵이 조회될 수 있습니다."
+            }
+          ]
+        }
+      ]
+    },
+    "SERVER_MAP": {
+      "TITLE": "서버맵",
+      "DESC": "분산된 서버를 도식화 한 지도입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "노드",
+          "ITEMS": [
+            {
+              "DESC": "노드는 응용프로그램 그룹을 나타냅니다."
+            },
+            {
+              "DESC": "노드 안의 숫자는 응용프로그램 그룹에 속한 서버 인스턴스의 개수입니다.(한 개일 때에는 숫자를 보여주지 않습니다.)"
+            },
+            {
+              "DESC": "노드 안의 빨간 알람은 임계값을 초과한 모니터링 항목이 있을 때 나타납니다."
+            },
+            {
+              "DESC": "노드를 선택하면 어플리케이션으로 유입된 트랜잭션 정보를 화면 우측에 보여줍니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "화살표",
+          "ITEMS": [
+            {
+              "DESC": "화살표는 트랜잭션의 흐름을 나타냅니다."
+            },
+            {
+              "DESC": "화살표의 숫자는 호출 수 입니다. 임계치 이상의 에러를 포함하면 빨간색으로 보여집니다."
+            },
+            {
+              "DESC": "화살표를 선택하면 선택된 구간을 통과하는 트랜잭션의 정보를 화면 우측에 보여줍니다."
+            },
+            {
+              "DESC": "화살표에서 마우스 오른쪽 버튼을 클릭하면 Filtering을 위한 Context menu를 보여줍니다."
+            },
+            {
+              "DESC": "Context menu의 Filter는 선택된 구간을 통과하는 트랜잭션만 모아서 보여줍니다."
+            },
+            {
+              "DESC": "Filter wizard는 보다 상세한 필터 설정을 할 수 있습니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "서버맵 설정",
+          "ITEMS": [
+            {
+              "DESC": "노드나 화살표가 아닌 화면의 여백에서 마우스 오른쪽 버튼을 클릭하면 서버맵 설정을 위한 Context menu를 보여줍니다."
+            },
+            {
+              "DESC": "Merge: 병합조건을 만족하는 노드들을 병합해서 보여줍니다."
+            },
+            {
+              "DESC": "Reset: 서버맵의 뷰포트와 줌레벨을 초기화합니다."
+            }
+          ]
+        }
+      ]
+    },
+    "SERVICE_MAP": {
+      "TITLE": "서비스맵",
+      "DESC": "분산된 서비스를 도식화 한 지도입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "노드",
+          "ITEMS": [
+            {
+              "DESC": "노드는 어플리케이션 그룹을 나타냅니다."
+            },
+            {
+              "DESC": "노드 안의 숫자는 어플리케이션 그룹의 Apdex 점수입니다."
+            },
+            {
+              "DESC": "노드의 테두리는 시간 구간별 Apdex 등급을 색으로 나타냅니다. 12시 방향에서 시작하는 구간이 가장 최근이며 시계 방향으로 갈수록 오래된 구간이고, 등급이 낮을수록 붉은 색으로 보여집니다."
+            },
+            {
+              "DESC": "노드를 선택하면 어플리케이션으로 유입된 트랜잭션 정보를 화면 우측에 보여줍니다."
+            },
+            {
+              "DESC": "다른 서비스에 속한 어플리케이션들은 하나의 서비스 노드로 묶여서 보여지며, 서비스 노드 안의 숫자는 묶인 어플리케이션의 개수입니다."
+            },
+            {
+              "DESC": "서비스 노드 자체는 조회 대상이 아닙니다. 클릭하면 묶여 있는 어플리케이션 목록을 보여주고, 목록에서 하나를 선택하면 그 트랜잭션 정보를 화면 우측에 보여줍니다."
+            },
+            {
+              "DESC": "서비스 노드를 더블클릭하면 묶인 어플리케이션들이 펼쳐지고, 다시 더블클릭하면 접힙니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "화살표",
+          "ITEMS": [
+            {
+              "DESC": "화살표는 트랜잭션의 흐름을 나타냅니다."
+            },
+            {
+              "DESC": "화살표의 숫자는 호출 수 입니다. 임계치 이상의 에러를 포함하면 빨간색으로 보여집니다."
+            },
+            {
+              "DESC": "화살표를 선택하면 선택된 구간을 통과하는 트랜잭션의 정보를 화면 우측에 보여줍니다."
+            },
+            {
+              "DESC": "서비스 노드에 연결된 화살표를 클릭하면 묶여 있는 호출 목록을 보여주고, 목록에서 하나를 선택하면 그 구간의 트랜잭션 정보를 화면 우측에 보여줍니다."
+            },
+            {
+              "DESC": "화살표에서 마우스 오른쪽 버튼을 클릭하면 Filtering을 위한 Context menu를 보여줍니다.(서비스 노드에 연결된 화살표에서는 보여주지 않습니다.)"
+            },
+            {
+              "DESC": "Context menu의 Filter는 선택된 구간을 통과하는 트랜잭션만 모아서 보여줍니다."
+            },
+            {
+              "DESC": "Filter wizard는 보다 상세한 필터 설정을 할 수 있습니다."
+            }
+          ]
+        },
+        {
+          "TITLE": "서비스맵 설정",
+          "ITEMS": [
+            {
+              "DESC": "노드나 화살표가 아닌 화면의 여백에서 마우스 오른쪽 버튼을 클릭하면 서비스맵 설정을 위한 Context menu를 보여줍니다."
+            },
+            {
+              "DESC": "Merge: 병합조건을 만족하는 노드들을 병합해서 보여줍니다."
+            },
+            {
+              "DESC": "Reset: 서비스맵의 뷰포트와 줌레벨을 초기화합니다."
+            }
+          ]
+        }
+      ]
+    },
+    "SCATTER": {
+      "TITLE": "Response Time Scatter Chart",
+      "DESC": "수집된 트랜잭션의 응답시간 분포도입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "범례",
+          "ITEMS": [
+            {
+              "NAME": "<FaCircle color=\"#2EB089\" size=\"15\"/>",
+              "DESC": "성공한 트랜잭션"
+            },
+            {
+              "NAME": "<FaCircle color=\"#E64A4F\" size=\"15\"/>",
+              "DESC": "실패한 트랜잭션"
+            },
+            {
+              "NAME": "X축",
+              "DESC": "트랜잭션이 실행된 시간"
+            },
+            {
+              "NAME": "Y축",
+              "DESC": "트랜잭션의 응답 속도"
+            }
+          ]
+        },
+        {
+          "TITLE": "기능",
+          "ITEMS": [
+            {
+              "NAME": "<FaPlus/>",
+              "DESC": "마우스로 영역을 드래그하여 드래그 된 영역에 속한 트랜잭션의 상세정보를 조회할 수 있습니다."
+            },
+            {
+              "NAME": "<BsGearFill/>",
+              "DESC": "응답시간(Y축)의 최소 또는 최대값을 변경할 수 있습니다."
+            },
+            {
+              "NAME": "<FaDownload/>",
+              "DESC": "차트를 이미지 파일로 저장할 수 있습니다."
+            },
+            {
+              "NAME": "<FaExpandArrowsAlt/>",
+              "DESC": "차트를 새창으로 볼 수 있습니다."
+            }
+          ]
+        }
+      ]
+    },
+    "HEATMAP": {
+      "TITLE": "Response Time Heatmap Chart",
+      "DESC": "수집된 트랜잭션의 응답시간 분포도입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "범례",
+          "ITEMS": [
+            {
+              "NAME": "<FaCircle color=\"#2EB089\" size=\"15\"/>",
+              "DESC": "성공한 트랜잭션"
+            },
+            {
+              "NAME": "<FaCircle color=\"#E64A4F\" size=\"15\"/>",
+              "DESC": "실패한 트랜잭션"
+            },
+            {
+              "NAME": "X축",
+              "DESC": "트랜잭션이 실행된 시간"
+            },
+            {
+              "NAME": "Y축",
+              "DESC": "트랜잭션의 응답 속도"
+            }
+          ]
+        },
+        {
+          "TITLE": "기능",
+          "ITEMS": [
+            {
+              "NAME": "<FaRegHandPointer/>",
+              "DESC": "마우스로 영역을 드래그하여 드래그 된 영역에 속한 트랜잭션의 상세정보를 조회할 수 있습니다."
+            },
+            {
+              "NAME": "<BsGearFill/>",
+              "DESC": "응답시간(Y축)의 최소 또는 최대값을 변경할 수 있습니다."
+            },
+            {
+              "NAME": "<FaDownload/>",
+              "DESC": "차트를 이미지 파일로 저장할 수 있습니다."
+            },
+            {
+              "NAME": "<FaExpandArrowsAlt/>",
+              "DESC": "차트를 새창으로 볼 수 있습니다."
+            },
+            {
+              "NAME": "<HeatmapVisualMapIcon type=\"success\"/>",
+              "DESC": "heatmap의 모든 셀에서, success count값의 최대 최소값을 표현합니다.<br/>handleBar 위치를 조정하여 cell 표시 범위를 지정할 수 있습니다."
+            },
+            {
+              "NAME": "<HeatmapVisualMapIcon type=\"fail\"/>",
+              "DESC": "heatmap의 모든 셀에서, fail count값의 최대 최소값을 표현합니다.<br/>handleBar 위치를 조정하여 cell 표시 범위를 지정할 수 있습니다."
+            }
+          ]
+        }
+      ]
+    },
+    "RESPONSE_SUMMARY": {
+      "TITLE": "Response Summary Chart",
+      "DESC": "응답결과 요약입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "범례",
+          "ITEMS": [
+            {
+              "NAME": "<FaCircle size=\"11\"/> X축",
+              "DESC": "트랜잭션 응답시간 요약 단위"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\"/> Y축",
+              "DESC": "트랜잭션의 개수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#34b994\"/> 1s",
+              "DESC": "0초 <= 응답시간 < 1초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#51afdf\"/> 3s",
+              "DESC": "1초 <= 응답시간 < 3초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#ffba00\"/> 5s",
+              "DESC": "3초 <= 응답시간 < 5초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#e67f22\"/> Slow",
+              "DESC": "5초 <= 응답시간 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#e95459\"/> Error",
+              "DESC": "응답시간과 무관하게 실패한 트랜잭션의 수"
+            }
+          ]
+        }
+      ]
+    },
+    "LOAD": {
+      "TITLE": "Load Chart",
+      "DESC": "시간별 트랜잭션의 응답 결과입니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "범례",
+          "ITEMS": [
+            {
+              "NAME": "<FaCircle size=\"11\"/> X축",
+              "DESC": "트랜잭션 응답시간 요약 단위"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\"/> Y축",
+              "DESC": "트랜잭션의 개수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#34b994\"/> 1s",
+              "DESC": "0초 <= 응답시간 < 1초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#51afdf\"/> 3s",
+              "DESC": "1초 <= 응답시간 < 3초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#ffba00\"/> 5s",
+              "DESC": "3초 <= 응답시간 < 5초 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#e67f22\"/> Slow",
+              "DESC": "5초 <= 응답시간 에 해당하는 성공한 트랜잭션의 수"
+            },
+            {
+              "NAME": "<FaCircle size=\"11\" color=\"#e95459\"/> Error",
+              "DESC": "응답시간과 무관하게 실패한 트랜잭션의 수"
+            }
+          ]
+        },
+        {
+          "TITLE": "기능",
+          "ITEMS": [
+            {
+              "DESC": "범례를 클릭하여 해당 응답시간에 속한 트랜잭션을 차트에서 제외하거나 포함 할 수 있습니다."
+            },
+            {
+              "DESC": "마우스로 드래그하여 드래그 한 범위를 확대할 수 있습니다."
+            }
+          ]
+        }
+      ]
+    },
+    "INSPECTOR": {
+      "AGENT_LIST": {
+        "TITLE": "Agent 리스트",
+        "DESC": "현 Appliation Name에 등록된 Agent 리스트입니다.",
+        "CATEGORY": [
+          {
+            "TITLE": "범례",
+            "ITEMS": [
+              {
+                "NAME": "<BiSolidServer size=\"15\"/>",
+                "DESC": "Agent가 설치된 장비의 호스트 이름"
+              },
+              {
+                "NAME": "<PiHardDriveFill size=\"15\"/>",
+                "DESC": "정상적으로 실행중인 Agent"
+              },
+              {
+                "NAME": "<FaArrowAltCircleDown size=\"15\" color=\"#ef4444\"/>",
+                "DESC": "Shutdown된 상태의 Agent"
+              },
+              {
+                "NAME": "<FaTimesCircle size=\"15\" color=\"#ef4444\"/>",
+                "DESC": "연결이 끊긴 상태의 Agent"
+              },
+              {
+                "NAME": "<FaExclamationCircle size=\"15\" color=\"#ef4444\"/>",
+                "DESC": "알 수 없는 상태의 Agent"
+              }
+            ]
+          }
+        ]
+      },
+      "AGENT_CHART": {
+        "HEAP": {
+          "TITLE": "Heap",
+          "DESC": "JVM의 Heap 정보와 Major Garbage Collection 소요 시간",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Max",
+                  "DESC": "최대 Heap 사이즈"
+                },
+                {
+                  "NAME": "Used",
+                  "DESC": "현재 사용 중인 Heap 사이즈"
+                },
+                {
+                  "NAME": "Major GC",
+                  "DESC": "Major Garbage Collection의 총 소요 시간(2번 이상 발생 시, 괄호 안에 발생 횟수 표시)"
+                }
+              ]
+            }
+          ]
+        },
+        "NON_HEAP": {
+          "TITLE": "Non-Heap",
+          "DESC": "JVM의 Non-Heap 정보와 Major Garbage Collection 소요 시간",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Max",
+                  "DESC": "최대 Non-Heap 사이즈"
+                },
+                {
+                  "NAME": "Used",
+                  "DESC": "현재 사용 중인 Non-Heap 사이즈"
+                },
+                {
+                  "NAME": "Major GC",
+                  "DESC": "Major Garbage Collection의 총 소요 시간(2번 이상 발생 시, 괄호 안에 발생 횟수 표시)"
+                }
+              ]
+            }
+          ]
+        },
+        "CPU_USAGE": {
+          "TITLE": "CPU Usage",
+          "DESC": "JVM과 시스템의 CPU 사용량 - 멀티코어 CPU의 경우, 전체 코어 사용량의 평균입니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Java 1.6",
+                  "DESC": "JVM의 CPU 사용량만 수집됩니다."
+                },
+                {
+                  "NAME": "Java 1.7+",
+                  "DESC": "JVM과 전체 시스템의 CPU 사용량 모두 수집됩니다."
+                }
+              ]
+            }
+          ]
+        },
+        "APDEX_SCORE": {
+          "TITLE": "Apdex Score",
+          "DESC": "Agent의 Apdex Score 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Apdex Score",
+                  "DESC": "현재 Agent의 Apdex Score"
+                }
+              ]
+            }
+          ]
+        },
+        "TPS": {
+          "TITLE": "Transactions Per Second",
+          "DESC": "서버로 인입된 초당 트랜잭션 수",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Sampled Continuation (S.C)",
+                  "DESC": "다른 Agent에서 시작한 샘플링된 트랜잭션"
+                },
+                {
+                  "NAME": "Sampled New (S.N)",
+                  "DESC": "선택된 Agent에서 시작한 샘플링된 트랜잭션"
+                },
+                {
+                  "NAME": "Unsampled Continuation (U.C)",
+                  "DESC": "다른 Agent에서 시작한 샘플링되지 않은 트랜잭션"
+                },
+                {
+                  "NAME": "Unsampled New (U.N)",
+                  "DESC": "선택된 Agent에서 시작한 샘플링되지 않은 트랜잭션"
+                },
+                {
+                  "NAME": "Skipped New (S.S.N)",
+                  "DESC": "선택된 Agent에서 시작한 처리량 제한으로 샘플링되지 않은 트랜잭션"
+                },
+                {
+                  "NAME": "Skipped Continuation (S.S.C)",
+                  "DESC": "다른 Agent에서 시작한 처리량 제한으로 샘플링되지 않은 트랜잭션"
+                },
+                {
+                  "NAME": "Total",
+                  "DESC": "모든 트랜잭션"
+                }
+              ]
+            }
+          ]
+        },
+        "ACTIVE_REQUEST": {
+          "TITLE": "Active Request",
+          "DESC": "사용자 Request를 처리하는 Agent의 Active Request 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Fast (1s)",
+                  "DESC": "현재 소요시간이 1초 이하인 Request 개수"
+                },
+                {
+                  "NAME": "Normal (3s)",
+                  "DESC": "현재 소요시간이 1초 초과, 3초 이하인 Request 개수"
+                },
+                {
+                  "NAME": "Slow (5s)",
+                  "DESC": "현재 소요시간이 3초 초과, 5초 이하인 Request 개수"
+                },
+                {
+                  "NAME": "Very Slow (slow)",
+                  "DESC": "현재 소요시간이 5초를 넘고 있는 Request 개수"
+                }
+              ]
+            }
+          ]
+        },
+        "RESPONSE_TIME": {
+          "TITLE": "Response Time",
+          "DESC": "Agent의 Response Time의 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Avg",
+                  "DESC": "평균 Response Time (단위 millisecond)"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "최대 Response Time (단위 millisecond)"
+                }
+              ]
+            }
+          ]
+        },
+        "DATA_SOURCE": {
+          "TITLE": "Data Source",
+          "DESC": "Agent의 DataSource 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Active Avg",
+                  "DESC": "사용한 Connection의 평균 개수"
+                },
+                {
+                  "NAME": "Active Max",
+                  "DESC": "사용한 Connection의 최대 개수"
+                },
+                {
+                  "NAME": "Total Max",
+                  "DESC": "사용이 가능한 Connection의 최대 개수"
+                },
+                {
+                  "NAME": "Type",
+                  "DESC": "DB Connection Pool 종류"
+                }
+              ]
+            }
+          ]
+        },
+        "OPEN_FILE_DESCRIPTOR": {
+          "TITLE": "File Descriptor",
+          "DESC": "Agent의 File Descriptor 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Open File Descriptor",
+                  "DESC": "현재 열려있는 File Descriptor 개수"
+                }
+              ]
+            }
+          ]
+        },
+        "DIRECT_BUFFER_COUNT": {
+          "TITLE": "Direct Buffer",
+          "DESC": "Agent의 Direct Buffer 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Direct Buffer Count",
+                  "DESC": "현재 Direct Buffer 의 개수"
+                }
+              ]
+            }
+          ]
+        },
+        "DIRECT_BUFFER_MEMORY": {
+          "TITLE": "Direct Buffer Memory",
+          "DESC": "Agent의 Direct Buffer Memory 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Direct Buffer Memory Used",
+                  "DESC": "현재 Direct Buffer 가 사용중인 메모리"
+                }
+              ]
+            }
+          ]
+        },
+        "MAPPED_BUFFER_COUNT": {
+          "TITLE": "Mapped Buffer",
+          "DESC": "Agent의 Mapped Buffer 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Mapped Buffer Count",
+                  "DESC": "현재 Mapped Buffer 의 개수"
+                }
+              ]
+            }
+          ]
+        },
+        "MAPPED_BUFFER_MEMORY": {
+          "TITLE": "Mapped Buffer Memory",
+          "DESC": "Agent의 Mapped Buffer Memory 현황을 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Mapped Buffer Memory Used",
+                  "DESC": "현재 Mapped Buffer 가 사용중인 메모리"
+                }
+              ]
+            }
+          ]
+        },
+        "TOTAL_THREAD": {
+          "TITLE": "Total Thread",
+          "DESC": "Agent의 전체 thread 수를 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Total Thread Count",
+                  "DESC": "현재 총 thread의 수"
+                }
+              ]
+            }
+          ]
+        },
+        "LOADED_CLASS_COUNT": {
+          "TITLE": "Loaded Class Count",
+          "DESC": "Agent에 loading 된 class의 수를 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Loaded Class Count",
+                  "DESC": "현재 loading된 class의 수"
+                }
+              ]
+            }
+          ]
+        },
+        "UNLOADED_CLASS_COUNT": {
+          "TITLE": "Unloaded Class Count",
+          "DESC": "Agent에 unloading 된 class의 수를 보여줍니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Unloaded Class Count",
+                  "DESC": "현재 unloading된 class의 수"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "APPLICATION_CHART": {
+        "HEAP": {
+          "TITLE": "Heap",
+          "DESC": "Agent들이 사용하는 JVM Heap 사이즈 정보",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들이 사용하는 Heap 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들이 사용하는 Heap 의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들이 사용하는 Heap 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "NON_HEAP": {
+          "TITLE": "Non-Heap",
+          "DESC": "Agent들이 사용하는 JVM Non-Heap 사이즈 정보",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들이 사용하는 Non-Heap 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들이 사용하는 Non-Heap 의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들이 사용하는 Non-Heap 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "JVM_CPU_USAGE": {
+          "TITLE": "JVM CPU Usage",
+          "DESC": "Agent들이 사용하는 JVM CPU 사용량 - 멀티코어 CPU의 경우, 전체 코어 사용량의 평균입니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들이 사용하는 JVM CPU 사용량 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들이 사용하는 JVM CPU 사용량의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들이 사용하는 JVM CPU 사용량 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "SYSTEM_CPU_USAGE": {
+          "TITLE": "System CPU Usage",
+          "DESC": "Agent 서버들의 시스템 CPU 사용량 - 멀티코어 CPU의 경우, 전체 코어 사용량의 평균입니다.",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent 서버들의 시스템 CPU 사용량 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent 서버들의 시스템 CPU 사용량 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent 서버들의 시스템 CPU 사용량 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "APDEX_SCORE": {
+          "TITLE": "Apdex Score",
+          "DESC": "Agent, Application의 Apdex Score 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "각 Agent의 Apdex Score 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "현재 Application의 Apdex Score"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "각 Agent의 Apdex Score 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "TPS": {
+          "TITLE": "Transactions Per Second",
+          "DESC": "Agent들에 인입된 초당 트랜잭션 수",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들의 트랜잭션 수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들의 트랙잭션 수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들의 트랜잭션 수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "ACTIVE_REQUEST": {
+          "TITLE": "Active Request",
+          "DESC": "사용자 Request를 처리하는 Active Request 수",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들의 Active Request 수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들의 Active Request 수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들의 Active Request 수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "RESPONSE_TIME": {
+          "TITLE": "Response Time",
+          "DESC": "Agent들의 평균 Response Time(단위: millisecond)",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들의 평균 Response Time 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들의 평균 Response Time의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들의 평균 Response Time 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "DATA_SOURCE": {
+          "TITLE": "Data Source",
+          "DESC": "Agent들의 DataSource 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent들의 평균 DataSource Connection 개수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent들의 평균 DataSource Connection 개수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent들의 평균 DataSource Connection 개수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "OPEN_FILE_DESCRIPTOR": {
+          "TITLE": "File Descriptor",
+          "DESC": "Agent들의 File Descriptor 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent가 열고 있는 File Descriptor 개수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent가 열고 있는 File Descriptor 개수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent가 열고 있는 File Descriptor 개수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "DIRECT_BUFFER_COUNT": {
+          "TITLE": "Direct Buffer",
+          "DESC": "Agent들의 Direct Buffer 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent가 사용 중인 Direct Buffer 개수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent가 사용 중인 Direct Buffer 개수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent가 사용 중인 Direct Buffer 개수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "DIRECT_BUFFER_MEMORY": {
+          "TITLE": "Direct Buffer Memory",
+          "DESC": "Agent들의 Direct Buffer Memory 사용 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent가 사용 중인 Direct Buffer Memory 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent가 사용 중인 Direct Buffer Memory의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent가 사용 중인 Direct Buffer Memory 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "MAPPED_BUFFER_COUNT": {
+          "TITLE": "Mapped Buffer",
+          "DESC": "Agent들의 Mapped Buffer 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer 개수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer 개수의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer 개수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "MAPPED_BUFFER_MEMORY": {
+          "TITLE": "Mapped Buffer Memory",
+          "DESC": "Agent들의 Mapped Buffer Memory 사용 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer Memory 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer Memory의 평균값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "Agent가 사용 중인 Mapped Buffer Memory 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "TOTAL_THREAD": {
+          "TITLE": "Total Thread",
+          "DESC": "Agent들의 total thread 수 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "각 Agent의 total thread 수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "각 Agent의 total thread 수의 평균 값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "각 Agent의 total thread 수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "LOADED_CLASS_COUNT": {
+          "TITLE": "Loaded Class Count",
+          "DESC": "Agent들이 loading한 class의 수 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "각 Agent가 loading한 class 수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "각 Agent의 loading class한 수의 평균 값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "각 Agent의 loading class한 수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        },
+        "UNLOADED_CLASS_COUNT": {
+          "TITLE": "Unloaded Class Count",
+          "DESC": "Agent들이 unloading한 class의 수 현황",
+          "CATEGORY": [
+            {
+              "TITLE": "범례",
+              "ITEMS": [
+                {
+                  "NAME": "Min",
+                  "DESC": "각 Agent가 unloading한 class 수 중 가장 작은 값"
+                },
+                {
+                  "NAME": "Avg",
+                  "DESC": "각 Agent의 unloading class한 수의 평균 값"
+                },
+                {
+                  "NAME": "Max",
+                  "DESC": "각 Agent의 unloading class한 수 중 가장 큰 값"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ALARM": {
+      "TITLE": "알람 룰의 종류",
+      "DESC": "Pinpoint에서 지원하는 Alarm rule의 종류는 아래와 같습니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "항목",
+          "ITEMS": [
+            {
+              "NAME": "SLOW COUNT",
+              "DESC": "외부에서 application을 호출한 요청 중에 외부서버로 응답을 늦게 준 요청의 개수가 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "SLOW RATE",
+              "DESC": "외부에서 application을 호출한 요청 중에 외부서버로 응답을 늦게 준 요청의 비율(%)이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "ERROR COUNT",
+              "DESC": "외부에서 application을 호출한 요청 중에 에러가 발생한 요청의 개수가 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "ERROR RATE",
+              "DESC": "외부에서 application을 호출한 요청 중에 에러가 발생한 요청의 비율(%)이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "TOTAL COUNT",
+              "DESC": "외부에서 application을 호출한 요청 개수가 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "SLOW COUNT TO CALLEE",
+              "DESC": "application 내에서 외부서버를 호출한 요청 중 slow 호출의 개수가 임계치를 초과한 경우 알람이 전송된다. 메모 항목에 외부서버의 도메인 이나 주소(ip, port)를 입력해야 합니다. ex) naver.com, 127.0.0.1:8080"
+            },
+            {
+              "NAME": "SLOW RATE TO CALLEE",
+              "DESC": "application 내에서 외부서버를 호출한 요청 중 slow 호출의 비율(%)이 임계치를 초과한 경우 알람이 전송된다. 메모 항목에 외부서버의 도메인 이나 주소(ip, port)를 입력해야 합니다. ex) naver.com, 127.0.0.1:8080"
+            },
+            {
+              "NAME": "ERROR COUNT TO CALLEE",
+              "DESC": "application 내에서 외부서버를 호출한 요청 중 error 가 발생한 호출의 개수가 임계치를 초과한 경우 알람이 전송된다. 메모 항목에 외부서버의 도메인 이나 주소(ip, port)를 입력해야 합니다. ex) naver.com, 127.0.0.1:8080"
+            },
+            {
+              "NAME": "ERROR RATE TO CALLEE",
+              "DESC": "application 내에서 외부서버를 호출한 요청 중 error 가 발생한 호출의 비율이 임계치를 초과한 경우 알람이 전송된다. 메모 항목에 외부서버의 도메인 이나 주소(ip, port)를 입력해야 합니다. ex) naver.com, 127.0.0.1:8080"
+            },
+            {
+              "NAME": "TOTAL COUNT TO CALLEE",
+              "DESC": "application 내에서 외부서버를 호출한 요청의 개수가 임계치를 초과한 경우 알람이 전송된다. 메모 항목에 외부서버의 도메인 이나 주소(ip, port)를 입력해야 합니다. ex) naver.com, 127.0.0.1:8080"
+            },
+            {
+              "NAME": "HEAP USAGE RATE",
+              "DESC": "heap의 사용률이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "JVM CPU USAGE RATE",
+              "DESC": "application의 CPU 사용률이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "SYSTEM CPU USAGE RATE",
+              "DESC": "서버의 CPU 사용률이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "DATASOURCE CONNECTION USAGE RATE",
+              "DESC": "application의 DataSource내의 Connection 사용률이 임계치를 초과한 경우 알람이 전송된다."
+            },
+            {
+              "NAME": "DEADLOCK OCCURRENCE",
+              "DESC": "application에서 데드락 상태가 탐지되면 알람이 전송된다."
+            },
+            {
+              "NAME": "FILE DESCRIPTOR COUNT",
+              "DESC": "열려있는 File Descriptor 개수가 임계치를 초가한 경우 알람이 전송된다."
+            }
+          ]
+        }
+      ]
+    },
+    "APDEX_SCORE": {
+      "TITLE": "Apdex Score",
+      "CATEGORY": [
+        {
+          "TITLE": "Score",
+          "ITEMS": [
+            {
+              "NAME": "0.94 ~ 1.00",
+              "DESC": "<FaSmileBeam size=\"15\" color=\"#41c464\"/> Execellent"
+            },
+            {
+              "NAME": "0.85 ~ 0.94",
+              "DESC": "<FaSmile size=\"15\" color=\"#469ae4\"/> Good"
+            },
+            {
+              "NAME": "0.7 ~ 0.85",
+              "DESC": "<FaMeh size=\"15\" color=\"#f7d84a\"/>  Fair"
+            },
+            {
+              "NAME": "0.5 ~ 0.7",
+              "DESC": "<FaFrown size=\"15\" color=\"#ff8c00\"/> Poor"
+            },
+            {
+              "NAME": "<Lt/> 0.5",
+              "DESC": "<FaAngry size=\"15\" color=\"#eb4747\"/> Unacceptable"
+            }
+          ]
+        }
+      ]
+    },
+    "REAL_TIME": {
+      "TITLE": "Active Request",
+      "DESC": "각 Agent의 Active Request 개수를 실시간으로 보여줍니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "에러 메시지 설명",
+          "ITEMS": [
+            {
+              "NAME": "UNSUPPORTED VERSION",
+              "DESC": "해당 에이전트의 버전에서는 지원하지 않는 기능입니다. (1.5.0 이상 버전으로 업그레이드하세요.)"
+            },
+            {
+              "NAME": "CLUSTER OPTION NOTSET",
+              "DESC": "해당 에이전트의 설정에서 기능이 비활성화되어 있습니다. (pinpoint 설정 파일에서 profiler.pinpoint.activethread 항목을 true로 변경하세요.)"
+            },
+            {
+              "NAME": "TIMEOUT",
+              "DESC": "해당 에이전트에서 일시적으로 활성화 된 리퀘스트 개수를 받지 못하였습니다.(오래 지속될 경우 담당자에게 문의하세요.)"
+            },
+            {
+              "NAME": "NOT FOUND",
+              "DESC": "해당 에이전트를 찾을 수 없습니다.(에이전트가 활성화 되어 있는 경우에 해당 메시지가 발생한다면 pinpoint 설정 파일에서 profiler.tcpdatasender.command.accept.enable 항목을 true로 변경하세요.)"
+            },
+            {
+              "NAME": "CLUSTER CHANNEL CLOSED",
+              "DESC": "해당 에이전트와의 세션이 종료되었습니다."
+            },
+            {
+              "NAME": "PINPOINT INTERNAL ERROR",
+              "DESC": "핀포인트 내부 에러가 발생하였습니다.(담당자에게 문의하세요.)"
+            },
+            {
+              "NAME": "No Active Thread",
+              "DESC": "현재 해당 에이전트는 활성화된 리퀘스트가 존재하지 않습니다."
+            },
+            {
+              "NAME": "No Response",
+              "DESC": "핀포인트 웹 서버로부터의 응답을 받지 못하였습니다.(담당자에게 문의하세요.)"
+            }
+          ]
+        }
+      ]
+    },
+    "CALL_TREE": {
+      "TITLE": "Call Tree",
+      "DESC": "Call Tree의 컬럼명을 설명합니다.",
+      "CATEGORY": [
+        {
+          "TITLE": "컬럼",
+          "ITEMS": [
+            {
+              "NAME": "Gap",
+              "DESC": "이전 메소드가 시작된 후 현재 메소드를 실행하기 까지의 지연 시간"
+            },
+            {
+              "NAME": "Exec",
+              "DESC": "메소드 시작부터 종료까지의 시간"
+            },
+            {
+              "NAME": "Exec(%)",
+              "DESC": "<FaCircle color=\"#5bc0de\"/> 연한 막대: 전체 요청 중 이 메소드가 언제 시작했고 얼마나 오래 걸렸는지 보여줍니다.<br/><FaCircle color=\"#4343C8\"/> 진한 막대: 이 메소드 안에서 다시 호출한 작업 시간을 빼고, 이 메소드 자체에 걸린 시간을 보여줍니다. 진한 막대는 항상 연한 막대의 왼쪽에서 시작하므로, 실제 자체 작업이 시작된 시간을 뜻하지는 않습니다."
+            },
+            {
+              "NAME": "Self",
+              "DESC": "메소드 자체의 시작부터 종료까지의 시간으로 하위의 메소드가 실행된 시간을 제외한 값"
+            }
+          ]
+        }
+      ]
+    },
+    "OPEN_TELEMETRY_TAG_FIELD": {
+      "TITLE": "Tag/Field",
+      "DESC": "",
+      "CATEGORY": [
+        {
+          "TITLE": "",
+          "ITEMS": [
+            {
+              "DESC": "Field, tag는 1(field):N(tag), 1(tag):N(field) 관계를 갖습니다."
+            },
+            {
+              "DESC": "1:N 에서 '1'이 되는 속성을 먼저 선택하시면 'N' 속성은 자동으로 결정됩니다."
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

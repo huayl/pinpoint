@@ -1,0 +1,105 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+package com.navercorp.pinpoint.batch;
+
+import com.navercorp.pinpoint.batch.alarm.AlarmSenderConfiguration;
+import com.navercorp.pinpoint.batch.common.BatchJobLauncher;
+import com.navercorp.pinpoint.batch.common.StartupJobLauncher;
+import com.navercorp.pinpoint.batch.config.AgentCountJobConfig;
+import com.navercorp.pinpoint.batch.config.AlarmHistoryCleanupJobConfig;
+import com.navercorp.pinpoint.batch.config.BatchAlarmDaoConfiguration;
+import com.navercorp.pinpoint.batch.config.BatchJavaConfigModule;
+import com.navercorp.pinpoint.batch.config.BatchMetaCleanupJobConfig;
+import com.navercorp.pinpoint.batch.config.CleanupAgentAndApplicationJobConfig;
+import com.navercorp.pinpoint.batch.service.BatchApplicationIndexServiceConfig;
+import com.navercorp.pinpoint.batch.otlp.OtlpLinkJoinJobConfig;
+import com.navercorp.pinpoint.common.server.CommonsServerConfiguration;
+import com.navercorp.pinpoint.common.server.config.AgentProperties;
+import com.navercorp.pinpoint.common.server.config.CommonCacheManagerConfiguration;
+import com.navercorp.pinpoint.common.server.config.RestTemplateConfiguration;
+import com.navercorp.pinpoint.datasource.MainDataSourceConfiguration;
+import com.navercorp.pinpoint.datasource.MetaDataSourceConfiguration;
+import com.navercorp.pinpoint.mybatis.MyBatisConfiguration;
+import com.navercorp.pinpoint.user.UserModule;
+import com.navercorp.pinpoint.web.WebHbaseModule;
+import com.navercorp.pinpoint.web.WebServiceConfig;
+import com.navercorp.pinpoint.web.component.config.ComponentConfiguration;
+import com.navercorp.pinpoint.web.hyperlink.HyperLinkConfiguration;
+import com.navercorp.pinpoint.web.scatter.config.ScatterWebConfiguration;
+import com.navercorp.pinpoint.web.trace.TraceConfiguration;
+import com.navercorp.pinpoint.web.uid.WebUidConfiguration;
+import com.navercorp.pinpoint.web.webhook.WebhookModule;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+
+import java.util.List;
+
+@Import({
+        TransactionAutoConfiguration.class,
+        BatchAppPropertySources.class,
+
+        BatchServiceModule.class,
+        BatchApplicationIndexServiceConfig.class,
+        ComponentConfiguration.class,
+        HyperLinkConfiguration.class,
+        CommonsServerConfiguration.class,
+
+        MainDataSourceConfiguration.class,
+        MetaDataSourceConfiguration.class,
+        MyBatisConfiguration.class,
+
+        BatchJavaConfigModule.class,
+
+        AgentCountJobConfig.class,
+        CleanupAgentAndApplicationJobConfig.class,
+        OtlpLinkJoinJobConfig.class,
+        BatchMetaCleanupJobConfig.class,
+        AlarmHistoryCleanupJobConfig.class,
+        BatchAlarmDaoConfiguration.class,
+
+        WebServiceConfig.CommonConfig.class,
+        TraceConfiguration.TraceServiceConfiguration.class,
+        WebUidConfiguration.class,
+        ScatterWebConfiguration.class,
+
+        WebhookModule.class,
+        WebHbaseModule.class,
+        RestTemplateConfiguration.class,
+        UserModule.class,
+        UriStatAlarmConfiguration.class,
+        AlarmSenderConfiguration.class,
+        CommonCacheManagerConfiguration.class
+})
+public class BatchModule {
+
+    @Bean
+    public AgentProperties agentProperties() {
+        return new AgentProperties();
+    }
+
+
+    @Bean
+    StartupJobLauncher startupJobLauncher(
+            BatchJobLauncher launcher,
+            @Value("${batch.startup.jobs:#{''}}") List<String> jobs
+    ) {
+        return new StartupJobLauncher(launcher, jobs);
+    }
+}

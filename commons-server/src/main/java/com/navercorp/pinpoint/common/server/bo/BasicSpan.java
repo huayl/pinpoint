@@ -16,7 +16,9 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import org.jspecify.annotations.NonNull;
 
 /**
  * @author Woonduk Kang(emeroad)
@@ -25,24 +27,35 @@ public interface BasicSpan {
 
     int getVersion();
 
+    @NonNull
+    TraceSourceType getTraceSourceType();
+
+    SpanOwner getSpanOwner();
+
     String getAgentId();
-    void setAgentId(String agentId);
 
     String getAgentName();
-    void setAgentName(String agentName);
 
-    String getApplicationId();
-    void  setApplicationId(String applicationId);
+    String getApplicationName();
+
+    String getServiceName();
+
+    ServiceUid getServiceUid();
 
     long getAgentStartTime();
-    void setAgentStartTime(long agentStartTime);
 
     long getSpanId();
     void setSpanId(long spanId);
 
-    TransactionId getTransactionId();
+    ServerTraceId getTransactionId();
 //    void setTransactionId(TransactionId transactionId);
 
+    int getApplicationServiceType();
+    void setApplicationServiceType(int applicationServiceType);
+    boolean hasApplicationServiceType();
+
+    long getCollectorAcceptTime();
+    void setCollectorAcceptTime(long collectorAcceptTime);
 
 //    List<SpanEventBo> getSpanEventBoList();
 }

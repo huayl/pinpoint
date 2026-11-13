@@ -1,0 +1,333 @@
+import React from 'react';
+import { ChartsBoard, ChartsBoardProps } from '../ChartsBoard';
+import {
+  BASE_PATH,
+  FilteredMapType as FilteredMap,
+  GetHistogramStatistics,
+  GetServerMap,
+  SCATTER_DATA_TOTAL_KEY,
+} from '@pinpoint-fe/ui/src/constants';
+import {
+  ApdexScore,
+  ScatterChartStatic,
+  Separator,
+  ChartsBoardHeader,
+  Button,
+  Drawer,
+  InstanceCount,
+  MergedServerSearchList,
+  MergedServerSearchListProps,
+} from '..';
+import {
+  serverMapDataAtom,
+  serverMapCurrentTargetAtom,
+  currentServerAtom,
+  scatterDataByApplicationKeyAtom,
+  CurrentTarget,
+} from '@pinpoint-fe/ui/src/atoms';
+import { useTranslation } from 'react-i18next';
+import { useAtomValue, useSetAtom } from 'jotai';
+import {
+  getApplicationKey,
+  getServerImagePath,
+  getTransactionListPath,
+  getTransactionListQueryString,
+} from '@pinpoint-fe/ui/src/utils';
+import { useFilteredMapParameters, useRequestService } from '@pinpoint-fe/ui/src/hooks';
+import { ServerListForCommon } from '@pinpoint-fe/ui/src/components/ServerList/ServerListForCommon';
+import {
+  useServerMapCurrentTarget,
+  useServerMapCurrentTargetData,
+} from '@pinpoint-fe/ui/src/hooks/serverMap/useServerMapCurrentTarget';
+import { MdArrowForwardIos, MdArrowBackIosNew } from 'react-icons/md';
+import { PiArrowSquareOut } from 'react-icons/pi';
+
+export interface FilteredMapChartsBoardProps extends Omit<
+  ChartsBoardProps,
+  'timestamp' | 'nodeData' | 'header'
+> {
+  authorizationGuideUrl?: string;
+  currentPanelWidth: number;
+  SERVER_LIST_WIDTH: number;
+  resizeHandleWidth: number;
+  FILTERED_MAP_CONTAINER_ID: string;
+}
+
+export const FilteredMapChartsBoard = ({
+  authorizationGuideUrl,
+  currentPanelWidth,
+  SERVER_LIST_WIDTH,
+  resizeHandleWidth,
+  FILTERED_MAP_CONTAINER_ID,
+  children,
+  ...props
+}: FilteredMapChartsBoardProps) => {
+  const { t } = useTranslation();
+  const { dateRange, application, searchParameters } = useFilteredMapParameters();
+  const serviceNameForLink = useRequestService();
+
+  const [openServerView, setOpenServerView] = React.useState(false);
+
+  // /api/servermap/filterServerMap 로 가져온 data
+  const serverMapData = useAtomValue(serverMapDataAtom);
+  // serverMap에서 클릭 된 target (node 또는 link)
+  // 이전 경로에서 고른 것은 읽지 않는다(→ `useServerMapCurrentTarget`). target과 data는 같은 규칙으로
+  // 읽어야 한다 — 한쪽만 아톰을 그대로 읽으면 경로가 바뀐 직후 한 렌더 동안 둘이 어긋난다.
+  const setServerMapCurrentTarget = useSetAtom(serverMapCurrentTargetAtom);
+  const serverMapCurrentTarget = useServerMapCurrentTarget();
+  // 클릭 된 serverMap target의 data (serverMapCurrentTarget, serverMapData를 이용해 나온 값) serverMap이 클릭되었을 때 주는 node/link의 데이터가 충분치 않아서 사용하는 값
+  const currentTargetData = useServerMapCurrentTargetData();
+  // VIEW SERVERS로 열었을 때 왼쪽에 클릭된 서버
+  const currentServer = useAtomValue(currentServerAtom);
+
+  const scatterDataByApplicationKey = useAtomValue(scatterDataByApplicationKeyAtom);
+
+  const shouldHideScatter = () => {
+    if (!currentTargetData) {
+      return true;
+    }
+    return !(
+      currentTargetData &&
+      (currentTargetData as FilteredMap.NodeData)?.nodeCategory === GetServerMap.NodeCategory.SERVER
+      // && !currentTargetData?.isMerged
+    );
+  };
+
+  const getClickedMergedNodeList = ({ nodes, edges }: CurrentTarget) => {
+    if (!serverMapData) {
+      return [];
+    }
+
+    const nodeIds = nodes
+      ? nodes.map((node) => node.id)
+      : edges
+        ? edges.map((edge) => edge.target)
+        : [];
+
+    return (serverMapData.applicationMapData.nodeDataArray as FilteredMap.NodeData[])
+      .filter(({ key }: FilteredMap.NodeData) => nodeIds.includes(key))
+      .sort((node1, node2) => node2.totalCount - node1.totalCount);
+  };
+
+  const handleClickMergedItem: MergedServerSearchListProps['onClickItem'] = (nodeData) => {
+    const { key, applicationName, serviceType } = nodeData;
+    setServerMapCurrentTarget({
+      id: key,
+      applicationName,
+      serviceType,
+      imgPath: getServerImagePath(nodeData),
+      type: 'node',
+      nodes: serverMapCurrentTarget?.nodes,
+      edges: serverMapCurrentTarget?.edges,
+    });
+  };
+
+  const agentHistogramStatisticsData = React.useMemo(() => {
+    if (currentServer?.agentId) {
+      return {
+        histogram: (currentTargetData as FilteredMap.NodeData)?.agentHistogram?.[
+          currentServer?.agentId || ''
+        ],
+        responseStatistics: (currentTargetData as FilteredMap.NodeData)?.agentResponseStatistics?.[
+          currentServer?.agentId || ''
+        ],
+        timeSeriesHistogram:
+          (currentTargetData as FilteredMap.NodeData)?.agentTimeSeriesHistogram?.[
+            currentServer?.agentId || ''
+          ] || [],
+      };
+    }
+
+    return;
+  }, [currentServer?.agentId, currentTargetData]);
+
+  return (
+    <>
+      <ChartsBoard
+        {...props}
+        timestamp={serverMapData?.applicationMapData?.timestamp}
+        nodeData={
+          (currentTargetData as FilteredMap.NodeData)?.isAuthorized === false
+            ? undefined
+            : (currentTargetData as FilteredMap.NodeData)
+        }
+        header={
+          <ChartsBoardHeader
+            currentTarget={
+              openServerView
+                ? null
+                : serverMapCurrentTarget || {
+                    ...application,
+                    type: 'node',
+                  }
+            }
+          />
+        }
+        emptyMessage={t('COMMON.NO_DATA')}
+      >
+        {serverMapCurrentTarget?.nodes ||
+        serverMapCurrentTarget?.edges ||
+        currentTargetData === undefined ||
+        serverMapCurrentTarget?.type === 'edge' ||
+        (currentTargetData as FilteredMap.NodeData)?.isAuthorized ? (
+          <>
+            {serverMapCurrentTarget?.nodes || serverMapCurrentTarget?.edges ? (
+              <MergedServerSearchList
+                list={getClickedMergedNodeList(serverMapCurrentTarget)}
+                onClickItem={handleClickMergedItem}
+              />
+            ) : (
+              <>
+                {serverMapCurrentTarget?.type === 'node' &&
+                (currentTargetData as FilteredMap.NodeData)?.instanceCount ? (
+                  <div className="flex items-center h-12 py-2.5 px-4">
+                    <Button
+                      className="px-2 py-1 text-xs"
+                      variant="outline"
+                      onClick={() => setOpenServerView(!openServerView)}
+                    >
+                      {openServerView ? <MdArrowForwardIos /> : <MdArrowBackIosNew />}
+                      <span className="ml-2">VIEW SERVERS</span>
+                    </Button>
+                    <InstanceCount nodeData={currentTargetData as FilteredMap.NodeData} />
+                  </div>
+                ) : null}
+                {!shouldHideScatter() && application && (
+                  <>
+                    <div className="w-full p-5 mb-12 aspect-[1.618]">
+                      <div className="h-7">
+                        <ApdexScore nodeData={currentTargetData as FilteredMap.NodeData} />
+                      </div>
+                      <ScatterChartStatic
+                        application={serverMapCurrentTarget!}
+                        data={
+                          scatterDataByApplicationKey?.[getApplicationKey(serverMapCurrentTarget)]
+                            ?.acc[SCATTER_DATA_TOTAL_KEY]
+                        }
+                        range={[dateRange.from.getTime(), dateRange.to.getTime()]}
+                        selectedAgentId={SCATTER_DATA_TOTAL_KEY}
+                        onDragEnd={(data, checkedLables) => {
+                          if (checkedLables.length) {
+                            window.__pp_scatter_data__ =
+                              scatterDataByApplicationKey?.[
+                                getApplicationKey(serverMapCurrentTarget)
+                              ]?.acc;
+                            window.open(
+                              `${BASE_PATH}${getTransactionListPath(
+                                serverMapCurrentTarget,
+                                searchParameters,
+                                serviceNameForLink,
+                              )}&${getTransactionListQueryString({
+                                ...data,
+                                checkedLegends: checkedLables,
+                                agentId: '',
+                              })}&withFilter=true`,
+                            );
+                          }
+                        }}
+                      />
+                    </div>
+                    <Separator />
+                  </>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <div className="flex justify-center font-semibold text-status-fail">
+            <a href={authorizationGuideUrl} target="_blank">
+              You don't have authorization.
+              {authorizationGuideUrl && <PiArrowSquareOut />}
+            </a>
+          </div>
+        )}
+      </ChartsBoard>
+      <Drawer
+        destroyOnClose
+        open={openServerView}
+        getContainer={`#${FILTERED_MAP_CONTAINER_ID}`}
+        styles={{
+          wrapper: {
+            width: currentPanelWidth + SERVER_LIST_WIDTH,
+            right: currentPanelWidth + resizeHandleWidth,
+          },
+        }}
+        // afterOpenChange={(openChange) => setServerViewTransitionEnd(openChange)}
+        onClose={() => setOpenServerView(false)}
+      >
+        {/* 제목 줄을 뺀 나머지 높이만 목록에 준다. 목록이 칸 전체 높이를 가지면 제목 줄만큼 넘쳐
+            드로어 자체에 스크롤이 하나 더 생긴다(목록과 차트는 각자 스크롤을 가진다). */}
+        <div className="flex flex-col h-full" style={{ width: SERVER_LIST_WIDTH }}>
+          <div className="flex items-center h-12 gap-1 font-semibold border-b-1 shrink-0">
+            <img src={serverMapCurrentTarget?.imgPath} width={52} />
+            <div className="truncate">{serverMapCurrentTarget?.applicationName}</div>
+          </div>
+          <div className="flex-1 min-h-0">
+            <ServerListForCommon
+              nodeStatistics={serverMapData as unknown as GetHistogramStatistics.Response}
+            />
+          </div>
+        </div>
+        <div style={{ width: currentPanelWidth }}>
+          <ChartsBoard
+            header={
+              <div className="flex items-center h-12 gap-1 font-semibold border-b-1 shrink-0">
+                <div className="flex items-center justify-center">
+                  <MdArrowForwardIos />
+                </div>
+                {currentServer?.agentId}
+              </div>
+            }
+            timestamp={serverMapData?.applicationMapData?.timestamp}
+            nodeData={agentHistogramStatisticsData as FilteredMap.NodeData}
+          >
+            {!shouldHideScatter() && application && (
+              <>
+                <div className="w-full p-5 mb-12 aspect-[1.618]">
+                  <div className="h-7">
+                    {currentServer?.agentId && (
+                      <ApdexScore
+                        nodeData={currentTargetData as GetServerMap.NodeData}
+                        agentId={currentServer?.agentId}
+                      />
+                    )}
+                  </div>
+                  <ScatterChartStatic
+                    application={application}
+                    data={
+                      currentServer?.agentId
+                        ? scatterDataByApplicationKey?.[getApplicationKey(serverMapCurrentTarget)]
+                            ?.acc[currentServer?.agentId]
+                        : undefined
+                    }
+                    range={[dateRange.from.getTime(), dateRange.to.getTime()]}
+                    selectedAgentId={currentServer?.agentId}
+                    onDragEnd={(data, checkedLables) => {
+                      if (checkedLables.length) {
+                        window.__pp_scatter_data__ =
+                          scatterDataByApplicationKey?.[getApplicationKey(serverMapCurrentTarget)]
+                            ?.acc;
+                        window.open(
+                          `${BASE_PATH}${getTransactionListPath(
+                            application,
+                            searchParameters,
+                            serviceNameForLink,
+                          )}&${getTransactionListQueryString({
+                            ...data,
+                            checkedLegends: checkedLables,
+                            agentId: currentServer?.agentId,
+                          })}&withFilter=true`,
+                        );
+                      }
+                    }}
+                  />
+                </div>
+                <Separator />
+              </>
+            )}
+          </ChartsBoard>
+        </div>
+      </Drawer>
+    </>
+  );
+};

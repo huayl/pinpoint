@@ -19,20 +19,28 @@ package com.navercorp.pinpoint.web;
 import com.navercorp.pinpoint.bootstrap.context.SpanId;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
-import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.common.server.bo.SpanOwner;
+import com.navercorp.pinpoint.common.server.bo.TraceSourceType;
+import com.navercorp.pinpoint.common.server.trace.PinpointServerTraceId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
 import com.navercorp.pinpoint.common.trace.ServiceType;
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.io.SpanVersion;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
 import com.navercorp.pinpoint.web.util.ServiceTypeRegistryMockFactory;
+import org.assertj.core.matcher.AssertionMatcher;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.INCLUDE_DESTINATION_ID;
 import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.QUEUE;
 import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.RECORD_STATISTICS;
 import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.TERMINAL;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author HyunGil Jeong
@@ -43,8 +51,11 @@ public class TestTraceUtils {
     public static final String UNKNOWN_TYPE_NAME = ServiceType.UNKNOWN.getName();
     public static final short USER_TYPE_CODE = ServiceType.USER.getCode();
     public static final String USER_TYPE_NAME = ServiceType.USER.getName();
-    public static final short TEST_STAND_ALONE_TYPE_CODE = ServiceType.TEST_STAND_ALONE.getCode();
-    public static final String TEST_STAND_ALONE_TYPE_NAME = ServiceType.TEST_STAND_ALONE.getName();
+
+    public static final ServiceType TEST_STAND_ALONE_TYPE = ServiceType.TEST_STAND_ALONE;
+    public static final short TEST_STAND_ALONE_TYPE_CODE = TEST_STAND_ALONE_TYPE.getCode();
+    public static final String TEST_STAND_ALONE_TYPE_NAME = TEST_STAND_ALONE_TYPE.getName();
+
     public static final short TOMCAT_TYPE_CODE = 1010;
     public static final String TOMCAT_TYPE_NAME = "TOMCAT";
     public static final short RPC_TYPE_CODE = 9999;
@@ -59,9 +70,9 @@ public class TestTraceUtils {
     public static ServiceTypeRegistryService mockServiceTypeRegistryService() {
 
         ServiceTypeRegistryMockFactory mockFactory = new ServiceTypeRegistryMockFactory();
-        mockFactory.addServiceTypeMock(UNKNOWN_TYPE_CODE, UNKNOWN_TYPE_NAME, RECORD_STATISTICS);
-        mockFactory.addServiceTypeMock(USER_TYPE_CODE, USER_TYPE_NAME, RECORD_STATISTICS);
-        mockFactory.addServiceTypeMock(TEST_STAND_ALONE_TYPE_CODE, TEST_STAND_ALONE_TYPE_NAME, RECORD_STATISTICS);
+        mockFactory.addServiceTypeMock(ServiceType.UNKNOWN);
+        mockFactory.addServiceTypeMock(ServiceType.USER);
+        mockFactory.addServiceTypeMock(ServiceType.TEST_STAND_ALONE);
         mockFactory.addServiceTypeMock(TOMCAT_TYPE_CODE, TOMCAT_TYPE_NAME, RECORD_STATISTICS);
         mockFactory.addServiceTypeMock(RPC_TYPE_CODE, RPC_TYPE_NAME, RECORD_STATISTICS);
         mockFactory.addServiceTypeMock(BACKEND_TYPE_CODE, BACKEND_TYPE_NAME, TERMINAL, INCLUDE_DESTINATION_ID, RECORD_STATISTICS);
@@ -75,9 +86,9 @@ public class TestTraceUtils {
 
         private final Map<String, AtomicInteger> sequenceMap = new ConcurrentHashMap<>();
 
-        TransactionId generate(String agentId) {
+        ServerTraceId generate(String agentId) {
             int nextSequence = getNextSequence(agentId);
-            return new TransactionId(agentId, 0L, nextSequence);
+            return new PinpointServerTraceId(agentId, 0L, nextSequence);
         }
 
         private int getNextSequence(String agentId) {
@@ -109,6 +120,7 @@ public class TestTraceUtils {
         private int elapsed;
         private int errorCode;
         private SpanBo parentSpan;
+        private ServiceType serviceType = TEST_STAND_ALONE_TYPE;
 
         public SpanBuilder(String applicationName, String agentId) {
             this(0, applicationName, agentId);
@@ -116,7 +128,7 @@ public class TestTraceUtils {
 
         public SpanBuilder(int version, String applicationName, String agentId) {
             this.version = version;
-            this.applicationName = applicationName;
+            this.applicationName = Objects.requireNonNull(applicationName, "applicationName");
             this.agentId = agentId;
         }
 
@@ -149,25 +161,35 @@ public class TestTraceUtils {
         }
 
         public SpanBuilder parentSpan(SpanBo parentSpan) {
-            this.parentSpan = parentSpan;
+            this.parentSpan = Objects.requireNonNull(parentSpan, "parentSpan");
+            return this;
+        }
+
+        public SpanBuilder serviceType(ServiceType serviceType) {
+            Objects.requireNonNull(serviceType, "serviceType");
+            this.serviceType = serviceType;
             return this;
         }
 
         public SpanBo build() {
-            SpanBo spanBo = new SpanBo();
-            spanBo.setVersion(version);
-            spanBo.setApplicationId(applicationName);
-            spanBo.setAgentId(agentId);
+            SpanOwner spanOwner = new SpanOwner();
+            spanOwner.setApplicationName(applicationName);
+            spanOwner.setAgentId(agentId);
+
+            SpanBo spanBo = new SpanBo(TraceSourceType.PINPOINT, spanOwner);
             long spanId = this.spanId;
             if (spanId == SpanId.NULL) {
                 spanId = random.nextLong();
             }
             spanBo.setSpanId(spanId);
-            spanBo.setServiceType(TEST_STAND_ALONE_TYPE_CODE);
-            spanBo.setApplicationServiceType(TEST_STAND_ALONE_TYPE_CODE);
-            spanBo.setStartTime(startTime);
+            spanBo.setServiceType(serviceType.getCode());
+            spanBo.setApplicationServiceType(serviceType.getCode());
+            if (version == SpanVersion.TRACE_V3) {
+                spanBo.setTraceTime(version, startTime, startTime + TimeUnit.MILLISECONDS.toNanos(elapsed), elapsed);
+            } else {
+                spanBo.setTraceTime(version, startTime, elapsed);
+            }
             spanBo.setCollectorAcceptTime(collectorAcceptTime);
-            spanBo.setElapsed(elapsed);
             spanBo.setErrCode(errorCode);
             if (parentSpan != null) {
                 spanBo.setTransactionId(parentSpan.getTransactionId());
@@ -241,5 +263,14 @@ public class TestTraceUtils {
         public BackEndSpanEventBuilder(String destinationId, String endPoint, int startElapsed, int endElapsed) {
             super(BACKEND_TYPE_CODE, destinationId, endPoint, startElapsed, endElapsed);
         }
+    }
+
+    public static <K> AssertionMatcher<Map<K, ?>> hasKey(K key) {
+        return new AssertionMatcher<>() {
+            @Override
+            public void assertion(Map<K, ?> map) throws AssertionError {
+                assertThat(map).containsKey(key);
+            }
+        };
     }
 }

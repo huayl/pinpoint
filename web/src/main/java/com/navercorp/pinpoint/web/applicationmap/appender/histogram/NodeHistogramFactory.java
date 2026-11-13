@@ -16,17 +16,18 @@
 
 package com.navercorp.pinpoint.web.applicationmap.appender.histogram;
 
-import com.navercorp.pinpoint.web.applicationmap.link.LinkList;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
 import com.navercorp.pinpoint.web.applicationmap.histogram.NodeHistogram;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.navercorp.pinpoint.web.vo.Range;
+import com.navercorp.pinpoint.web.applicationmap.link.LinkList;
+import com.navercorp.pinpoint.common.server.bo.Application;
 
 /**
  * @author HyunGil Jeong
  */
 public interface NodeHistogramFactory {
 
-    NodeHistogram createWasNodeHistogram(Application wasApplication, Range range);
+    NodeHistogram createWasNodeHistogram(Application wasApplication, TimeWindow timeWindow);
 
     NodeHistogram createTerminalNodeHistogram(Application terminalApplication, Range range, LinkList linkList);
 

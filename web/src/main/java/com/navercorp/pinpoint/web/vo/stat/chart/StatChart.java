@@ -16,15 +16,13 @@
 
 package com.navercorp.pinpoint.web.vo.stat.chart;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.navercorp.pinpoint.web.view.StatChartGroupSerializer;
+import com.navercorp.pinpoint.common.timeseries.point.Point;
 
 /**
  * @author HyunGil Jeong
  * @author minwoo.jung
  */
-public interface StatChart {
+public interface StatChart<P extends Point> {
 
-    @JsonSerialize(using = StatChartGroupSerializer.class)
-    StatChartGroup getCharts();
+    StatChartGroup<P> getCharts();
 }

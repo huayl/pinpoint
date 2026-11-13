@@ -1,11 +1,11 @@
 /*
- * Copyright 2018 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,18 +17,17 @@
 package com.navercorp.pinpoint.collector.dao.hbase;
 
 import com.navercorp.pinpoint.collector.dao.SqlMetaDataDao;
-import com.navercorp.pinpoint.collector.util.CollectorUtils;
-import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
-import com.navercorp.pinpoint.common.hbase.HbaseOperations2;
-import com.navercorp.pinpoint.common.hbase.TableDescriptor;
+import com.navercorp.pinpoint.common.hbase.HbaseOperations;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
 import com.navercorp.pinpoint.common.server.bo.SqlMetaDataBo;
-
-import com.sematext.hbase.wd.RowKeyDistributorByHashPrefix;
+import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.MetaDataRowKey;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
@@ -40,20 +39,23 @@ import java.util.Objects;
 @Repository
 public class HbaseSqlMetaDataDao implements SqlMetaDataDao {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
-    private final HbaseOperations2 hbaseTemplate;
+    private static final HbaseTables.SqlMetadataV2 descriptor = HbaseTables.SQL_METADATA_VER2_SQL;
 
-    private final TableDescriptor<HbaseColumnFamily.SqlMetadataV2> descriptor;
+    private final HbaseOperations hbaseTemplate;
+    private final TableNameProvider tableNameProvider;
 
-    private final RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix;
+    private final RowKeyEncoder<MetaDataRowKey> rowKeyEncoder;
 
-    public HbaseSqlMetaDataDao(HbaseOperations2 hbaseTemplate,
-                               TableDescriptor<HbaseColumnFamily.SqlMetadataV2> descriptor,
-                               @Qualifier("metadataRowKeyDistributor2") RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
+
+    public HbaseSqlMetaDataDao(HbaseOperations hbaseTemplate,
+                               @Qualifier("sqlDataRowKeyEncoder")
+                               RowKeyEncoder<MetaDataRowKey> rowKeyEncoder,
+                               TableNameProvider tableNameProvider) {
         this.hbaseTemplate = Objects.requireNonNull(hbaseTemplate, "hbaseTemplate");
-        this.rowKeyDistributorByHashPrefix = Objects.requireNonNull(rowKeyDistributorByHashPrefix, "rowKeyDistributorByHashPrefix");
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
+        this.rowKeyEncoder = Objects.requireNonNull(rowKeyEncoder, "rowKeyEncoder");
+        this.tableNameProvider = Objects.requireNonNull(tableNameProvider, "tableNameProvider");
     }
 
     @Override
@@ -63,22 +65,15 @@ public class HbaseSqlMetaDataDao implements SqlMetaDataDao {
             logger.debug("insert:{}", sqlMetaData);
         }
 
-        // Assert agentId
-        CollectorUtils.checkAgentId(sqlMetaData.getAgentId());
+        byte[] rowKey = rowKeyEncoder.encodeRowKey(sqlMetaData);
 
-        final byte[] rowKey = getDistributedKey(sqlMetaData.toRowKey());
-        final Put put = new Put(rowKey);
+        final Put put = new Put(rowKey, true);
         final String sql = sqlMetaData.getSql();
         final byte[] sqlBytes = Bytes.toBytes(sql);
-        put.addColumn(descriptor.getColumnFamilyName(), descriptor.getColumnFamily().QUALIFIER_SQLSTATEMENT, sqlBytes);
+        put.addColumn(descriptor.getName(), descriptor.QUALIFIER_SQLSTATEMENT, sqlBytes);
 
-        final TableName sqlMetaDataTableName = descriptor.getTableName();
+        final TableName sqlMetaDataTableName = tableNameProvider.getTableName(descriptor.getTable());
         hbaseTemplate.put(sqlMetaDataTableName, put);
     }
-
-    private byte[] getDistributedKey(byte[] rowKey) {
-        return rowKeyDistributorByHashPrefix.getDistributedKey(rowKey);
-    }
-
 
 }

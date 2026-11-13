@@ -16,25 +16,22 @@
 
 package com.navercorp.pinpoint.web.view;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.navercorp.pinpoint.web.vo.scatter.Dot;
-
-import java.io.IOException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.ValueSerializer;
+import tools.jackson.databind.SerializationContext;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
 
 /**
  * @author emeroad
  */
-public class DotSerializer extends JsonSerializer<Dot> {
+public class DotSerializer extends ValueSerializer<Dot> {
     @Override
-    public void serialize(Dot dot, JsonGenerator jgen, SerializerProvider provider) throws IOException, JsonProcessingException {
+    public void serialize(Dot dot, JsonGenerator jgen, SerializationContext provider) {
         jgen.writeStartArray();
         jgen.writeNumber(dot.getAcceptedTime());
         jgen.writeNumber(dot.getElapsedTime());
-        jgen.writeString(dot.getTransactionIdAsString());
-        jgen.writeNumber(dot.getSimpleExceptionCode());
+        jgen.writeString(dot.getTransactionId().toString());
+        jgen.writeNumber(dot.getStatus().getCode());
         jgen.writeEndArray();
     }
 }

@@ -16,26 +16,31 @@
 
 package com.navercorp.pinpoint.web.filter;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.navercorp.pinpoint.common.Charsets;
-import org.junit.Assert;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import com.navercorp.pinpoint.common.server.util.json.Jackson;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author netspider
  */
 public class FilterDescriptorTest {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson.newMapper();
 
     @Test
     public void convert() throws IOException {
@@ -45,53 +50,60 @@ public class FilterDescriptorTest {
         FilterDescriptor descriptor = mapper.readValue(jsonString, FilterDescriptor.class);
 
         FilterDescriptor.ResponseTime responseTime = descriptor.getResponseTime();
-        FilterDescriptor.FromNode fromNode = descriptor.getFromNode();
-        Assert.assertEquals("FROM_APPLICATION", fromNode.getApplicationName());
-        Assert.assertEquals("FROM_SERVICE_TYPE", fromNode.getServiceType());
-        Assert.assertEquals("FROM_AGENT_ID", fromNode.getAgentId());
-        Assert.assertEquals((Long) 0L, descriptor.getResponseTime().getFromResponseTime());
+        FilterDescriptor.Node fromNode = descriptor.getFromNode();
+        Assertions.assertEquals("FROM_APPLICATION", fromNode.getApplicationName());
+        Assertions.assertEquals("FROM_SERVICE_TYPE", fromNode.getServiceType());
+        Assertions.assertEquals("FROM_AGENT_ID", fromNode.getAgentId());
+        Assertions.assertEquals((Long) 0L, descriptor.getResponseTime().getFromResponseTime());
 
-        FilterDescriptor.ToNode toNode = descriptor.getToNode();
-        Assert.assertEquals("TO_APPLICATION", toNode.getApplicationName());
-        Assert.assertEquals("TO_SERVICE_TYPE", toNode.getServiceType());
-        Assert.assertEquals("TO_AGENT_ID", toNode.getAgentId());
-        Assert.assertEquals((Long) 1000L, responseTime.getToResponseTime());
+        FilterDescriptor.Node toNode = descriptor.getToNode();
+        Assertions.assertEquals("TO_APPLICATION", toNode.getApplicationName());
+        Assertions.assertEquals("TO_SERVICE_TYPE", toNode.getServiceType());
+        Assertions.assertEquals("TO_AGENT_ID", toNode.getAgentId());
+        Assertions.assertEquals((Long) 1000L, responseTime.getToResponseTime());
 
-        Assert.assertEquals(Boolean.TRUE, descriptor.getOption().getIncludeException());
-        Assert.assertEquals("/**", descriptor.getOption().getUrlPattern());
+        Assertions.assertEquals(Boolean.TRUE, descriptor.getOption().getIncludeException());
+        Assertions.assertEquals("/**", descriptor.getOption().getUrlPattern());
     }
 
     private String writeJsonString() throws IOException {
         StringWriter writer = new StringWriter();
 
-        JsonGenerator json = mapper.getFactory().createGenerator(writer);
+        try (JsonGenerator json = mapper.createGenerator(writer)) {
 
 //        json.writeStartArray();
-        json.writeStartObject();
-        json.writeStringField("fa", "FROM_APPLICATION");
-        json.writeStringField("fst", "FROM_SERVICE_TYPE");
-        json.writeStringField("fan", "FROM_AGENT_ID");
-        // fromResponseTime
-        json.writeNumberField("rf", 0);
+            json.writeStartObject();
+            json.writeStringProperty("fs", "FROM_SERVICE_NAME");
+            json.writeStringProperty("fa", "FROM_APPLICATION");
+            json.writeStringProperty("fst", "FROM_SERVICE_TYPE");
+            json.writeStringProperty("fan", "FROM_AGENT_ID");
+            // fromResponseTime
+            json.writeNumberProperty("rf", 0);
 
-        json.writeStringField("ta", "TO_APPLICATION");
-        json.writeStringField("tst", "TO_SERVICE_TYPE");
-        json.writeStringField("tan", "TO_AGENT_ID");
-        // toResponseTime
-        json.writeNumberField("rt", 1000);
+            json.writeStringProperty("ts", "TO_SERVICE_NAME");
+            json.writeStringProperty("ta", "TO_APPLICATION");
+            json.writeStringProperty("tst", "TO_SERVICE_TYPE");
+            json.writeStringProperty("tan", "TO_AGENT_ID");
+            // toResponseTime
+            json.writeNumberProperty("rt", 1000);
 
-        json.writeNumberField("ie", 1);
+            json.writeNumberProperty("ie", 1);
 
-        json.writeStringField("url", Base64.encodeBytes("/**".getBytes(Charsets.UTF_8)));
-        json.writeEndObject();
+            json.writeStringProperty("url", encodeBase64("/**"));
+            json.writeEndObject();
 //        json.writeEndArray();
 
-        json.flush();
-        json.close();
+            json.flush();
+        }
 
         String jsonString = writer.toString();
         logger.debug("json:{}", jsonString);
         return jsonString;
+    }
+
+    private static String encodeBase64(String string) {
+        byte[] encode = Base64.getUrlEncoder().encode(string.getBytes(StandardCharsets.UTF_8));
+        return new String(encode, StandardCharsets.ISO_8859_1);
     }
 
     @Test
@@ -102,18 +114,18 @@ public class FilterDescriptorTest {
 
         logger.debug("json:{}", arrayJson);
 
-        List<FilterDescriptor> descriptor = mapper.readValue(arrayJson, new TypeReference<List<FilterDescriptor>>() {
+        List<FilterDescriptor> descriptor = mapper.readValue(arrayJson, new TypeReference<>() {
         });
 
-        Assert.assertEquals(1, descriptor.size());
-        Assert.assertNotNull(descriptor.get(0));
+        assertThat(descriptor).hasSize(1)
+                .first().isNotNull();
     }
 
-    @Test(expected = IOException.class)
-    public void invalidJson() throws IOException {
-
-        mapper.readValue("INVALID", new TypeReference<List<FilterDescriptor>>() {
+    @Test
+    public void invalidJson() {
+        Assertions.assertThrows(JacksonException.class, () -> {
+            mapper.readValue("INVALID", new TypeReference<List<FilterDescriptor>>() {
+            });
         });
-
     }
 }

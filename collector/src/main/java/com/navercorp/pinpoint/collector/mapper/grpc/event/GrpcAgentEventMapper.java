@@ -17,12 +17,13 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.event;
 
 import com.navercorp.pinpoint.common.server.bo.event.AgentEventBo;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
 import com.navercorp.pinpoint.common.util.CollectionUtils;
-import com.navercorp.pinpoint.grpc.Header;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PDeadlock;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 /**
  * @author Taejin Koo
@@ -30,10 +31,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcAgentEventMapper {
 
-    @Autowired
-    private GrpcDeadlockEventBoMapper deadlockEventBoMapper;
+    private final GrpcDeadlockEventBoMapper deadlockEventBoMapper;
 
-    public AgentEventBo map(final PAgentStat agentStat, final Header header) {
+    public GrpcAgentEventMapper(GrpcDeadlockEventBoMapper deadlockEventBoMapper) {
+        this.deadlockEventBoMapper = Objects.requireNonNull(deadlockEventBoMapper, "deadlockEventBoMapper");
+    }
+
+    public AgentEventBo map(final PAgentStat agentStat, final ServerHeader header) {
         final String agentId = header.getAgentId();
         final long startTimestamp = header.getAgentStartTime();
         final long timestamp = agentStat.getTimestamp();

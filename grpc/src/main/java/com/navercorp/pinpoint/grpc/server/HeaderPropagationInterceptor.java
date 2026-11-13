@@ -16,6 +16,7 @@
 
 package com.navercorp.pinpoint.grpc.server;
 
+import com.navercorp.pinpoint.common.profiler.logging.ThrottledLogger;
 import com.navercorp.pinpoint.grpc.Header;
 import com.navercorp.pinpoint.grpc.HeaderReader;
 import io.grpc.Context;
@@ -25,8 +26,8 @@ import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 
@@ -34,7 +35,8 @@ import java.util.Objects;
  * @author Woonduk Kang(emeroad)
  */
 public class HeaderPropagationInterceptor implements ServerInterceptor {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    private final ThrottledLogger throttledLogger = ThrottledLogger.getUncountedIntervalLogger(logger);
 
     private final HeaderReader<Header> headerReader;
     private final Context.Key<Header> contextKey;
@@ -54,9 +56,9 @@ public class HeaderPropagationInterceptor implements ServerInterceptor {
         try {
             headerObject = headerReader.extract(headers);
         } catch (Exception e) {
-            if (logger.isInfoEnabled()) {
-                logger.info("Header extract fail cause={}, method={} headers={}, attr={}",
-                        e.getMessage(), call.getMethodDescriptor().getFullMethodName(), headers, call.getAttributes(), e);
+            if (throttledLogger.isInfoEnabled()) {
+                throttledLogger.info("Header extract fail cause={}, method={} headers={}, attr={}",
+                        e.getMessage(), call.getMethodDescriptor().getFullMethodName(), headers, call.getAttributes());
             }
             call.close(Status.INVALID_ARGUMENT.withDescription(e.getMessage()), new Metadata());
             return new ServerCall.Listener<ReqT>() {
@@ -69,8 +71,13 @@ public class HeaderPropagationInterceptor implements ServerInterceptor {
             logger.debug("headerPropagation method={}, headers={}, attr={}", call.getMethodDescriptor().getFullMethodName(), headers, call.getAttributes());
         }
 
-        ServerCall.Listener<ReqT> contextPropagateInterceptor = Contexts.interceptCall(newContext, call, headers, next);
-        return contextPropagateInterceptor;
+        return Contexts.interceptCall(newContext, call, headers, next);
     }
 
+    @Override
+    public String toString() {
+        return "HeaderPropagationInterceptor{" +
+                "headerReader=" + headerReader +
+                '}';
+    }
 }

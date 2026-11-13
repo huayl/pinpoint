@@ -16,19 +16,16 @@
 
 package com.navercorp.pinpoint.web.service.stat;
 
-import com.navercorp.pinpoint.web.vo.Range;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
 import com.navercorp.pinpoint.web.vo.timeline.inspector.AgentStatusTimelineSegment;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * @author Taejin Koo
  */
 public interface AgentWarningStatService {
 
-    List<AgentStatusTimelineSegment> select(String agentId, Range range);
-
-    Map<Long, List<AgentStatusTimelineSegment>> selectSeparatedByStartTimestamp(String agentId, Range range);
+    List<AgentStatusTimelineSegment> select(String serviceName, String applicationName, String agentId, Range range);
 
 }

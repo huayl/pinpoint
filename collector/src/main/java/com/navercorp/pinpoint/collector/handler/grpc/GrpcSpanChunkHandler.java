@@ -1,24 +1,42 @@
 
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.navercorp.pinpoint.collector.handler.grpc;
 
-import com.google.protobuf.GeneratedMessageV3;
 import com.navercorp.pinpoint.collector.handler.SimpleHandler;
+import com.navercorp.pinpoint.collector.sampler.Sampler;
+import com.navercorp.pinpoint.collector.sampler.SpanSamplerFactory;
 import com.navercorp.pinpoint.collector.service.TraceService;
+import com.navercorp.pinpoint.common.hbase.RequestNotPermittedException;
+import com.navercorp.pinpoint.common.profiler.logging.LogSampler;
+import com.navercorp.pinpoint.common.server.bo.BasicSpan;
 import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
-import com.navercorp.pinpoint.common.server.bo.grpc.GrpcSpanFactory;
-import com.navercorp.pinpoint.grpc.Header;
+import com.navercorp.pinpoint.common.server.io.GrpcSpanFactory;
+import com.navercorp.pinpoint.common.server.io.ServerHeader;
+import com.navercorp.pinpoint.common.server.io.ServerRequest;
 import com.navercorp.pinpoint.grpc.MessageFormatUtils;
-import com.navercorp.pinpoint.grpc.server.ServerContext;
 import com.navercorp.pinpoint.grpc.trace.PSpanChunk;
 import com.navercorp.pinpoint.grpc.trace.PSpanEvent;
 import com.navercorp.pinpoint.grpc.trace.PTransactionId;
-import com.navercorp.pinpoint.io.request.ServerRequest;
-import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -26,44 +44,61 @@ import java.util.Objects;
  * @author emeroad
  */
 @Service
-public class GrpcSpanChunkHandler implements SimpleHandler<GeneratedMessageV3> {
+public class GrpcSpanChunkHandler implements SimpleHandler<PSpanChunk> {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private final Logger logger = LogManager.getLogger(getClass());
+    private final LogSampler infoLog = new LogSampler(1000);
+    private final LogSampler warnLog = new LogSampler(100);
     private final boolean isDebug = logger.isDebugEnabled();
 
-    private final TraceService traceService;
+    private final TraceService[] traceServices;
 
     private final GrpcSpanFactory spanFactory;
 
-    @Autowired
-    public GrpcSpanChunkHandler(TraceService traceService, GrpcSpanFactory spanFactory) {
-        this.traceService = Objects.requireNonNull(traceService, "traceService");
+    private final Sampler<BasicSpan> sampler;
+
+    public GrpcSpanChunkHandler(TraceService[] traceServices, GrpcSpanFactory spanFactory, SpanSamplerFactory spanSamplerFactory) {
+        this.traceServices = Objects.requireNonNull(traceServices, "traceServices");
         this.spanFactory = Objects.requireNonNull(spanFactory, "spanFactory");
+        this.sampler = spanSamplerFactory.createBasicSpanSampler();
+
+        logger.info("TraceServices {}", Arrays.toString(traceServices));
     }
 
     @Override
-    public void handleSimple(ServerRequest<GeneratedMessageV3> serverRequest) {
-        final GeneratedMessageV3 data = serverRequest.getData();
-        if (data instanceof PSpanChunk) {
-            handleSpanChunk((PSpanChunk) data);
-        } else {
-            logger.warn("Invalid request type. serverRequest={}", serverRequest);
-            throw Status.INTERNAL.withDescription("Bad Request(invalid request type)").asRuntimeException();
-        }
+    public void handleSimple(ServerRequest<PSpanChunk> serverRequest) {
+        final PSpanChunk spanChunk = serverRequest.getData();
+        final ServerHeader header = serverRequest.getHeader();
+
+        handleSpanChunk(spanChunk, header, serverRequest.getRequestTime());
     }
 
 
-    private void handleSpanChunk(PSpanChunk spanChunk) {
+    private void handleSpanChunk(PSpanChunk spanChunk, ServerHeader header, long requestTime) {
         if (isDebug) {
-            logger.debug("Handle PSpanChunk={}", createSimpleSpanChunkLog(spanChunk));
+            logger.debug("Handle {} {}", header, createSimpleSpanChunkLog(spanChunk));
         }
-
-        try {
-            final Header agentInfo = ServerContext.getAgentInfo();
-            final SpanChunkBo spanChunkBo = spanFactory.buildSpanChunkBo(spanChunk, agentInfo);
-            this.traceService.insertSpanChunk(spanChunkBo);
-        } catch (Exception e) {
-            logger.warn("Failed to handle spanChunk={}", MessageFormatUtils.debugLog(spanChunk), e);
+        final SpanChunkBo spanChunkBo = spanFactory.buildSpanChunkBo(spanChunk, header, requestTime);
+        if (!sampler.isSampling(spanChunkBo)) {
+            if (isDebug) {
+                logger.debug("Unsampled {} {}", header, createSimpleSpanChunkLog(spanChunk));
+            } else {
+                infoLog.log(() -> {
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Unsampled {} {}", header, createSimpleSpanChunkLog(spanChunk));
+                    }
+                });
+            }
+            return;
+        }
+        for (TraceService traceService : traceServices) {
+            try {
+                traceService.insertSpanChunk(spanChunkBo);
+            } catch (RequestNotPermittedException notPermitted) {
+                warnLog.log(c -> logger.warn("Failed to handle SpanChunk {} RequestNotPermitted:{} {}", header, notPermitted.getMessage(), c));
+            } catch (Throwable e) {
+                logger.warn("Failed to handle {} {}", header, MessageFormatUtils.debugLog(spanChunk), e);
+            }
         }
     }
 
@@ -71,28 +106,15 @@ public class GrpcSpanChunkHandler implements SimpleHandler<GeneratedMessageV3> {
         if (!isDebug) {
             return "";
         }
-
-        StringBuilder log = new StringBuilder();
-
+        long spanId = spanChunk.getSpanId();
         PTransactionId transactionId = spanChunk.getTransactionId();
-        log.append(" transactionId:");
-        log.append(MessageFormatUtils.debugLog(transactionId));
+        final List<PSpanEvent> spanEventList = spanChunk.getSpanEventList();
 
-        log.append(" spanId:").append(spanChunk.getSpanId());
-
-
-        StringBuilder spanEventSequenceLog = new StringBuilder();
-        List<PSpanEvent> spanEventList = spanChunk.getSpanEventList();
-        for (PSpanEvent pSpanEvent : spanEventList) {
-            if (pSpanEvent == null) {
-                continue;
-            }
-            spanEventSequenceLog.append(pSpanEvent.getSequence()).append(" ");
-        }
-
-        log.append(" spanEventSequence:").append(spanEventSequenceLog.toString());
-
-        return log.toString();
+        return SpanLog.debugLog(transactionId, spanId, spanEventList);
     }
 
+    @Override
+    public String toString() {
+        return "GrpcSpanChunkHandler";
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,38 +16,47 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.server.util.ByteUtils;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.io.SpanVersion;
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author emeroad
  */
-public class SpanBo implements Event, BasicSpan {
+public class SpanBo implements BasicSpan {
+
+    private static final int UNDEFINED = ServiceType.UNDEFINED.getCode();
+    public static final long DEFAULT_END_TIME = -1L;
 
     // version 0 means that the type of prefix's size is int
     private byte version = 0;
 
-//  private AgentKeyBo agentKeyBo;
-    private String agentId;
-    private String agentName;
-    private String applicationId;
-    private long agentStartTime;
+    @NonNull
+    private final TraceSourceType traceSourceType;
 
-    private TransactionId transactionId;
+    private final SpanOwner owner;
+
+    private ServerTraceId transactionId;
 
     private long spanId;
     private long parentSpanId;
 
-    private String parentApplicationId;
-    private short parentApplicationServiceType;
+    private ParentApplication parentApplication;
 
     private long startTime;
+    private long endTime = DEFAULT_END_TIME;
     private int elapsed;
 
     private String rpc;
-    private short serviceType;
+    private int serviceType;
     private String endPoint;
     private int apiId;
 
@@ -60,25 +69,35 @@ public class SpanBo implements Event, BasicSpan {
 
     private long collectorAcceptTime;
 
-    private boolean hasException = false;
-    private int exceptionId;
-    private String exceptionMessage;
+    private ExceptionInfo exceptionInfo;
+
     private String exceptionClass;
-    
-    private Short applicationServiceType;
+
+    private int applicationServiceType;
 
     private String acceptorHost;
     private String remoteAddr; // optional
 
     private byte loggingTransactionInfo; //optional
 
+    private List<AttributeBo> attributeBoList = new ArrayList<>();
 
     public SpanBo() {
+        this(TraceSourceType.PINPOINT, new SpanOwner());
+    }
+
+    public SpanBo(TraceSourceType traceSourceType) {
+        this(traceSourceType, new SpanOwner());
+    }
+
+    public SpanBo(TraceSourceType traceSourceType, SpanOwner owner) {
+        this.traceSourceType = Objects.requireNonNull(traceSourceType, "traceSourceType");
+        this.owner = Objects.requireNonNull(owner, "owner");
     }
 
     @Override
     public int getVersion() {
-        return version & 0xFF;
+        return Byte.toUnsignedInt(version);
     }
 
     public byte getRawVersion() {
@@ -86,75 +105,135 @@ public class SpanBo implements Event, BasicSpan {
     }
 
     public void setVersion(int version) {
-        checkVersion(version);
-        // check range
-        this.version = (byte) (version & 0xFF);
+        this.version = ByteUtils.toUnsignedByte(version);
     }
 
-    static void checkVersion(int version) {
-        if (version < 0 || version > 255) {
-            throw new IllegalArgumentException("out of range (0~255)");
-        }
+    @NonNull
+    @Override
+    public TraceSourceType getTraceSourceType() {
+        return traceSourceType;
     }
 
     @Override
-    public TransactionId getTransactionId() {
+    public ServerTraceId getTransactionId() {
         return this.transactionId;
     }
 
-    public void setTransactionId(TransactionId transactionId) {
+    public void setTransactionId(ServerTraceId transactionId) {
         this.transactionId = transactionId;
     }
 
     @Override
-    public String getAgentId() {
-        return agentId;
+    public SpanOwner getSpanOwner() {
+        return owner;
     }
 
+    @NonNull
     @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
+    public String getAgentId() {
+        return owner.getAgentId();
     }
 
     @Override
     public String getAgentName() {
-        return agentName;
+        return owner.getAgentName();
+    }
+
+
+    @NonNull
+    @Override
+    public String getApplicationName() {
+        return owner.getApplicationName();
+    }
+
+    @NonNull
+    @Override
+    public String getServiceName() {
+        return owner.getServiceName();
     }
 
     @Override
-    public void setAgentName(String agentName) {
-        this.agentName = agentName;
+    public ServiceUid getServiceUid() {
+        return owner.getServiceUid();
     }
 
-    @Override
-    public String getApplicationId() {
-        return applicationId;
-    }
-
-    @Override
-    public void setApplicationId(String applicationId) {
-        this.applicationId = applicationId;
-    }
+    //------------
 
     @Override
     public long getAgentStartTime() {
-        return agentStartTime;
+        return owner.getAgentStartTime();
     }
 
-    @Override
-    public void setAgentStartTime(long agentStartTime) {
-        this.agentStartTime = agentStartTime;
+    private TraceTimeAccessor timeAccessor() {
+        return TraceTimeAccessor.ofVersion(this.version);
     }
 
-    public long getStartTime() {
-        return startTime;
+    public long getStartTimeMillis() {
+        return timeAccessor().toMillis(startTime);
     }
 
-    public void setStartTime(long startTime) {
+    public long getStartTimeNanos() {
+        return timeAccessor().toNanos(startTime);
+    }
+
+    /**
+     * Sets elapsed-only span time for pre-V3 data.
+     * startTime is epoch millis and endTime stays unset because the persisted model stores
+     * startTime + elapsedMillis.
+     */
+    public void setTraceTime(int version, long startTime, int elapsedMillis) {
+        if (version == SpanVersion.TRACE_V3) {
+            throw new IllegalArgumentException("TRACE_V3 span requires absolute start/end time");
+        }
+
+        setVersion(version);
         this.startTime = startTime;
+        this.elapsed = elapsedMillis;
+        this.endTime = DEFAULT_END_TIME;
     }
 
+    /**
+     * Sets absolute span time for TRACE_V3 data.
+     * startTime/endTime are epoch nanos. elapsedMillis is retained as the compatibility duration.
+     */
+    public void setTraceTime(int version, long startTime, long endTime, int elapsedMillis) {
+        if (version != SpanVersion.TRACE_V3) {
+            throw new IllegalArgumentException("absolute start/end time is only supported for TRACE_V3 spans");
+        }
+        if (endTime == DEFAULT_END_TIME) {
+            throw new IllegalArgumentException("TRACE_V3 span end time is required");
+        }
+        if (endTime < startTime) {
+            throw new IllegalArgumentException("span end time must be greater than or equal to start time");
+        }
 
+        setVersion(version);
+        this.startTime = startTime;
+        this.elapsed = elapsedMillis;
+        this.endTime = endTime;
+    }
+
+    public boolean hasEndTime() {
+        return endTime != DEFAULT_END_TIME;
+    }
+
+    public long getEndTimeMillis() {
+        if (hasEndTime()) {
+            return timeAccessor().toMillis(endTime);
+        }
+        return getStartTimeMillis() + elapsed;
+    }
+
+    public long getEndTimeNanos() {
+        if (hasEndTime()) {
+            return timeAccessor().toNanos(endTime);
+        }
+        return getStartTimeNanos() + TimeUnit.MILLISECONDS.toNanos(elapsed);
+    }
+
+    /**
+     * Returns the span elapsed time in milliseconds.
+     */
     public int getElapsed() {
         return elapsed;
     }
@@ -218,6 +297,12 @@ public class SpanBo implements Event, BasicSpan {
         return annotationBoList;
     }
 
+    public void addAnnotation(AnnotationBo annotationBo) {
+        if (annotationBo == null) {
+            return;
+        }
+        this.annotationBoList.add(annotationBo);
+    }
 
     public void setAnnotationBoList(List<AnnotationBo> anoList) {
         if (anoList == null) {
@@ -259,20 +344,24 @@ public class SpanBo implements Event, BasicSpan {
         this.spanChunkBoList.add(asyncSpanBo);
     }
 
-    public short getServiceType() {
+    public int getServiceType() {
         return serviceType;
     }
 
-    public void setServiceType(short serviceType) {
+    public void setServiceType(int serviceType) {
         this.serviceType = serviceType;
     }
-    
+
     public int getErrCode() {
         return errCode;
     }
 
     public void setErrCode(int errCode) {
         this.errCode = errCode;
+    }
+
+    public boolean hasError() {
+        return errCode > 0;
     }
 
     public String getAcceptorHost() {
@@ -291,10 +380,12 @@ public class SpanBo implements Event, BasicSpan {
         this.remoteAddr = remoteAddr;
     }
 
+    @Override
     public long getCollectorAcceptTime() {
         return collectorAcceptTime;
     }
 
+    @Override
     public void setCollectorAcceptTime(long collectorAcceptTime) {
         this.collectorAcceptTime = collectorAcceptTime;
     }
@@ -303,24 +394,17 @@ public class SpanBo implements Event, BasicSpan {
         return -1L == parentSpanId;
     }
 
+    public ExceptionInfo getExceptionInfo() {
+        return exceptionInfo;
+    }
+
     public boolean hasException() {
-        return hasException;
+        return exceptionInfo != null;
     }
 
-    public int getExceptionId() {
-        return exceptionId;
+    public void setExceptionInfo(ExceptionInfo exceptionInfo) {
+        this.exceptionInfo = exceptionInfo;
     }
-
-    public String getExceptionMessage() {
-        return exceptionMessage;
-    }
-
-    public void setExceptionInfo(int exceptionId, String exceptionMessage) {
-        this.hasException = true;
-        this.exceptionId = exceptionId;
-        this.exceptionMessage = exceptionMessage;
-    }
-
 
     public String getExceptionClass() {
         return exceptionClass;
@@ -329,16 +413,19 @@ public class SpanBo implements Event, BasicSpan {
     public void setExceptionClass(String exceptionClass) {
         this.exceptionClass = exceptionClass;
     }
-    
-    public void setApplicationServiceType(Short applicationServiceType) {
-        this.applicationServiceType  = applicationServiceType;
+
+    @Override
+    public void setApplicationServiceType(int applicationServiceType) {
+        this.applicationServiceType = applicationServiceType;
     }
 
+    @Override
     public boolean hasApplicationServiceType() {
-        return applicationServiceType != null;
+        return applicationServiceType != 0 && applicationServiceType != UNDEFINED;
     }
 
-    public short getApplicationServiceType() {
+    @Override
+    public int getApplicationServiceType() {
         if (hasApplicationServiceType()) {
             return this.applicationServiceType;
         } else {
@@ -346,25 +433,18 @@ public class SpanBo implements Event, BasicSpan {
         }
     }
 
-    public String getParentApplicationId() {
-        return parentApplicationId;
+
+    public ParentApplication getParentApplication() {
+        return parentApplication;
     }
 
-    public void setParentApplicationId(String parentApplicationId) {
-        this.parentApplicationId = parentApplicationId;
-    }
-
-    public short getParentApplicationServiceType() {
-        return parentApplicationServiceType;
-    }
-
-    public void setParentApplicationServiceType(short parentApplicationServiceType) {
-        this.parentApplicationServiceType = parentApplicationServiceType;
+    public void setParentApplication(ParentApplication parentApplication) {
+        this.parentApplication = parentApplication;
     }
 
     /**
-     * @see com.navercorp.pinpoint.common.trace.LoggingInfo
      * @return loggingInfo key
+     * @see com.navercorp.pinpoint.common.trace.LoggingInfo
      */
     public byte getLoggingTransactionInfo() {
         return loggingTransactionInfo;
@@ -375,42 +455,58 @@ public class SpanBo implements Event, BasicSpan {
         this.loggingTransactionInfo = loggingTransactionInfo;
     }
 
+    public List<AttributeBo> getAttributeBoList() {
+        return attributeBoList;
+    }
+
+    public void setAttributeBoList(List<AttributeBo> attributeBoList) {
+        if (attributeBoList == null) {
+            return;
+        }
+        this.attributeBoList = attributeBoList;
+    }
+
+    public void addAttribute(AttributeBo attributeBo) {
+        if (attributeBo == null) {
+            return;
+        }
+        if (this.attributeBoList == null) {
+            this.attributeBoList = new ArrayList<>();
+        }
+        this.attributeBoList.add(attributeBo);
+    }
+
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("SpanBo{");
-        sb.append("version=").append(version);
-        sb.append(", agentId='").append(agentId).append('\'');
-        sb.append(", agentName='").append(agentName).append('\'');
-        sb.append(", applicationId='").append(applicationId).append('\'');
-        sb.append(", agentStartTime=").append(agentStartTime);
-        sb.append(", transactionId=").append(transactionId);
-        sb.append(", spanId=").append(spanId);
-        sb.append(", parentSpanId=").append(parentSpanId);
-        sb.append(", parentApplicationId='").append(parentApplicationId).append('\'');
-        sb.append(", parentApplicationServiceType=").append(parentApplicationServiceType);
-        sb.append(", startTime=").append(startTime);
-        sb.append(", elapsed=").append(elapsed);
-        sb.append(", rpc='").append(rpc).append('\'');
-        sb.append(", serviceType=").append(serviceType);
-        sb.append(", endPoint='").append(endPoint).append('\'');
-        sb.append(", apiId=").append(apiId);
-        sb.append(", annotationBoList=").append(annotationBoList);
-        sb.append(", flag=").append(flag);
-        sb.append(", errCode=").append(errCode);
-        sb.append(", spanEventBoList=").append(spanEventBoList);
-        sb.append(", spanChunkBoList=").append(spanChunkBoList);
-        sb.append(", collectorAcceptTime=").append(collectorAcceptTime);
-        sb.append(", hasException=").append(hasException);
-        if (hasException) {
-            sb.append(", exceptionId=").append(exceptionId);
-            sb.append(", exceptionMessage='").append(exceptionMessage).append('\'');
-        }
-        sb.append(", exceptionClass='").append(exceptionClass).append('\'');
-        sb.append(", applicationServiceType=").append(applicationServiceType);
-        sb.append(", acceptorHost='").append(acceptorHost).append('\'');
-        sb.append(", remoteAddr='").append(remoteAddr).append('\'');
-        sb.append(", loggingTransactionInfo=").append(loggingTransactionInfo);
-        sb.append('}');
-        return sb.toString();
+        return "SpanBo{" +
+                "version=" + version +
+                ", traceSourceType=" + traceSourceType +
+                ", owner=" + owner +
+                ", transactionId=" + transactionId +
+                ", spanId=" + spanId +
+                ", parentSpanId=" + parentSpanId +
+                ", parentApplication=" + parentApplication +
+                ", startTime=" + startTime +
+                ", endTime=" + endTime +
+                ", elapsed=" + elapsed +
+                ", rpc='" + rpc + '\'' +
+                ", serviceType=" + serviceType +
+                ", endPoint='" + endPoint + '\'' +
+                ", apiId=" + apiId +
+                ", annotationBoList=" + annotationBoList +
+                ", flag=" + flag +
+                ", errCode=" + errCode +
+                ", spanEventBoList=" + spanEventBoList +
+                ", spanChunkBoList=" + spanChunkBoList +
+                ", collectorAcceptTime=" + collectorAcceptTime +
+                ", exceptionInfo=" + exceptionInfo +
+                ", exceptionClass='" + exceptionClass + '\'' +
+                ", applicationServiceType=" + applicationServiceType +
+                ", acceptorHost='" + acceptorHost + '\'' +
+                ", remoteAddr='" + remoteAddr + '\'' +
+                ", loggingTransactionInfo=" + loggingTransactionInfo +
+                ", attributeBoList=" + attributeBoList +
+                '}';
     }
+
 }

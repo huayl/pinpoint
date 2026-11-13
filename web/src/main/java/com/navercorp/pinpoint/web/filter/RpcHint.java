@@ -16,7 +16,7 @@
 
 package com.navercorp.pinpoint.web.filter;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import com.navercorp.pinpoint.web.filter.deserializer.RpcHintJsonDeserializer;
 
 import java.util.Collections;
@@ -52,10 +52,9 @@ public class RpcHint {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("RpcHint{");
-        sb.append("applicationName='").append(applicationName).append('\'');
-        sb.append(", rpcTypeList=").append(rpcTypeList);
-        sb.append('}');
-        return sb.toString();
+        return "RpcHint{" +
+                "applicationName='" + applicationName + '\'' +
+                ", rpcTypeList=" + rpcTypeList +
+                '}';
     }
 }

@@ -1,0 +1,2160 @@
+package com.navercorp.pinpoint.otlp.trace.collector.mapper;
+
+import tools.jackson.databind.ObjectMapper;
+import com.google.protobuf.ByteString;
+import com.navercorp.pinpoint.common.server.bo.AnnotationBo;
+import com.navercorp.pinpoint.common.server.bo.AttributeBo;
+import com.navercorp.pinpoint.common.server.bo.ParentApplication;
+import com.navercorp.pinpoint.common.server.bo.SpanBo;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
+import com.navercorp.pinpoint.common.trace.AnnotationKey;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.trace.ServiceTypeFactory;
+import com.navercorp.pinpoint.common.trace.attribute.AttributeValue;
+import com.navercorp.pinpoint.loader.service.ServiceTypeRegistryService;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.ActiveMQMessagingConsumerHandler;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.KafkaMessagingConsumerHandler;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.OtlpMessagingConsumerResolver;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.OtlpMessagingTypeResolver;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.PulsarMessagingConsumerHandler;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.RabbitMQMessagingConsumerHandler;
+import com.navercorp.pinpoint.otlp.trace.collector.mapper.message.RocketMQMessagingConsumerHandler;
+import io.opentelemetry.proto.common.v1.InstrumentationScope;
+import io.opentelemetry.proto.common.v1.KeyValue;
+import io.opentelemetry.proto.trace.v1.Span;
+import io.opentelemetry.proto.trace.v1.Status;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.intVal;
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.kv;
+import static com.navercorp.pinpoint.otlp.trace.collector.mapper.OtlpAnyValueFactory.strVal;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class OtlpTraceSpanMapperTest {
+
+    static ObjectMapper json = new ObjectMapper();
+
+    // =======================================================================
+    // extractHostAndPort
+    // =======================================================================
+
+    @Test
+    void extractHostAndPort_withSchemeAndPort() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("http://example.com:8080/path"))
+                .isEqualTo("example.com:8080");
+    }
+
+    @Test
+    void extractHostAndPort_withSchemeNoPort() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("https://example.com/path"))
+                .isEqualTo("example.com");
+    }
+
+    @Test
+    void extractHostAndPort_withSchemeNoPath() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("http://example.com:9090"))
+                .isEqualTo("example.com:9090");
+    }
+
+    @Test
+    void extractHostAndPort_noScheme() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("example.com:8080/path"))
+                .isEqualTo("example.com:8080");
+    }
+
+    @Test
+    void extractHostAndPort_withQuery() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("http://example.com/path?key=val"))
+                .isEqualTo("example.com");
+    }
+
+    @Test
+    void extractHostAndPort_withFragment() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("http://example.com/path#section"))
+                .isEqualTo("example.com");
+    }
+
+    @Test
+    void extractHostAndPort_schemeRelative() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("//example.com:8080/path"))
+                .isEqualTo("example.com:8080");
+    }
+
+    @Test
+    void extractHostAndPort_stripsUserInfo() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("http://alice:pass@example.com:8080/path"))
+                .isEqualTo("example.com:8080");
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("//alice@example.com/path"))
+                .isEqualTo("example.com");
+    }
+
+    @Test
+    void extractHostAndPort_null() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort(null)).isNull();
+    }
+
+    @Test
+    void extractHostAndPort_empty() {
+        assertThat(OtlpTraceSpanMapper.extractHostAndPort("")).isNull();
+    }
+
+    // =======================================================================
+    // extractPath
+    // =======================================================================
+
+    @Test
+    void extractPath_withSchemeAndPath() {
+        assertThat(OtlpTraceSpanMapper.extractPath("http://example.com/api/users"))
+                .isEqualTo("/api/users");
+    }
+
+    @Test
+    void extractPath_withQuery() {
+        assertThat(OtlpTraceSpanMapper.extractPath("http://example.com/api?key=val"))
+                .isEqualTo("/api");
+    }
+
+    @Test
+    void extractPath_withFragment() {
+        assertThat(OtlpTraceSpanMapper.extractPath("http://example.com/api#section"))
+                .isEqualTo("/api");
+    }
+
+    @Test
+    void extractPath_noPath() {
+        assertThat(OtlpTraceSpanMapper.extractPath("http://example.com"))
+                .isEqualTo("/");
+    }
+
+    @Test
+    void extractPath_rootPath() {
+        assertThat(OtlpTraceSpanMapper.extractPath("http://example.com/"))
+                .isEqualTo("/");
+    }
+
+    @Test
+    void extractPath_null() {
+        assertThat(OtlpTraceSpanMapper.extractPath(null)).isEqualTo("/");
+    }
+
+    @Test
+    void extractPath_empty() {
+        assertThat(OtlpTraceSpanMapper.extractPath("")).isEqualTo("/");
+    }
+
+    @Test
+    void extractPath_noScheme() {
+        assertThat(OtlpTraceSpanMapper.extractPath("example.com/api/hello"))
+                .isEqualTo("/api/hello");
+    }
+
+    @Test
+    void extractPath_deepPath() {
+        assertThat(OtlpTraceSpanMapper.extractPath("https://example.com:443/a/b/c/d"))
+                .isEqualTo("/a/b/c/d");
+    }
+
+    // =======================================================================
+    // map() — Kafka consumer span
+    // =======================================================================
+
+    private static final byte[] TRACE_ID = {
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    };
+    private static final byte[] SPAN_ID = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    // Stub registry pre-loaded with the 5 messaging *_CLIENT ServiceTypes so consumer/producer
+    // assertions resolve to the agent-side plugin codes (KAFKA_CLIENT=8660, etc.).
+    private static final ServiceTypeRegistryService MESSAGING_REGISTRY = messagingRegistry();
+
+    private static ServiceTypeRegistryService messagingRegistry() {
+        Map<String, ServiceType> byName = new HashMap<>();
+        byName.put("KAFKA_CLIENT",          ServiceTypeFactory.of(8660, "KAFKA_CLIENT",          "KAFKA_CLIENT"));
+        byName.put("RABBITMQ_CLIENT",       ServiceTypeFactory.of(8300, "RABBITMQ_CLIENT",       "RABBITMQ_CLIENT"));
+        byName.put("PULSAR_CLIENT",         ServiceTypeFactory.of(8670, "PULSAR_CLIENT",         "PULSAR_CLIENT"));
+        byName.put("ROCKETMQ_CLIENT",       ServiceTypeFactory.of(8400, "ROCKETMQ_CLIENT",       "ROCKETMQ_CLIENT"));
+        byName.put("ACTIVEMQ_CLIENT",       ServiceTypeFactory.of(8310, "ACTIVEMQ_CLIENT",       "ACTIVEMQ_CLIENT"));
+        byName.put("GRPC_SERVER",           ServiceTypeFactory.of(1130, "GRPC_SERVER",           "GRPC_SERVER"));
+        byName.put("APACHE_DUBBO_PROVIDER", ServiceTypeFactory.of(1999, "APACHE_DUBBO_PROVIDER", "APACHE_DUBBO_PROVIDER"));
+        return new ServiceTypeRegistryService() {
+            @Override
+            public ServiceType findServiceType(int code) {
+                return byName.values().stream()
+                        .filter(t -> t.getCode() == code)
+                        .findFirst()
+                        .orElse(ServiceType.UNDEFINED);
+            }
+
+            @Override
+            public ServiceType findServiceTypeByName(String typeName) {
+                return byName.getOrDefault(typeName, ServiceType.UNDEFINED);
+            }
+
+            @Override
+            public List<ServiceType> findDesc(String desc) {
+                return List.of();
+            }
+        };
+    }
+
+    private static OtlpTraceSpanMapper newMapper() {
+        OtlpMessagingTypeResolver messagingTypeResolver = new OtlpMessagingTypeResolver(MESSAGING_REGISTRY);
+        return new OtlpTraceSpanMapper(
+                new OtlpTraceEventMapper(json, 8192),
+                new OtlpTraceLinkMapper(json, 8192),
+                new OtlpServerTypeResolver(MESSAGING_REGISTRY),
+                new OtlpEnvoyRecorder(),
+                new OtlpExceptionInfoResolver(),
+                new OtlpMessagingConsumerResolver(List.of(
+                        new KafkaMessagingConsumerHandler(),
+                        new RabbitMQMessagingConsumerHandler(),
+                        new PulsarMessagingConsumerHandler(),
+                        new RocketMQMessagingConsumerHandler(),
+                        new ActiveMQMessagingConsumerHandler()), messagingTypeResolver),
+                new OtlpAttributeBoMapper(8192));
+    }
+
+    private static IdAndName id() {
+        return new IdAndName("agent-1", "agent-1", "app-1", "default");
+    }
+
+    // scope-less default: SDKs that don't populate the InstrumentationScope send the proto
+    // default instance (empty name), which must not produce an OPENTELEMETRY_SCOPE annotation.
+    private static final InstrumentationScope NO_SCOPE = InstrumentationScope.getDefaultInstance();
+
+    private static InstrumentationScope scope(String name, String version) {
+        return InstrumentationScope.newBuilder().setName(name).setVersion(version).build();
+    }
+
+    private static Span consumerKafkaSpan(KeyValue... extraAttrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("orders process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("kafka")))
+                .addAttributes(kv("messaging.destination.name", strVal("orders")));
+        for (KeyValue extra : extraAttrs) {
+            builder.addAttributes(extra);
+        }
+        return builder.build();
+    }
+
+    private static Object findAnnotation(SpanBo bo, int code) {
+        return bo.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == code)
+                .map(AnnotationBo::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static List<String> attributeKeys(SpanBo bo) {
+        return bo.getAttributeBoList().stream()
+                .map(AttributeBo::getKey)
+                .toList();
+    }
+
+    private static Object attributeValue(SpanBo bo, String key) {
+        return bo.getAttributeBoList().stream()
+                .filter(attribute -> attribute.getKey().equals(key))
+                .map(attribute -> attribute.getValue().getValue())
+                .findFirst()
+                .orElse(null);
+    }
+
+    // =======================================================================
+    // map() — OPENTELEMETRY_SCOPE annotation
+    // =======================================================================
+
+    @Test
+    void map_scope_nameAndVersion_recordsScopeAnnotation() {
+        Span span = consumerKafkaSpan();
+        SpanBo bo = newMapper().map(id(), span, scope("io.opentelemetry.kafka-clients-2.6", "2.5.0"));
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_SCOPE.getCode()))
+                .isEqualTo("io.opentelemetry.kafka-clients-2.6@2.5.0");
+    }
+
+    @Test
+    void map_scope_nameOnly_omitsVersionSuffix() {
+        Span span = consumerKafkaSpan();
+        SpanBo bo = newMapper().map(id(), span, scope("my-custom-tracer", ""));
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_SCOPE.getCode()))
+                .isEqualTo("my-custom-tracer");
+    }
+
+    @Test
+    void map_scope_unset_noScopeAnnotation() {
+        Span span = consumerKafkaSpan();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_SCOPE.getCode())).isNull();
+    }
+
+    @Test
+    void map_consumer_kafka_setsKafkaServiceType() {
+        Span span = consumerKafkaSpan();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 8660); // KAFKA_CLIENT
+    }
+
+    @Test
+    void map_consumer_kafka_applicationServiceTypeStaysOtelServer() {
+        // The span-level KAFKA_CLIENT specialization must not leak into the
+        // application-level type used by application-keyed storage (trace index v2
+        // row key, server-map self vertex, application registration).
+        Span span = consumerKafkaSpan();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getApplicationServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_consumer_kafka_rpcFormat() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.kafka.destination.partition", intVal(0)),
+                kv("messaging.kafka.message.offset", intVal(12345))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("kafka://topic=orders?partition=0&offset=12345");
+    }
+
+    @Test
+    void map_consumer_kafka_partitionZeroIsRecorded() {
+        // Previous bug: partition was read as String (always null), and offset==0 was skipped.
+        Span span = consumerKafkaSpan(
+                kv("messaging.kafka.destination.partition", intVal(0))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_PARTITION))
+                .isEqualTo(0);
+        assertThat(bo.getRpc()).contains("partition=0");
+    }
+
+    @Test
+    void map_consumer_kafka_offsetZeroIsRecorded() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.kafka.message.offset", intVal(0))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_OFFSET))
+                .isEqualTo(0L);
+        assertThat(bo.getRpc()).contains("offset=0");
+    }
+
+    @Test
+    void map_consumer_kafka_negativeOffsetOmitted() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.kafka.message.offset", intVal(-1001))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_OFFSET))
+                .isNull();
+        assertThat(bo.getRpc()).doesNotContain("offset=");
+    }
+
+    @Test
+    void map_consumer_kafka_partitionStringFallback() {
+        // OTel semconv ≥ 1.24 uses messaging.destination.partition.id (string)
+        Span span = consumerKafkaSpan(
+                kv("messaging.destination.partition.id", strVal("7"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_PARTITION))
+                .isEqualTo(7);
+        assertThat(bo.getRpc()).contains("partition=7");
+    }
+
+    @Test
+    void map_consumer_kafka_annotationsRecorded() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.kafka.destination.partition", intVal(3)),
+                kv("messaging.kafka.message.offset", intVal(42)),
+                kv("messaging.kafka.consumer.group", strVal("accounting"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_TOPIC))
+                .isEqualTo("orders");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_PARTITION))
+                .isEqualTo(3);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_OFFSET))
+                .isEqualTo(42L);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_CONSUMER_GROUP))
+                .isEqualTo("accounting");
+    }
+
+    @Test
+    void map_consumer_kafka_endPointUsesBrokerServerAddress() {
+        Span span = consumerKafkaSpan(
+                kv("server.address", strVal("broker1.example.com")),
+                kv("server.port", intVal(9092)),
+                kv("messaging.client_id", strVal("rdkafka#consumer-1"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("broker1.example.com:9092");
+        assertThat(bo.getRemoteAddr()).isEqualTo("broker1.example.com:9092");
+    }
+
+    @Test
+    void map_consumer_kafka_endPointFallsBackToClientId() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.client_id", strVal("rdkafka#consumer-1"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("rdkafka#consumer-1");
+        // no broker address: remoteAddr falls back like the agent kafka plugin (never null)
+        assertThat(bo.getRemoteAddr()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getAcceptorHost()).isEqualTo("rdkafka#consumer-1");
+    }
+
+    @Test
+    void map_consumer_kafka_endPointFallsBackToCurrentClientIdKey() {
+        // Current semconv spelling messaging.client.id (messaging.client_id is deprecated).
+        Span span = consumerKafkaSpan(
+                kv("messaging.client.id", strVal("consumer-42"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("consumer-42");
+        // both spellings are in the static filtered set
+        assertThat(attributeKeys(bo)).doesNotContain("messaging.client.id", "messaging.client_id");
+    }
+
+    @Test
+    void map_consumer_kafka_blankCurrentClientIdKey_fallsBackToLegacy() {
+        // A present-but-blank messaging.client.id is treated as absent: the deprecated twin still
+        // supplies the endPoint instead of an empty string.
+        Span span = consumerKafkaSpan(
+                kv("messaging.client.id", strVal("   ")),
+                kv("messaging.client_id", strVal("legacy-1"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("legacy-1");
+    }
+
+    @Test
+    void map_consumer_kafka_blankClientIdKeysOnly_fallsBackToUnknown() {
+        // Blank client id keys count as absent: the consumer address fields must not carry the
+        // blank value. Without a broker the endPoint falls back to "Unknown" (the fields are never
+        // null, see MessageConsumerRecorder) and the acceptorHost to the destination name.
+        Span span = consumerKafkaSpan(
+                kv("messaging.client.id", strVal("")),
+                kv("messaging.client_id", strVal(" "))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getRemoteAddr()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getAcceptorHost()).isEqualTo("orders");
+    }
+
+    @Test
+    void map_consumer_kafka_currentClientIdKeyWinsOverLegacy() {
+        Span span = consumerKafkaSpan(
+                kv("messaging.client.id", strVal("consumer-42")),
+                kv("messaging.client_id", strVal("legacy-1"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("consumer-42");
+    }
+
+    @Test
+    void map_consumer_unsupportedSystem_endPointFallsBackToCurrentClientIdKey() {
+        // Unsupported messaging.system takes the generic consumer fallback in
+        // getRootSpanToEndPoint, which must accept the current client id key too.
+        Span span = Span.newBuilder()
+                .setName("jobs process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("nats")))
+                .addAttributes(kv("messaging.client.id", strVal("nats-client-7")))
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("nats-client-7");
+    }
+
+    @Test
+    void map_consumer_kafka_acceptorHostUsesBroker() {
+        Span span = consumerKafkaSpan(
+                kv("server.address", strVal("broker1.example.com")),
+                kv("server.port", intVal(9092))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getAcceptorHost()).isEqualTo("broker1.example.com:9092");
+    }
+
+    @Test
+    void map_consumer_kafka_noBrokerNoClientId_acceptorHostFallsBackToDestination() {
+        // consumerKafkaSpan() carries messaging.destination.name=orders and no address attributes
+        SpanBo bo = newMapper().map(id(), consumerKafkaSpan(), NO_SCOPE);
+        assertThat(bo.getAcceptorHost()).isEqualTo("orders");
+        assertThat(bo.getEndPoint()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getRemoteAddr()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+    }
+
+    @Test
+    void map_consumer_kafka_noAddressNoDestination_allFieldsUnknown() {
+        Span span = Span.newBuilder()
+                .setName("process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("kafka")))
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getAcceptorHost()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getEndPoint()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+        assertThat(bo.getRemoteAddr()).isEqualTo(OtlpTraceConstants.UNKNOWN_ADDRESS);
+    }
+
+    @Test
+    void map_consumer_kafka_brokerWinsOverDestinationForAcceptorHost() {
+        Span span = consumerKafkaSpan(
+                kv("server.address", strVal("broker1.example.com")),
+                kv("server.port", intVal(9092)),
+                kv("messaging.client_id", strVal("rdkafka#consumer-1"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getAcceptorHost()).isEqualTo("broker1.example.com:9092");
+        assertThat(bo.getRemoteAddr()).isEqualTo("broker1.example.com:9092");
+    }
+
+    @Test
+    void map_consumer_unsupportedSystemKeepsOpenTelemetryServer() {
+        // sqs / rocketmq / etc. — no Pinpoint ServiceType registered, falls back to generic server.
+        Span span = Span.newBuilder()
+                .setName("queue.receive")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("aws_sqs")))
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+        // No system-specific annotations added.
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_TOPIC)).isNull();
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_RABBITMQ_EXCHANGE)).isNull();
+    }
+
+    // =======================================================================
+    // map() — RabbitMQ consumer span (dispatch via messaging.system)
+    // =======================================================================
+
+    private static Span consumerRabbitMQSpan(KeyValue... extraAttrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("orders process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("rabbitmq")))
+                .addAttributes(kv("messaging.destination.name", strVal("orders.exchange")));
+        for (KeyValue extra : extraAttrs) {
+            builder.addAttributes(extra);
+        }
+        return builder.build();
+    }
+
+    @Test
+    void map_consumer_rabbitmq_setsRabbitMQServiceType() {
+        Span span = consumerRabbitMQSpan();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 8300); // RABBITMQ_CLIENT
+    }
+
+    @Test
+    void map_consumer_rabbitmq_rpcFormat() {
+        Span span = consumerRabbitMQSpan(
+                kv("messaging.rabbitmq.destination.routing_key", strVal("order.created"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("rabbitmq://exchange=orders.exchange?routingkey=order.created");
+    }
+
+    @Test
+    void map_consumer_rabbitmq_rpcWithoutRoutingKey() {
+        Span span = consumerRabbitMQSpan();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("rabbitmq://exchange=orders.exchange");
+    }
+
+    @Test
+    void map_consumer_rabbitmq_annotationsRecorded() {
+        Span span = consumerRabbitMQSpan(
+                kv("messaging.rabbitmq.destination.routing_key", strVal("order.created"))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_RABBITMQ_EXCHANGE))
+                .isEqualTo("orders.exchange");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_RABBITMQ_ROUTING_KEY))
+                .isEqualTo("order.created");
+        // No kafka annotations added.
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_KAFKA_TOPIC)).isNull();
+    }
+
+    @Test
+    void map_consumer_rabbitmq_endPointUsesBrokerServerAddress() {
+        Span span = consumerRabbitMQSpan(
+                kv("server.address", strVal("rabbit1.example.com")),
+                kv("server.port", intVal(5672))
+        );
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("rabbit1.example.com:5672");
+        assertThat(bo.getRemoteAddr()).isEqualTo("rabbit1.example.com:5672");
+        assertThat(bo.getAcceptorHost()).isEqualTo("rabbit1.example.com:5672");
+    }
+
+    // =======================================================================
+    // map() — Pulsar / RocketMQ / ActiveMQ consumer dispatch (smoke tests)
+    // =======================================================================
+
+    private static Span consumerSpan(String system, String destination, KeyValue... extraAttrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName(destination + " process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal(system)))
+                .addAttributes(kv("messaging.destination.name", strVal(destination)));
+        for (KeyValue extra : extraAttrs) {
+            builder.addAttributes(extra);
+        }
+        return builder.build();
+    }
+
+    @Test
+    void map_consumer_pulsar_setsPulsarServiceTypeAndAnnotations() {
+        Span span = consumerSpan("pulsar", "persistent://public/default/orders",
+                kv("messaging.destination.partition.id", strVal("2")),
+                kv("messaging.message.id", strVal("3:42:0")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 8670); // PULSAR_CLIENT
+        assertThat(bo.getRpc()).isEqualTo("pulsar://topic=persistent://public/default/orders?partition=2&messageId=3:42:0");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_PULSAR_TOPIC))
+                .isEqualTo("persistent://public/default/orders");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_PULSAR_PARTITION_INDEX))
+                .isEqualTo(2);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_PULSAR_MESSAGE_ID))
+                .isEqualTo("3:42:0");
+    }
+
+    @Test
+    void map_consumer_rocketmq_setsRocketMQServiceTypeAndAnnotations() {
+        Span span = consumerSpan("rocketmq", "orders",
+                kv("messaging.destination.partition.id", strVal("4")),
+                kv("server.address", strVal("rmq1.example.com")),
+                kv("server.port", intVal(10911)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 8400); // ROCKETMQ_CLIENT
+        assertThat(bo.getRpc()).isEqualTo("rocketmq://topic=orders?queue=4");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_ROCKETMQ_TOPIC))
+                .isEqualTo("orders");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_ROCKETMQ_MESSAGE_QUEUE))
+                .isEqualTo(4);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_ROCKETMQ_BROKER_SERVER))
+                .isEqualTo("rmq1.example.com:10911");
+    }
+
+    @Test
+    void map_consumer_activemq_setsActiveMQServiceTypeAndAnnotations() {
+        Span span = consumerSpan("activemq", "orders.queue",
+                kv("server.address", strVal("amq1.example.com")),
+                kv("server.port", intVal(61616)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 8310); // ACTIVEMQ_CLIENT
+        assertThat(bo.getRpc()).isEqualTo("activemq://queue=orders.queue");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_MESSAGE_QUEUE_URI))
+                .isEqualTo("orders.queue");
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_ACTIVEMQ_BROKER_ADDRESS))
+                .isEqualTo("amq1.example.com:61616");
+    }
+
+    // =======================================================================
+    // map() — SERVER-kind ServiceType dispatch via rpc.system
+    // =======================================================================
+
+    // =======================================================================
+    // getExceptionUriTemplate — exception grouping template (route → rpc.method → "", agent parity)
+    // =======================================================================
+
+    private static Span kindSpan(int kind, String name, KeyValue... attrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName(name)
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(kind);
+        for (KeyValue attr : attrs) {
+            builder.addAttributes(attr);
+        }
+        return builder.build();
+    }
+
+    private static String exceptionUriTemplate(Span span) {
+        return exceptionUriTemplate(span, NO_SCOPE);
+    }
+
+    private static String exceptionUriTemplate(Span span, InstrumentationScope scope) {
+        return newMapper().getExceptionUriTemplate(span, OtlpTraceMapperUtils.getAttributeValueMap(span.getAttributesList()), scope);
+    }
+
+    @Test
+    void exceptionUriTemplate_prefersHttpRoute() {
+        Span span = serverSpan(
+                kv("http.route", strVal("/api/users/{id}")),
+                kv("url.path", strVal("/api/users/123")),
+                kv("rpc.method", strVal("ignored")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("/api/users/{id}");
+    }
+
+    @Test
+    void exceptionUriTemplate_nextRoute_whenNoHttpRoute() {
+        Span span = serverSpan(
+                kv("next.route", strVal("/api/products/[productId]/index")),
+                kv("url.path", strVal("/api/products/0PUK6V6EV0")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("/api/products/[productId]/index");
+    }
+
+    @Test
+    void exceptionUriTemplate_micrometerUri_forSpringBootScope() {
+        Span span = serverSpan(
+                kv("uri", strVal("/user/{id}")),
+                kv("http.url", strVal("http://svc/user/42")));
+        assertThat(exceptionUriTemplate(span, scope(OtlpMicrometerAttributes.SCOPE_SPRING_BOOT, "3.5.0"))).isEqualTo("/user/{id}");
+        // the same attributes without the micrometer scope are not a template → empty
+        assertThat(exceptionUriTemplate(span, NO_SCOPE)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_rpcMethod_forGrpcServer() {
+        // 1.x pair is composed into the RC fully-qualified form so both generations share one key.
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "oteldemo.CheckoutService/PlaceOrder",
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.service", strVal("oteldemo.CheckoutService")),
+                kv("rpc.method", strVal("PlaceOrder")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("oteldemo.CheckoutService/PlaceOrder");
+    }
+
+    @Test
+    void exceptionUriTemplate_rcFullyQualifiedRpcMethod_passedThrough() {
+        // RC semconv: rpc.method already fully-qualified, rpc.service absent.
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "oteldemo.CheckoutService/PlaceOrder",
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.method", strVal("oteldemo.CheckoutService/PlaceOrder")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("oteldemo.CheckoutService/PlaceOrder");
+    }
+
+    @Test
+    void exceptionUriTemplate_unrouted_urlPath_isEmpty_notRawPath() {
+        // otelgin 404: blank http.route + raw url.path → "", like the agent for an unmatched request.
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "GET",
+                kv("http.route", strVal("")),
+                kv("url.path", strVal("/nosuchpath/123")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+        // the rpc keeps the raw path (transaction view is unchanged)
+        assertThat(newMapper().getServerSpanToRpc(span, OtlpTraceMapperUtils.getAttributeValueMap(span.getAttributesList()))).isEqualTo("/nosuchpath/123");
+    }
+
+    @Test
+    void exceptionUriTemplate_unrouted_httpUrl_isEmpty() {
+        // Envoy ingress: only http.url → "" (the span name "ingress" is not a route template).
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "ingress",
+                kv("http.url", strVal("http://frontend-proxy:8080/api/products/0PUK6V6EV0")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_unrouted_httpTarget_isEmpty() {
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "POST",
+                kv("http.target", strVal("/api/cart?sessionId=abc")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_internalRoot_withoutTemplate_isEmpty() {
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE, "claude_code.query",
+                kv("gen_ai.system", strVal("anthropic")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_internalRoot_httpRouteStillWins() {
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE, "handler",
+                kv("http.route", strVal("/internal/{id}")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("/internal/{id}");
+    }
+
+    @Test
+    void exceptionUriTemplate_internalRoot_rpcMethod() {
+        // rpc.method applies to INTERNAL roots as well (same kinds as the route template).
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE, "oteldemo.AdService/GetAds",
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.method", strVal("GetAds")));
+        assertThat(exceptionUriTemplate(span)).isEqualTo("GetAds");
+    }
+
+    @Test
+    void exceptionUriTemplate_internalRoot_micrometerUri_notATemplate() {
+        // The micrometer `uri` tag is only a route template on SERVER spans (resolveRouteTemplate);
+        // on an INTERNAL root it is not interpreted, so the exception uriTemplate stays empty.
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE, "observed-job",
+                kv("uri", strVal("/user/{id}")));
+        assertThat(exceptionUriTemplate(span, scope(OtlpMicrometerAttributes.SCOPE_SPRING_BOOT, "3.5.0"))).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_clientRoot_isEmpty_ignoresRpcMethod() {
+        // CLIENT roots (e.g. a background flagd stream) have no server-side template → "".
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_CLIENT_VALUE, "/flagd.evaluation.v1.Service/EventStream",
+                kv("rpc.method", strVal("EventStream")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_consumerRoot_isEmpty() {
+        // The agent records no uriTemplate for messaging consumers either.
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE, "orders receive",
+                kv("messaging.system", strVal("kafka")),
+                kv("messaging.destination.name", strVal("orders")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_neverNull() {
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "");
+        assertThat(exceptionUriTemplate(span)).isNotNull().isEmpty();
+    }
+
+    @Test
+    void exceptionUriTemplate_blankRpcMethod_treatedAsAbsent() {
+        Span span = kindSpan(Span.SpanKind.SPAN_KIND_SERVER_VALUE, "rpc",
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.method", strVal(" ")));
+        assertThat(exceptionUriTemplate(span)).isEmpty();
+    }
+
+    private static Span serverSpan(KeyValue... attrs) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("HTTP GET /api")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE);
+        for (KeyValue attr : attrs) {
+            builder.addAttributes(attr);
+        }
+        return builder.build();
+    }
+
+    @Test
+    void map_server_grpc_setsGrpcServerServiceType() {
+        // OTel grpc-1.6 agent emits rpc.system="grpc" on the server-side instrumenter.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.service", strVal("orders.OrderService")),
+                kv("rpc.method", strVal("PlaceOrder")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 1130); // GRPC_SERVER
+    }
+
+    @Test
+    void map_server_grpc_applicationServiceTypeStaysOtelServer() {
+        // The span-level GRPC_SERVER specialization must not leak into the
+        // application-level type used by application-keyed storage.
+        Span span = serverSpan(kv("rpc.system", strVal("grpc")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getApplicationServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_server_http_applicationServiceTypeIsOtelServer() {
+        Span span = serverSpan(kv("url.path", strVal("/api/users/123")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getApplicationServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_server_dubbo_setsDubboProviderServiceType() {
+        // OTel apache-dubbo-2.7 agent emits rpc.system="apache_dubbo" on the server side.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("apache_dubbo")),
+                kv("rpc.service", strVal("com.example.UserService")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 1999); // APACHE_DUBBO_PROVIDER
+    }
+
+    @Test
+    void map_server_http_keepsOpenTelemetryServer() {
+        // Generic HTTP server (jetty/netty/armeria/akka) — no rpc.system, no framework
+        // identifier in OTel attributes. Stays on OPENTELEMETRY_SERVER.
+        Span span = serverSpan(
+                kv("http.request.method", strVal("GET")),
+                kv("url.path", strVal("/api/users/123")),
+                kv("network.protocol.name", strVal("http")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_server_envoy_keepsOpenTelemetryServer_andRecordsAnnotations() {
+        // Envoy ingress span keeps the regular OPENTELEMETRY_SERVER type — no ServiceType
+        // override (mixing ENVOY(1550) with OPENTELEMETRY_SERVER under one applicationName
+        // caused node-type conflicts). Envoy identification is carried by the
+        // upstream.cluster / envoy.operation annotations only.
+        Span span = serverSpan(
+                kv("response_flags", strVal("-")),
+                kv("upstream_cluster", strVal("frontend")),
+                kv("upstream_cluster.name", strVal("frontend")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+        assertThat(annotationValue(bo, OtlpTraceConstants.ANNOTATION_KEY_UPSTREAM_CLUSTER)).isEqualTo("frontend");
+        assertThat(annotationValue(bo, OtlpTraceConstants.ANNOTATION_KEY_ENVOY_OPERATION)).isEqualTo("Ingress");
+    }
+
+    private static Object annotationValue(SpanBo spanBo, int key) {
+        return spanBo.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == key)
+                .map(com.navercorp.pinpoint.common.server.bo.AnnotationBo::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Test
+    void map_server_unsupportedRpcSystem_keepsOpenTelemetryServer() {
+        // OTel-spec values without a Pinpoint counterpart (java_rmi, connect_rpc, dotnet_wcf).
+        Span span = serverSpan(kv("rpc.system", strVal("java_rmi")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_server_grpc_caseInsensitive() {
+        Span span = serverSpan(kv("rpc.system", strVal("GRPC")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 1130); // GRPC_SERVER
+    }
+
+    // =======================================================================
+    // map() — rpc (uriTemplate) extraction precedence
+    // =======================================================================
+
+    @Test
+    void map_server_httpRoute_preferredOverUrlPath() {
+        // http.route is the low-cardinality template; url.path is the raw request path.
+        // The route template must win so the rpc field groups by endpoint pattern.
+        Span span = serverSpan(
+                kv("http.route", strVal("/api/users/{id}")),
+                kv("url.path", strVal("/api/users/123")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/users/{id}");
+    }
+
+    @Test
+    void map_server_urlPath_usedWhenHttpRouteAbsent() {
+        // Unrouted request (no http.route) falls back to url.path.
+        Span span = serverSpan(kv("url.path", strVal("/api/users/123")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/users/123");
+    }
+
+    @Test
+    void map_server_blankHttpRoute_treatedAsAbsent() {
+        // otelgin (Go) emits http.route="" for an unmatched route (404). A blank template must not
+        // become the rpc; fall through to url.path and leave the blank key in the raw attributes.
+        Span span = serverSpan(
+                kv("http.route", strVal("")),
+                kv("url.path", strVal("/nosuchpath")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/nosuchpath");
+        assertThat(attributeKeys(bo)).contains("http.route").doesNotContain("url.path");
+    }
+
+    @Test
+    void map_server_whitespaceHttpRoute_treatedAsAbsent() {
+        Span span = serverSpan(
+                kv("http.route", strVal("  ")),
+                kv("url.path", strVal("/nosuchpath")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/nosuchpath");
+    }
+
+    @Test
+    void map_server_blankNextRoute_treatedAsAbsent() {
+        Span span = serverSpan(
+                kv("next.route", strVal("")),
+                kv("url.path", strVal("/api/products/1")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/products/1");
+        assertThat(attributeKeys(bo)).contains("next.route");
+    }
+
+    @Test
+    void map_server_blankHttpRoute_noOtherPathKeys_fallsToSpanName() {
+        // no path key at all → the existing span-name fallback applies, never the empty string
+        Span span = serverSpan(kv("http.route", strVal("")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo(span.getName()).isNotEmpty();
+    }
+
+    // =======================================================================
+    // map() — legacy (semconv 1.x) server-side network keys
+    // =======================================================================
+
+    @Test
+    void map_server_legacyNetHost_setsEndPoint() {
+        // opentelemetry-go-contrib <= 0.60 / python default: net.host.name + net.host.port instead of
+        // server.address + server.port. Previously the endPoint stayed null.
+        Span span = serverSpan(
+                kv("http.target", strVal("/remote")),
+                kv("net.host.name", strVal("localhost")),
+                kv("net.host.port", intVal(18092)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("localhost:18092");
+        assertThat(attributeKeys(bo)).doesNotContain("net.host.name", "net.host.port");
+    }
+
+    @Test
+    void map_server_legacyNetHost_withoutPort() {
+        Span span = serverSpan(kv("net.host.name", strVal("api.internal")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("api.internal");
+    }
+
+    @Test
+    void map_server_serverAddressAlreadyHasPort_doesNotAppendPortAgain() {
+        // opentelemetry-python-contrib (util-http) copies the raw Host header into server.address and
+        // still emits server.port — previously stored as "localhost:18120:18120"
+        Span span = serverSpan(
+                kv("server.address", strVal("localhost:18120")),
+                kv("server.port", intVal(18120)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("localhost:18120");
+    }
+
+    @Test
+    void map_server_legacyNetHostAlreadyHasPort_doesNotAppendPortAgain() {
+        // same instrumentation in old-semconv mode (Flask default)
+        Span span = serverSpan(
+                kv("net.host.name", strVal("localhost:18120")),
+                kv("net.host.port", intVal(18120)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("localhost:18120");
+    }
+
+    @Test
+    void map_server_ipv6ServerAddress_stillGetsPort() {
+        Span span = serverSpan(
+                kv("server.address", strVal("::1")),
+                kv("server.port", intVal(18120)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("::1:18120");
+    }
+
+    @Test
+    void hasPortSuffix() {
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("localhost:18120")).isTrue();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("127.0.0.1:18131")).isTrue();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("[::1]:18120")).isTrue();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("localhost")).isFalse();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("::1")).isFalse();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("fe80::1")).isFalse();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("localhost:")).isFalse();
+        assertThat(OtlpTraceSpanMapper.hasPortSuffix("host:abc")).isFalse();
+    }
+
+    @Test
+    void map_server_serverAddressAlreadyHasPort_withoutPortAttribute() {
+        // no server.port at all → the value is stored as-is either way
+        Span span = serverSpan(kv("server.address", strVal("localhost:18120")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("localhost:18120");
+    }
+
+    @Test
+    void map_server_blankHttpRoute_fallsToNextRoute() {
+        // the blank key is skipped, not the whole route-template stage: next.route still wins over url.path
+        Span span = serverSpan(
+                kv("http.route", strVal("")),
+                kv("next.route", strVal("/api/products/[id]")),
+                kv("url.path", strVal("/api/products/1")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/products/[id]");
+        assertThat(attributeKeys(bo)).contains("http.route").doesNotContain("next.route");
+    }
+
+    @Test
+    void map_server_legacyNetSockPeer_withoutPort() {
+        Span span = serverSpan(kv("net.sock.peer.addr", strVal("10.0.0.7")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("10.0.0.7");
+    }
+
+    @Test
+    void map_server_legacyNetSockPeer_winsOverHttpClientIp() {
+        // both legacy keys present: the socket peer (the direct connection) is preferred, and only it is consumed
+        Span span = serverSpan(
+                kv("net.sock.peer.addr", strVal("::1")),
+                kv("net.sock.peer.port", intVal(5686)),
+                kv("http.client_ip", strVal("10.0.0.7")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("::1:5686");
+        assertThat(attributeKeys(bo)).contains("http.client_ip").doesNotContain("net.sock.peer.addr");
+    }
+
+    @Test
+    void map_server_legacyNetPeerIp_winsOverNetSockPeer() {
+        // net.peer.ip (semconv <= 1.12, otel-js <= 0.220) sits before the semconv 1.x socket keys in the chain
+        Span span = serverSpan(
+                kv("net.peer.ip", strVal("127.0.0.1")),
+                kv("net.sock.peer.addr", strVal("::1")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("127.0.0.1");
+        assertThat(attributeKeys(bo)).contains("net.sock.peer.addr").doesNotContain("net.peer.ip");
+    }
+
+    @Test
+    void map_server_stableServerAddress_winsOverLegacyNetHost() {
+        // http/dup mode emits both key sets — the stable key wins and only it is consumed
+        Span span = serverSpan(
+                kv("server.address", strVal("stable")),
+                kv("server.port", intVal(8080)),
+                kv("net.host.name", strVal("legacy")),
+                kv("net.host.port", intVal(18092)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("stable:8080");
+        assertThat(attributeKeys(bo)).contains("net.host.name", "net.host.port").doesNotContain("server.address");
+    }
+
+    @Test
+    void map_server_legacyNetSockPeer_setsRemoteAddr() {
+        // net.sock.peer.addr/.port is the legacy network.peer.address/.port → same host:port shape
+        Span span = serverSpan(
+                kv("net.sock.peer.addr", strVal("::1")),
+                kv("net.sock.peer.port", intVal(5686)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        // HostAndPort joins with ':' without bracketing IPv6, exactly like the network.peer.address branch
+        assertThat(bo.getRemoteAddr()).isEqualTo("::1:5686");
+        assertThat(attributeKeys(bo)).doesNotContain("net.sock.peer.addr", "net.sock.peer.port");
+    }
+
+    @Test
+    void map_server_legacyHttpClientIp_setsRemoteAddr() {
+        Span span = serverSpan(kv("http.client_ip", strVal("10.0.0.7")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("10.0.0.7");
+        assertThat(attributeKeys(bo)).doesNotContain("http.client_ip");
+    }
+
+    @Test
+    void map_server_stableClientAddress_winsOverLegacyPeerKeys() {
+        Span span = serverSpan(
+                kv("client.address", strVal("192.168.0.1")),
+                kv("net.sock.peer.addr", strVal("::1")),
+                kv("http.client_ip", strVal("10.0.0.7")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("192.168.0.1");
+        assertThat(attributeKeys(bo)).contains("net.sock.peer.addr", "http.client_ip");
+    }
+
+    // =======================================================================
+    // map() — consumedKeys: filter only what was actually promoted
+    // =======================================================================
+
+    @Test
+    void map_server_rpcRace_onlyWinningKeyFiltered() {
+        // http.route wins the rpc precedence race — only the consumed key is filtered;
+        // the losing url.path stays in the raw attribute list instead of being blanket-dropped.
+        Span span = serverSpan(
+                kv("http.route", strVal("/api/users/{id}")),
+                kv("url.path", strVal("/api/users/123")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(attributeKeys(bo)).doesNotContain("http.route");
+        assertThat(attributeKeys(bo)).contains("url.path");
+    }
+
+    @Test
+    void map_server_httpTarget_consumedAsRpc_filtered() {
+        Span span = serverSpan(kv("http.target", strVal("/api/cart?x=1")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/cart?x=1");
+        assertThat(attributeKeys(bo)).doesNotContain("http.target");
+    }
+
+    @Test
+    void map_server_rpcServiceAndMethod_consumed_filtered() {
+        // 1.x pair: rpc.service → endPoint, rpc.service/rpc.method → rpc (RC form); both consumed → both filtered.
+        Span span = serverSpan(
+                kv("rpc.service", strVal("oteldemo.CartService")),
+                kv("rpc.method", strVal("AddItem")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("oteldemo.CartService/AddItem");
+        assertThat(bo.getEndPoint()).isEqualTo("oteldemo.CartService");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.service", "rpc.method");
+    }
+
+    @Test
+    void map_server_rcFullyQualifiedRpcMethod_rpcAndEndPoint() {
+        // RC semconv: only rpc.method ("<service>/<method>"); the endPoint service is derived from it.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.method", strVal("oteldemo.CartService/AddItem")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("oteldemo.CartService/AddItem");
+        assertThat(bo.getEndPoint()).isEqualTo("oteldemo.CartService");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.method");
+    }
+
+    @Test
+    void map_server_staleRpcServiceNextToRcMethod_notPrefixedTwice_bothFiltered() {
+        // A dual-emitting migration SDK: the RC rpc.method is passed through; rpc.service still
+        // serves the endPoint fallback, so both keys end up consumed.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.service", strVal("oteldemo.CartService")),
+                kv("rpc.method", strVal("oteldemo.CartService/AddItem")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("oteldemo.CartService/AddItem");
+        assertThat(bo.getEndPoint()).isEqualTo("oteldemo.CartService");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.service", "rpc.method");
+    }
+
+    @Test
+    void map_server_blankRpcMethod_rpcFallsBackToSpanName() {
+        // A blank rpc.method is treated as absent (previously it became an empty rpc); the span
+        // name is the last fallback and the untouched attribute is retained.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.method", strVal("  ")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("HTTP GET /api");
+        assertThat(attributeKeys(bo)).contains("rpc.method");
+    }
+
+    @Test
+    void map_server_rpcMethodWithoutService_staysBare() {
+        // 1.x sender that omits rpc.service: nothing to qualify with, and no endPoint service.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.method", strVal("AddItem")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("AddItem");
+        assertThat(bo.getEndPoint()).isNull();
+    }
+
+    @Test
+    void map_server_rpcMethod_serverAddressWinsOverDerivedService() {
+        // The address keys stay first in the endPoint chain; the rpc service is only a fallback.
+        Span span = serverSpan(
+                kv("server.address", strVal("cart.svc")),
+                kv("server.port", intVal(7070)),
+                kv("rpc.method", strVal("oteldemo.CartService/AddItem")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getEndPoint()).isEqualTo("cart.svc:7070");
+        assertThat(bo.getRpc()).isEqualTo("oteldemo.CartService/AddItem");
+    }
+
+    @Test
+    void map_server_peerAddress_consumedAsRemoteAddr_filtered() {
+        // peer.address (Envoy-style) resolves remoteAddr — previously it survived as a raw
+        // duplicate because it was missing from the static filter set.
+        Span span = serverSpan(kv("peer.address", strVal("172.18.0.25")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRemoteAddr()).isEqualTo("172.18.0.25");
+        assertThat(attributeKeys(bo)).doesNotContain("peer.address");
+    }
+
+    @Test
+    void map_server_httpUrl_partialConsumption_keptButSanitized() {
+        // http.url feeds both rpc (path) and endPoint (host:port); it is not "consumed", so the raw
+        // attribute is kept — but the security filter strips its query/fragment/userinfo, and the
+        // endPoint host extraction drops the userinfo.
+        Span span = serverSpan(kv("http.url", strVal("http://alice@shop:8080/api/cart?x=1#frag")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/cart");
+        assertThat(bo.getEndPoint()).isEqualTo("shop:8080");
+        assertThat(attributeKeys(bo)).contains("http.url");
+        assertThat(attributeValue(bo, "http.url")).isEqualTo("http://shop:8080/api/cart");
+    }
+
+    @Test
+    void map_server_rpcSystem_consumed_filtered() {
+        Span span = serverSpan(kv("rpc.system", strVal("grpc")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.system");
+    }
+
+    @Test
+    void map_internal_rpcSystem_notConsumed_keptRaw() {
+        // INTERNAL spans do not dispatch ServiceType via rpc.system — the key is not consumed,
+        // so it stays in the raw attribute list instead of being silently dropped.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE)
+                .addAttributes(kv("rpc.system", strVal("grpc")))
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(attributeKeys(bo)).contains("rpc.system");
+    }
+
+    // =======================================================================
+    // map() — gRPC status promotion (grpc.status, 160)
+    // =======================================================================
+
+    @Test
+    void map_server_grpcStatus_nonstandardStringVariant_promoted() {
+        // ASP.NET Core gRPC server emits the nonstandard grpc.status_code as a numeric string
+        // ("0"). The native agent has no gRPC server plugin, so this root-span promotion is
+        // OTel-only added value; the value mirrors the native name representation.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("grpc.status_code", strVal("0")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("OK");
+        assertThat(attributeKeys(bo)).doesNotContain("grpc.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_outOfRangeCode_recordedAsNumber() {
+        // Codes outside the spec range (0-16) have no canonical name — record the raw number.
+        Span span = serverSpan(kv("rpc.grpc.status_code", intVal(99)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("99");
+    }
+
+    @Test
+    void map_server_grpcStatus_nonNumeric_noAnnotationAndKeptRaw() {
+        // A non-numeric status is not promoted; the raw attribute survives (consumedKeys rule).
+        Span span = serverSpan(kv("grpc.status_code", strVal("OK")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isNull();
+        assertThat(attributeKeys(bo)).contains("grpc.status_code");
+    }
+
+    // =======================================================================
+    // map() — RC semconv rpc keys (rpc.system.name / rpc.response.status_code)
+    // =======================================================================
+
+    @Test
+    void map_server_rpcSystemName_rcKey_dispatchesServiceType() {
+        // RC semconv renamed rpc.system → rpc.system.name.
+        Span span = serverSpan(kv("rpc.system.name", strVal("grpc")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 1130); // GRPC_SERVER
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.system.name");
+    }
+
+    @Test
+    void map_server_rpcSystemName_precedesDeprecatedKey() {
+        // A dual-emitting migration SDK: the RC key wins; the non-consumed deprecated twin
+        // stays in the raw attribute list (consumedKeys rule).
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.system", strVal("grpc")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo((short) 1130); // GRPC_SERVER
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.system.name").contains("rpc.system");
+    }
+
+    @Test
+    void map_server_grpcStatus_rcResponseStatusCode_statusName_promoted() {
+        // RC rpc.response.status_code carries the gRPC status NAME directly.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.response.status_code", strVal("DEADLINE_EXCEEDED")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS))
+                .isEqualTo("DEADLINE_EXCEEDED");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.response.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_rcResponseStatusCode_numericString_translated() {
+        // Defensive: a sender still emitting the legacy numeric shape under the RC key is
+        // translated to the name representation. The gate also accepts the deprecated
+        // rpc.system spelling.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.response.status_code", strVal("14")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS))
+                .isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
+    void map_server_rpcResponseStatusCode_nonGrpcSystem_notPromoted() {
+        // rpc.response.status_code is shared by all rpc systems — a jsonrpc error code must
+        // not render as a gRPC status; the raw attribute is retained.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("jsonrpc")),
+                kv("rpc.response.status_code", strVal("-32602")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isNull();
+        assertThat(attributeKeys(bo)).contains("rpc.response.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_rcStatusCode_promoted_filtered() {
+        // Current RC key rpc.status_code (successor of rpc.response.status_code) on the root span.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.status_code", strVal("UNAVAILABLE")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("UNAVAILABLE");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_rcStatusCode_winsOverPredecessorAndLegacy_onlyConsumedFiltered() {
+        // A triple-emitting migration SDK: rpc.status_code wins; the non-consumed twins stay raw.
+        Span span = serverSpan(
+                kv("rpc.system.name", strVal("grpc")),
+                kv("rpc.status_code", strVal("OK")),
+                kv("rpc.response.status_code", strVal("UNAVAILABLE")),
+                kv("rpc.grpc.status_code", intVal(14)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("OK");
+        assertThat(attributeKeys(bo)).doesNotContain("rpc.status_code")
+                .contains("rpc.response.status_code", "rpc.grpc.status_code");
+    }
+
+    @Test
+    void map_server_rpcStatusCode_withoutRpcSystem_notPromoted() {
+        // The generic keys need the rpc-system gate; without it only the gRPC-specific legacy
+        // keys are considered, so nothing is promoted and the raw attribute is retained.
+        Span span = serverSpan(kv("rpc.status_code", strVal("UNAVAILABLE")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isNull();
+        assertThat(attributeKeys(bo)).contains("rpc.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_blankRcStatusCode_treatedAsAbsent_fallsBackToLegacy() {
+        // A whitespace-only rpc.status_code is not a status name: it must neither be promoted
+        // nor block the fallback to the legacy numeric key. The blank attribute itself is not
+        // consumed, so it stays in the raw attribute list.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.status_code", strVal("   ")),
+                kv("rpc.grpc.status_code", intVal(14)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isEqualTo("UNAVAILABLE");
+        assertThat(attributeKeys(bo)).contains("rpc.status_code").doesNotContain("rpc.grpc.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_blankRcStatusCodeOnly_notPromoted() {
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.status_code", strVal(" ")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS)).isNull();
+        assertThat(attributeKeys(bo)).contains("rpc.status_code");
+    }
+
+    @Test
+    void map_server_grpcStatus_paddedRcStatusCode_trimmed() {
+        // Surrounding whitespace is stripped before promotion, for names and numeric strings alike.
+        Span named = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.status_code", strVal(" DEADLINE_EXCEEDED ")));
+        assertThat(findAnnotation(newMapper().map(id(), named, NO_SCOPE), OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS))
+                .isEqualTo("DEADLINE_EXCEEDED");
+        Span numeric = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.status_code", strVal(" 4 ")));
+        assertThat(findAnnotation(newMapper().map(id(), numeric, NO_SCOPE), OtlpTraceConstants.ANNOTATION_KEY_GRPC_STATUS))
+                .isEqualTo("DEADLINE_EXCEEDED");
+    }
+
+    @Test
+    void map_server_envoy_upstreamClusterName_consumed_filtered() {
+        // The Envoy ingress branch promotes upstream_cluster.name to the upstream.cluster
+        // annotation — the consumed key is filtered; response_flags is only a detection gate
+        // (never promoted) and stays raw.
+        Span span = serverSpan(
+                kv("upstream_cluster.name", strVal("frontend")),
+                kv("response_flags", strVal("-")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, OtlpTraceConstants.ANNOTATION_KEY_UPSTREAM_CLUSTER)).isEqualTo("frontend");
+        assertThat(attributeKeys(bo)).doesNotContain("upstream_cluster.name");
+        assertThat(attributeKeys(bo)).contains("response_flags");
+    }
+
+    @Test
+    void map_server_nextRoute_preferredOverRawPath() {
+        // Next.js emits next.route (route template) but not http.route. It must win over the raw
+        // http.target so the rpc field groups by endpoint pattern instead of the concrete path.
+        Span span = serverSpan(
+                kv("next.route", strVal("/api/products/[productId]/index")),
+                kv("http.target", strVal("/api/products/66VCHSJNUP")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/products/[productId]/index");
+    }
+
+    @Test
+    void map_server_httpRoute_preferredOverNextRoute() {
+        // Standard http.route (when present) still wins over the vendor next.route.
+        Span span = serverSpan(
+                kv("http.route", strVal("/api/users/{id}")),
+                kv("next.route", strVal("/api/users/[id]")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getRpc()).isEqualTo("/api/users/{id}");
+    }
+
+    @Test
+    void map_server_nextRoute_notStoredAsRawAttribute() {
+        // Promoted to the rpc field on the root path, so it must not also leak as a raw
+        // attribute (mirrors http.route / url.path).
+        Span span = serverSpan(kv("next.route", strVal("/api/cart")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(attributeKeys(bo)).doesNotContain("next.route");
+    }
+
+    // =======================================================================
+    // map() — HTTP status code promotion + root-only raw-attribute filtering
+    // =======================================================================
+
+    @Test
+    void map_server_httpStatusCode_int_promotedAndFilteredFromAttributes() {
+        // Legacy http.status_code (int) is promoted to the HTTP_STATUS_CODE annotation and removed
+        // from the raw attribute list on the root path so there is no duplicate.
+        Span span = serverSpan(kv("http.status_code", intVal(200)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_STATUS_CODE.getCode())).isEqualTo(200);
+        assertThat(attributeKeys(bo)).doesNotContain("http.status_code");
+    }
+
+    @Test
+    void map_server_httpResponseStatusCode_promotedAndFilteredFromAttributes() {
+        // New semconv http.response.status_code — same promotion + root-path filtering.
+        Span span = serverSpan(kv("http.response.status_code", intVal(404)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_STATUS_CODE.getCode())).isEqualTo(404);
+        assertThat(attributeKeys(bo)).doesNotContain("http.response.status_code");
+    }
+
+    @Test
+    void map_server_httpStatusCode_string_promoted() {
+        // Envoy emits http.status_code as a string ("200"); it must still be promoted to the
+        // HTTP_STATUS_CODE annotation (int-only extraction would have dropped it).
+        Span span = serverSpan(kv("http.status_code", strVal("200")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_STATUS_CODE.getCode())).isEqualTo(200);
+    }
+
+    @Test
+    void map_server_httpStatusCode_nonNumericString_noAnnotationAndPreservedAsRawAttribute() {
+        // A non-numeric status string yields no HTTP_STATUS_CODE annotation rather than throwing.
+        // Because it was not promoted, the consumed-key filter leaves it untouched — the raw value
+        // survives instead of being blanket-dropped by a fixed status-key filter.
+        Span span = serverSpan(kv("http.status_code", strVal("OK")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_STATUS_CODE.getCode())).isNull();
+        assertThat(attributeKeys(bo)).contains("http.status_code");
+    }
+
+    @Test
+    void map_server_bothStatusKeys_onlyConsumedKeyRemoved() {
+        // When both keys are present, http.response.status_code wins and is promoted + removed;
+        // the non-consumed legacy http.status_code is retained as a raw attribute (only the key
+        // actually read is filtered, not a fixed pair).
+        Span span = serverSpan(
+                kv("http.response.status_code", intVal(200)),
+                kv("http.status_code", intVal(200)));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_STATUS_CODE.getCode())).isEqualTo(200);
+        assertThat(attributeKeys(bo)).doesNotContain("http.response.status_code");
+        assertThat(attributeKeys(bo)).contains("http.status_code");
+    }
+
+    // =======================================================================
+    // map() — HTTP method promotion
+    // =======================================================================
+
+    @Test
+    void map_server_httpMethod_legacy_promotedAndFiltered() {
+        // Legacy http.method is promoted to the HTTP_METHOD annotation and removed from the raw
+        // attribute list (no duplicate).
+        Span span = serverSpan(kv("http.method", strVal("GET")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_METHOD.getCode())).isEqualTo("GET");
+        assertThat(attributeKeys(bo)).doesNotContain("http.method");
+    }
+
+    @Test
+    void map_server_httpRequestMethod_newSemconv_preferredOverLegacy() {
+        // New semconv http.request.method wins over legacy http.method. Only the consumed
+        // variant is filtered — the non-consumed legacy twin stays as a raw attribute
+        // (same consumedKeys rule as the status keys).
+        Span span = serverSpan(
+                kv("http.request.method", strVal("POST")),
+                kv("http.method", strVal("POST")));
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.HTTP_METHOD.getCode())).isEqualTo("POST");
+        assertThat(attributeKeys(bo)).doesNotContain("http.request.method");
+        assertThat(attributeKeys(bo)).contains("http.method");
+    }
+
+    // =======================================================================
+    // getUriStatKey — URI stat key: route template, or /NULL for an unrouted HTTP request
+    // =======================================================================
+
+    private static Map<String, AttributeValue> attrs(Span span) {
+        return OtlpTraceMapperUtils.getAttributeValueMap(span.getAttributesList());
+    }
+
+    @Test
+    void uriStatKey_httpRouteOnServerSpan() {
+        Span span = serverSpan(
+                kv("http.route", strVal("/api/users/{id}")),
+                kv("url.path", strVal("/api/users/123")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/api/users/{id}");
+    }
+
+    @Test
+    void uriStatKey_rawPathOnly_isNullUri() {
+        // Unrouted HTTP (only url.path, no http.route) → "/NULL", NOT the raw path: path variables
+        // would explode the Pinot uriStat cardinality. The agent does the same — a null uriTemplate
+        // is stored under URITemplate.NULL_URI — so 404s stay visible as one bucket.
+        Span span = serverSpan(kv("url.path", strVal("/api/users/123")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/NULL");
+        assertThat(OtlpTraceConstants.URI_STAT_NULL_URI).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_legacyHttpUrlOnly_isNullUri() {
+        // Legacy semconv (Envoy, older SDKs) emits only http.url on the SERVER span — still an
+        // HTTP entry point without a template.
+        Span span = serverSpan(kv("http.url", strVal("http://frontend:8080/api/products/0PUK6V6EV0")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_httpTargetOnly_isNullUri() {
+        Span span = serverSpan(kv("http.target", strVal("/api/products/0PUK6V6EV0?x=1")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_httpMethodOnly_isNullUri() {
+        // The request method alone (stable http.request.method or legacy http.method) identifies
+        // an HTTP entry point even when the path keys were dropped by an attribute filter.
+        Span stable = serverSpan(kv("http.request.method", strVal("GET")));
+        assertThat(newMapper().getUriStatKey(stable, attrs(stable), NO_SCOPE)).isEqualTo("/NULL");
+        Span legacy = serverSpan(kv("http.method", strVal("GET")));
+        assertThat(newMapper().getUriStatKey(legacy, attrs(legacy), NO_SCOPE)).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_serverWithoutHttpAttributes_isNull() {
+        // A SERVER span that is not an HTTP request (nothing identifies it as one) is not counted:
+        // "/NULL" is an HTTP bucket, not a catch-all for every entry point.
+        Span span = serverSpan();
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isNull();
+    }
+
+    @Test
+    void uriStatKey_grpcServer_isNull() {
+        // gRPC entry points carry rpc.method, not an HTTP request — they belong to the rpc field
+        // and the exception uriTemplate, not to URI stat.
+        Span span = serverSpan(
+                kv("rpc.system", strVal("grpc")),
+                kv("rpc.service", strVal("oteldemo.CartService")),
+                kv("rpc.method", strVal("GetCart")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isNull();
+    }
+
+    @Test
+    void uriStatKey_unroutedInternalSpan_isNull() {
+        // The "/NULL" bucket is for SERVER spans only. An INTERNAL span may carry a template (see
+        // uriStatKey_httpRouteOnInternalSpan) but an unrouted one is internal work, not a request
+        // entry point, and must not inflate the bucket.
+        Span span = serverSpan(kv("url.path", strVal("/api/users/123"))).toBuilder()
+                .setKindValue(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE)
+                .build();
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isNull();
+    }
+
+    @Test
+    void uriStatKey_clientSpan_isNull() {
+        // URI stat is an entry-point (server-side) statistic; client spans never contribute —
+        // neither with a template nor as an unrouted HTTP request.
+        Span routed = serverSpan(kv("http.route", strVal("/api/users/{id}"))).toBuilder()
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .build();
+        assertThat(newMapper().getUriStatKey(routed, attrs(routed), NO_SCOPE)).isNull();
+        Span unrouted = serverSpan(kv("url.path", strVal("/api/users/123"))).toBuilder()
+                .setKindValue(Span.SpanKind.SPAN_KIND_CLIENT_VALUE)
+                .build();
+        assertThat(newMapper().getUriStatKey(unrouted, attrs(unrouted), NO_SCOPE)).isNull();
+    }
+
+    @Test
+    void uriStatKey_httpRouteOnInternalSpan() {
+        // Some instrumentations expose the routed entry as an INTERNAL span carrying http.route
+        // (e.g. Next.js route resolution) — the kind gate accepts SERVER and INTERNAL alike.
+        Span span = serverSpan(kv("http.route", strVal("/api/users/[id]"))).toBuilder()
+                .setKindValue(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE)
+                .build();
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/api/users/[id]");
+    }
+
+    @Test
+    void uriStatKey_blankRoute_isNullUri() {
+        // Real-world SDKs (otelgin) emit http.route as an empty string when no route matched — a
+        // blank template must not become a uriStat key; the request is unrouted HTTP → "/NULL".
+        Span span = serverSpan(
+                kv("http.route", strVal("")),
+                kv("url.path", strVal("/api/users/123")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_nextRoute_whenNoHttpRoute() {
+        // Next.js emits its route pattern as next.route — a template like http.route, not a raw path.
+        Span span = serverSpan(
+                kv("next.route", strVal("/api/products/[productId]/index")),
+                kv("url.path", strVal("/api/products/0PUK6V6EV0")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), NO_SCOPE)).isEqualTo("/api/products/[productId]/index");
+    }
+
+    @Test
+    void uriStatKey_micrometerUri_forSpringBootScope() {
+        // Spring Boot micrometer-tracing carries the matched pattern in the `uri` tag.
+        Span span = serverSpan(
+                kv("uri", strVal("/user/{id}")),
+                kv("http.url", strVal("http://svc/user/42")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), scope(OtlpMicrometerAttributes.SCOPE_SPRING_BOOT, "3.5.0"))).isEqualTo("/user/{id}");
+    }
+
+    @Test
+    void uriStatKey_micrometerPlaceholder_isNullUri() {
+        // No-route placeholders ("/**", "NOT_FOUND", ...) are not templates; the http.url marks
+        // the span as an unrouted HTTP request → "/NULL" (the agent stores its NOT_FOUND the same way).
+        Span span = serverSpan(
+                kv("uri", strVal("NOT_FOUND")),
+                kv("http.url", strVal("http://svc/no/such/path")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), scope(OtlpMicrometerAttributes.SCOPE_SPRING_BOOT, "3.5.0"))).isEqualTo("/NULL");
+    }
+
+    @Test
+    void uriStatKey_micrometerUri_onlyForServerKind() {
+        // The micrometer `uri` tag is interpreted on SERVER spans only (same rule as the rpc).
+        Span span = serverSpan(kv("uri", strVal("/user/{id}"))).toBuilder()
+                .setKindValue(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE)
+                .build();
+        assertThat(newMapper().getUriStatKey(span, attrs(span), scope(OtlpMicrometerAttributes.SCOPE_SPRING_BOOT, "3.5.0"))).isNull();
+    }
+
+    @Test
+    void uriStatKey_uriTag_ignoredOutsideMicrometerScope() {
+        // A `uri` attribute from another instrumentation is not a known template source, and on
+        // its own it does not identify an HTTP request either → not counted.
+        Span span = serverSpan(kv("uri", strVal("/user/{id}")));
+        assertThat(newMapper().getUriStatKey(span, attrs(span), scope("my-custom-tracer", ""))).isNull();
+    }
+
+    // =======================================================================
+    // map() — SDK-side dropped count annotations
+    // =======================================================================
+
+    @Test
+    void map_droppedAnnotation_emittedWhenAnyCountNonZero() {
+        // All three counts > 0 — composite value includes all three labels in order.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .setDroppedAttributesCount(7)
+                .setDroppedEventsCount(3)
+                .setDroppedLinksCount(2)
+                .build();
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_DROPPED.getCode()))
+                .isEqualTo("attributes=7 events=3 links=2");
+    }
+
+    @Test
+    void map_droppedAnnotation_suppressedWhenAllZero() {
+        // Default counts are 0 — no annotation noise on well-behaved spans.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .build();
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_DROPPED.getCode())).isNull();
+    }
+
+    @Test
+    void map_droppedAnnotation_omitsZeroComponents() {
+        // Only attributes > 0 — composite value contains only "attributes=N".
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .setDroppedAttributesCount(5)
+                .build();
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_DROPPED.getCode()))
+                .isEqualTo("attributes=5");
+    }
+
+    @Test
+    void map_droppedAnnotation_skipsAttributesWhenOnlyEventsAndLinks() {
+        // attributes=0, events>0, links>0 — composite drops the attributes= prefix.
+        Span span = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .setDroppedEventsCount(4)
+                .setDroppedLinksCount(1)
+                .build();
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(findAnnotation(bo, AnnotationKey.OPENTELEMETRY_DROPPED.getCode()))
+                .isEqualTo("events=4 links=1");
+    }
+
+    @Test
+    void map_internal_rpcSystemIgnored() {
+        // INTERNAL kind reuses recordServer but rpc.system dispatch is gated to SERVER kind
+        // — even if rpc.system=grpc somehow leaks onto an INTERNAL span, ServiceType stays
+        // on OPENTELEMETRY_SERVER.
+        Span span = Span.newBuilder()
+                .setName("internal-op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_INTERNAL_VALUE)
+                .addAttributes(kv("rpc.system", strVal("grpc")))
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getServiceType()).isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    // map() — tracestate "pp" entry → parent application / service
+    // =======================================================================
+
+    private static final byte[] PARENT_SPAN_ID = {9, 9, 9, 9, 9, 9, 9, 9};
+
+    private static Span.Builder serverSpanBuilder() {
+        return Span.newBuilder()
+                .setName("/api/orders")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setParentSpanId(ByteString.copyFrom(PARENT_SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE);
+    }
+
+    @Test
+    void map_tracestate_bothSubKeys_populatesParentFields() {
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=svc:upstream-svc;app:upstream-app")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication())
+                .isEqualTo(new ParentApplication("upstream-svc", "upstream-app",
+                        (short) ServiceType.OPENTELEMETRY_SERVER.getCode()));
+    }
+
+    @Test
+    void map_tracestate_multipleVendors_pickPinpoint() {
+        Span span = serverSpanBuilder()
+                .setTraceState("dd=s:1;t.dm:-4,pp=svc:upstream-svc;app:upstream-app,nr=opaque")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication())
+                .isEqualTo(new ParentApplication("upstream-svc", "upstream-app",
+                        (short) ServiceType.OPENTELEMETRY_SERVER.getCode()));
+    }
+
+    @Test
+    void map_tracestate_svcOnly_doesNotSetParentApplication() {
+        // Without parentApplicationName, ApplicationMap link insertion is gated off
+        // in HbaseApplicationMapService; mirror native ServerRequestRecorder by tying
+        // parentServiceName to a valid parentApplicationName.
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=svc:upstream-svc")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication()).isNull();
+    }
+
+    @Test
+    void map_tracestate_appOnly_setsApplicationWithDefaultService() {
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=app:upstream-app")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication())
+                .isEqualTo(new ParentApplication(ServiceUid.DEFAULT_SERVICE_UID_NAME, "upstream-app",
+                        (short) ServiceType.OPENTELEMETRY_SERVER.getCode()));
+    }
+
+    @Test
+    void map_tracestate_invalidServiceName_recordedAsUnknown() {
+        // A parent service name no service can have (length / character set) would only reach the
+        // service lookup as a key of its own and come back unregistered; record UNKNOWN directly.
+        for (String svc : new String[]{"ab", "한글서비스", "s".repeat(255)}) {
+            Span span = serverSpanBuilder()
+                    .setTraceState("pp=svc:" + svc + ";app:upstream-app")
+                    .build();
+            SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+            assertThat(bo.getParentApplication())
+                    .as(svc)
+                    .isEqualTo(new ParentApplication(ServiceUid.UNKNOWN_SERVICE_UID_NAME, "upstream-app",
+                            (short) ServiceType.OPENTELEMETRY_SERVER.getCode()));
+        }
+    }
+
+    @Test
+    void map_tracestate_invalidApplicationName_silentlyDropped() {
+        // IdValidateUtils rejects non-ASCII; we silently drop rather than throw,
+        // to avoid corrupting ApplicationMap row keys.
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=svc:upstream-svc;app:한글앱")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication()).isNull();
+    }
+
+    @Test
+    void map_tracestate_emptyHeader_noParentFields() {
+        Span span = serverSpanBuilder().build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication()).isNull();
+    }
+
+    @Test
+    void map_tracestate_trueRoot_skipsParentRecording() {
+        // No parentSpanId → genuine trace root, no upstream caller; ignore tracestate
+        // even if a stray pp= entry is present.
+        Span span = Span.newBuilder()
+                .setName("/api/orders")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .setTraceState("pp=svc:upstream-svc;app:upstream-app")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication()).isNull();
+    }
+
+    @Test
+    void map_tracestate_consumerSpan_alsoApplies() {
+        // Messaging consumer dispatch path must also honour the upstream pp entry.
+        Span span = Span.newBuilder()
+                .setName("orders process")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setParentSpanId(ByteString.copyFrom(PARENT_SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_CONSUMER_VALUE)
+                .addAttributes(kv("messaging.system", strVal("kafka")))
+                .addAttributes(kv("messaging.destination.name", strVal("orders")))
+                .setTraceState("pp=svc:upstream-svc;app:upstream-app")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication())
+                .isEqualTo(new ParentApplication("upstream-svc", "upstream-app",
+                        (short) ServiceType.OPENTELEMETRY_SERVER.getCode()));
+    }
+
+    @Test
+    void map_tracestate_typeOverridesOtelServerDefault() {
+        // Sender claims it is a Tomcat (1010) service — override the OTel default.
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=svc:upstream-svc;app:upstream-app;type:1010")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication().applicationServiceType()).isEqualTo((short) 1010);
+    }
+
+    @Test
+    void map_tracestate_typeMissing_fallsBackToOtelServer() {
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=svc:upstream-svc;app:upstream-app")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication().applicationServiceType())
+                .isEqualTo(ServiceType.OPENTELEMETRY_SERVER.getCode());
+    }
+
+    @Test
+    void map_tracestate_typeNonNumeric_fallsBackToOtelServer() {
+        Span span = serverSpanBuilder()
+                .setTraceState("pp=app:upstream-app;type:tomcat")
+                .build();
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+        assertThat(bo.getParentApplication())
+                .isEqualTo(new ParentApplication(ServiceUid.DEFAULT_SERVICE_UID_NAME, "upstream-app",
+                        ServiceType.OPENTELEMETRY_SERVER.getCode()));
+    }
+
+    // =======================================================================
+    // map() — error status → SpanBo exceptionInfo (className:message encoding)
+    // =======================================================================
+
+    private static Span.Event exceptionEvent(KeyValue... attrs) {
+        Span.Event.Builder event = Span.Event.newBuilder().setName("exception");
+        for (KeyValue attr : attrs) {
+            event.addAttributes(attr);
+        }
+        return event.build();
+    }
+
+    private static Span errorServerSpan(Status.StatusCode code, String statusMessage, KeyValue[] attrs, Span.Event... events) {
+        Span.Builder builder = Span.newBuilder()
+                .setName("op")
+                .setTraceId(ByteString.copyFrom(TRACE_ID))
+                .setSpanId(ByteString.copyFrom(SPAN_ID))
+                .setKindValue(Span.SpanKind.SPAN_KIND_SERVER_VALUE)
+                .setStatus(Status.newBuilder().setCode(code).setMessage(statusMessage == null ? "" : statusMessage));
+        for (KeyValue attr : attrs) {
+            builder.addAttributes(attr);
+        }
+        for (Span.Event event : events) {
+            builder.addEvents(event);
+        }
+        return builder.build();
+    }
+
+    private static long countEventAnnotations(SpanBo bo) {
+        return bo.getAnnotationBoList().stream()
+                .filter(a -> a.getKey() == AnnotationKey.OPENTELEMETRY_EVENT.getCode())
+                .count();
+    }
+
+    @Test
+    void map_error_exceptionEvent_encodesClassAndMessage_andSkipsEventAnnotation() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "ignored status", new KeyValue[]{},
+                exceptionEvent(kv("exception.type", strVal("java.io.IOException")),
+                        kv("exception.message", strVal("disk full"))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getErrCode()).isEqualTo(1);
+        assertThat(bo.getExceptionInfo().id()).isEqualTo(0);
+        assertThat(bo.getExceptionInfo().message()).isEqualTo("java.io.IOException:disk full");
+        // exception event is captured into exceptionInfo → its annotation is skipped
+        assertThat(countEventAnnotations(bo)).isZero();
+    }
+
+    @Test
+    void map_error_exceptionEvent_typeFromEventPreferredOverErrorType() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "",
+                new KeyValue[]{kv("error.type", strVal("500"))},
+                exceptionEvent(kv("exception.type", strVal("java.lang.RuntimeException")),
+                        kv("exception.message", strVal("boom"))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getExceptionInfo().message()).isEqualTo("java.lang.RuntimeException:boom");
+    }
+
+    @Test
+    void map_error_exceptionEvent_typeFallsBackToErrorType_whenEventTypeMissing() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "",
+                new KeyValue[]{kv("error.type", strVal("java.net.SocketTimeoutException"))},
+                exceptionEvent(kv("exception.message", strVal("timeout"))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getExceptionInfo().message()).isEqualTo("java.net.SocketTimeoutException:timeout");
+        assertThat(countEventAnnotations(bo)).isZero();
+    }
+
+    @Test
+    void map_error_exceptionEvent_messageOnly_keepsMessageWithEmptyClassPrefix() {
+        // OTel permits an exception event with only exception.message (no exception.type),
+        // and here no error.type either. The event message is the only error signal and must
+        // not be dropped; it is encoded with an empty class-name prefix.
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "", new KeyValue[]{},
+                exceptionEvent(kv("exception.message", strVal("something broke"))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getErrCode()).isEqualTo(1);
+        assertThat(bo.getExceptionInfo().id()).isEqualTo(0);
+        assertThat(bo.getExceptionInfo().message()).isEqualTo(":something broke");
+        // empty class-name prefix → not treated as "captured", so the event annotation is kept
+        assertThat(countEventAnnotations(bo)).isEqualTo(1);
+    }
+
+    @Test
+    void map_error_exceptionEvent_messageOnly_fallsBackToStatusMessageWhenEventMessageEmpty() {
+        // Exception event present but carrying neither type nor message: fall through to the
+        // free-form status message rather than fabricating an empty exceptionInfo.
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "status fallback",
+                new KeyValue[]{}, exceptionEvent());
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getExceptionInfo().message()).isEqualTo(":status fallback");
+    }
+
+    @Test
+    void map_error_noEvent_statusMessageAndErrorType_emptyClassPrefix() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "Connection refused",
+                new KeyValue[]{kv("error.type", strVal("500"))});
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getErrCode()).isEqualTo(1);
+        // empty class-name prefix (leading delimiter) → message-only
+        assertThat(bo.getExceptionInfo().message()).isEqualTo(":Connection refused (500)");
+    }
+
+    @Test
+    void map_error_noEvent_statusMessageOnly() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "Connection refused: host", new KeyValue[]{});
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getExceptionInfo().message()).isEqualTo(":Connection refused: host");
+    }
+
+    @Test
+    void map_error_noSignal_setsErrCodeButNoExceptionInfo() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "", new KeyValue[]{});
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getErrCode()).isEqualTo(1);
+        assertThat(bo.getExceptionInfo()).isNull();
+    }
+
+    @Test
+    void map_okStatus_noErrorRecorded() {
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_OK, "should be ignored",
+                new KeyValue[]{kv("error.type", strVal("500"))},
+                exceptionEvent(kv("exception.type", strVal("java.lang.RuntimeException"))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        assertThat(bo.getErrCode()).isEqualTo(0);
+        assertThat(bo.getExceptionInfo()).isNull();
+        // not an error → exception event is kept as an annotation
+        assertThat(countEventAnnotations(bo)).isEqualTo(1);
+    }
+
+    @Test
+    void map_error_messageTruncatedTo256() {
+        String longMessage = "x".repeat(300);
+        Span span = errorServerSpan(Status.StatusCode.STATUS_CODE_ERROR, "",
+                new KeyValue[]{},
+                exceptionEvent(kv("exception.type", strVal("E")),
+                        kv("exception.message", strVal(longMessage))));
+
+        SpanBo bo = newMapper().map(id(), span, NO_SCOPE);
+
+        String message = bo.getExceptionInfo().message();
+        assertThat(message).startsWith("E:" + "x".repeat(256));
+        assertThat(message).contains("...(300)");
+    }
+}

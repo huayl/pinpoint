@@ -16,7 +16,7 @@
 
 package com.navercorp.pinpoint.web.vo.timeline.inspector;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 import com.navercorp.pinpoint.common.server.util.AgentEventType;
 import com.navercorp.pinpoint.web.view.AgentEventMarkerSerializer;
 import com.navercorp.pinpoint.web.vo.AgentEvent;
@@ -75,11 +75,10 @@ public class AgentEventMarker {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("AgentEventMarker{");
-        sb.append("typeCounts=").append(typeCounts);
-        sb.append(", totalCount=").append(totalCount);
-        sb.append('}');
-        return sb.toString();
+        return "AgentEventMarker{" +
+                "typeCounts=" + typeCounts +
+                ", totalCount=" + totalCount +
+                '}';
     }
 
 }

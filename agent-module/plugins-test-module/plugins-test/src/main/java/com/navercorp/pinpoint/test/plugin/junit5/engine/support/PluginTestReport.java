@@ -1,0 +1,110 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.test.plugin.junit5.engine.support;
+
+import org.junit.platform.engine.TestExecutionResult;
+
+import java.util.Arrays;
+import java.util.Objects;
+
+public class PluginTestReport {
+
+    public enum Status {
+        STARTED,
+        SKIPPED
+    }
+
+    private final String id;
+    private final Status status;
+    private final String skipReason;
+    private TestExecutionResult result;
+    private String[] output;
+
+    public static PluginTestReport started(String id) {
+        return new PluginTestReport(id, Status.STARTED, null);
+    }
+
+    public static PluginTestReport skipped(String id, String skipReason) {
+        return new PluginTestReport(id, Status.SKIPPED, skipReason);
+    }
+
+    private PluginTestReport(String id, Status status, String skipReason) {
+        this.id = Objects.requireNonNull(id, "id");
+        this.status = Objects.requireNonNull(status, "status");
+        this.skipReason = skipReason;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    public boolean isStarted() {
+        return status == Status.STARTED;
+    }
+
+    public boolean isSkipped() {
+        return status == Status.SKIPPED;
+    }
+
+    public String getSkipReason() {
+        return skipReason;
+    }
+
+    public TestExecutionResult getResult() {
+        return result;
+    }
+
+    public void setResult(TestExecutionResult result) {
+        this.result = result;
+    }
+
+    /**
+     * @return the reported result, or a failed result when the forked process never delivered
+     * an {@code executionFinished} event for a started test (process death, timeout, or a
+     * corrupted event line).
+     */
+    public TestExecutionResult getResultOrFailed() {
+        TestExecutionResult result = this.result;
+        if (result != null) {
+            return result;
+        }
+        return TestExecutionResult.failed(new IllegalStateException("executionFinished event not received from the forked test process. report=" + id));
+    }
+
+    public String[] getOutput() {
+        return output;
+    }
+
+    public void setOutput(String[] output) {
+        this.output = output;
+    }
+
+    @Override
+    public String toString() {
+        return "PluginTestReport{" +
+                "id='" + id + '\'' +
+                ", status=" + status +
+                ", skipReason='" + skipReason + '\'' +
+                ", result=" + result +
+                ", output=" + Arrays.toString(output) +
+                '}';
+    }
+}

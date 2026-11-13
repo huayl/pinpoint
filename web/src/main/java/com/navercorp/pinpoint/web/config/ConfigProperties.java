@@ -18,21 +18,20 @@ package com.navercorp.pinpoint.web.config;
 
 import com.navercorp.pinpoint.common.server.config.AnnotationVisitor;
 import com.navercorp.pinpoint.common.server.config.LoggingEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
 
-import javax.annotation.PostConstruct;
+import java.util.List;
 
 /**
  * @author HyunGil Jeong
  * @author Jongjin.Bae
  */
-@Configuration
 public class ConfigProperties {
 
-    private final Logger logger = LoggerFactory.getLogger(ConfigProperties.class);
+    private final Logger logger = LogManager.getLogger(ConfigProperties.class);
 
     @Value("${config.sendUsage:true}")
     private boolean sendUsage;
@@ -64,11 +63,41 @@ public class ConfigProperties {
     @Value("${config.show.stackTraceOnError:true}")
     private boolean showStackTraceOnError;
 
+    @Value("${pinpoint.modules.web.systemmetric.enabled:false}")
+    private boolean showSystemMetric;
+
+    @Value("${pinpoint.modules.web.uristat.enabled:false}")
+    private boolean showUrlStat;
+
+    @Value("${pinpoint.modules.web.exceptiontrace.enabled:false}")
+    private boolean showExceptionTrace;
+
+    @Value("${pinpoint.modules.web.otlpmetric.enabled:false}")
+    private boolean showOtlpMetric;
+
+    @Value("${pinpoint.modules.web.inspector.enabled:false}")
+    private boolean showInspector;
+
+    @Value("${pinpoint.modules.web.heatmap.enabled:false}")
+    private boolean showHeatmap;
+
     @Value("${websocket.allowedOrigins:#{null}}")
     private String webSocketAllowedOrigins;
-    
-    @Value("${webhook.enable:false}")
+
+    @Value("${pinpoint.modules.web.webhook:false}")
     private boolean webhookEnable;
+
+    @Value("${web.servermap.api.period.max:2}")
+    private int serverMapPeriodMax;
+
+    @Value("${web.servermap.api.period.interval:5m,20m,1h,3h,6h,12h,1d,2d}")
+    private List<String> serverMapPeriodInteval;
+
+    @Value("${web.inspector.api.period.max:42}")
+    private int inspectorPeriodMax;
+
+    @Value("${web.inspector.api.period.interval:5m,20m,1h,3h,6h,12h,1d,2d,1w,3w,6w}")
+    private List<String> inspectorPeriodInteval;
 
     public String getSecurityGuideUrl() {
         return securityGuideUrl;
@@ -110,12 +139,53 @@ public class ConfigProperties {
         return showStackTraceOnError;
     }
 
+    public boolean isShowSystemMetric() {
+        return showSystemMetric;
+    }
+
+    public boolean isShowOtlpMetric() {
+        return showOtlpMetric;
+    }
+
+    public boolean isShowUrlStat() {
+        return showUrlStat;
+    }
+
+    public boolean isShowExceptionTrace() {
+        return showExceptionTrace;
+    }
+
+
     public String getWebSocketAllowedOrigins() {
         return webSocketAllowedOrigins;
     }
-    
+
     public boolean isWebhookEnable() {
         return webhookEnable;
+    }
+
+    public int getServerMapPeriodMax() {
+        return serverMapPeriodMax;
+    }
+
+    public List<String> getServerMapPeriodInteval() {
+        return serverMapPeriodInteval;
+    }
+
+    public int getInspectorPeriodMax() {
+        return inspectorPeriodMax;
+    }
+
+    public List<String> getInspectorPeriodInteval() {
+        return inspectorPeriodInteval;
+    }
+
+    public boolean isShowInspector() {
+        return showInspector;
+    }
+
+    public boolean isShowHeatmap() {
+        return showHeatmap;
     }
 
     @PostConstruct
@@ -127,21 +197,29 @@ public class ConfigProperties {
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("ConfigProperties{");
-        sb.append("sendUsage=").append(sendUsage);
-        sb.append(", editUserInfo=").append(editUserInfo);
-        sb.append(", showActiveThread=").append(showActiveThread);
-        sb.append(", showActiveThreadDump=").append(showActiveThreadDump);
-        sb.append(", enableActiveThreadDump=").append(enableActiveThreadDump);
-        sb.append(", enableServerMapRealTime=").append(enableServerMapRealTime);
-        sb.append(", openSource=").append(openSource);
-        sb.append(", securityGuideUrl='").append(securityGuideUrl).append('\'');
-        sb.append(", showApplicationStat=").append(showApplicationStat);
-        sb.append(", showStackTraceOnError=").append(showStackTraceOnError);
-        sb.append(", webSocketAllowedOrigins=").append(webSocketAllowedOrigins);
-        sb.append(", webhookEnable=").append(webhookEnable);
-        sb.append('}');
-        return sb.toString();
+        return "ConfigProperties{" +
+                "sendUsage=" + sendUsage +
+                ", editUserInfo=" + editUserInfo +
+                ", showActiveThread=" + showActiveThread +
+                ", showActiveThreadDump=" + showActiveThreadDump +
+                ", enableActiveThreadDump=" + enableActiveThreadDump +
+                ", enableServerMapRealTime=" + enableServerMapRealTime +
+                ", openSource=" + openSource +
+                ", securityGuideUrl='" + securityGuideUrl + '\'' +
+                ", showApplicationStat=" + showApplicationStat +
+                ", showStackTraceOnError=" + showStackTraceOnError +
+                ", showSystemMetric=" + showSystemMetric +
+                ", showUrlStat=" + showUrlStat +
+                ", showExceptionTrace=" + showExceptionTrace +
+                ", showOtlpMetric=" + showOtlpMetric +
+                ", showInspector=" + showInspector +
+                ", showHeatmap=" + showHeatmap +
+                ", webSocketAllowedOrigins=" + webSocketAllowedOrigins +
+                ", webhookEnable=" + webhookEnable +
+                ", serverMapPeriodMax=" + serverMapPeriodMax +
+                ", serverMapPeriodInterval=" + serverMapPeriodInteval +
+                ", inspectorPeriodMax=" + inspectorPeriodMax +
+                ", inspectorPeriodInterval=" + inspectorPeriodInteval +
+                '}';
     }
-
 }

@@ -1,0 +1,258 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.applicationmap.controller;
+
+import com.navercorp.pinpoint.common.server.bo.ApplicationFactory;
+import com.navercorp.pinpoint.common.timeseries.time.ForwardRangeValidator;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.RangeValidator;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.web.applicationmap.controller.form.ApplicationForm;
+import com.navercorp.pinpoint.web.applicationmap.controller.form.RangeForm;
+import com.navercorp.pinpoint.web.applicationmap.link.LinkHistogramSummary;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeHistogramSummary;
+import com.navercorp.pinpoint.web.applicationmap.nodes.ServerGroupList;
+import com.navercorp.pinpoint.applicationmap.rawdata.AgentHistogramList;
+import com.navercorp.pinpoint.web.applicationmap.service.HistogramService;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramService;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramServiceOption;
+import com.navercorp.pinpoint.web.applicationmap.view.LinkHistogramSummaryView;
+import com.navercorp.pinpoint.web.applicationmap.view.NodeHistogramSummaryView;
+import com.navercorp.pinpoint.web.applicationmap.view.ServerGroupListView;
+import com.navercorp.pinpoint.web.applicationmap.view.TimeHistogramView;
+import com.navercorp.pinpoint.web.hyperlink.HyperLinkFactory;
+import com.navercorp.pinpoint.web.util.ApplicationValidator;
+import com.navercorp.pinpoint.web.validation.NullOrNotBlank;
+import com.navercorp.pinpoint.web.view.ApplicationTimeHistogramViewModel;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.web.vo.ApplicationPair;
+import com.navercorp.pinpoint.web.vo.ApplicationPairs;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import jakarta.validation.Valid;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.util.CollectionUtils;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import org.jspecify.annotations.Nullable;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * @author emeroad
+ * @author netspider
+ * @author jaehong.kim
+ * @author HyunGil Jeong
+ */
+@RestController
+@RequestMapping(path = {"/api", "/api/servermap"})
+@Validated
+public class MapHistogramController {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    private static final int DEFAULT_MAX_SEARCH_DEPTH = 4;
+
+    private final ResponseTimeHistogramService responseTimeHistogramService;
+    private final HistogramService histogramService;
+    private final RangeValidator rangeValidator;
+    private final ApplicationFactory applicationFactory;
+    private final ApplicationValidator applicationValidator;
+    private final HyperLinkFactory hyperLinkFactory;
+
+    public MapHistogramController(
+            ResponseTimeHistogramService responseTimeHistogramService,
+            HistogramService histogramService,
+            ApplicationFactory applicationFactory,
+            ApplicationValidator applicationValidator,
+            HyperLinkFactory hyperLinkFactory,
+            Duration limitDay
+    ) {
+        this.responseTimeHistogramService =
+                Objects.requireNonNull(responseTimeHistogramService, "responseTimeHistogramService");
+        this.histogramService = Objects.requireNonNull(histogramService, "histogramService");
+        this.applicationFactory = Objects.requireNonNull(applicationFactory, "applicationFactory");
+        this.applicationValidator = Objects.requireNonNull(applicationValidator, "applicationValidator");
+        this.rangeValidator = new ForwardRangeValidator(Objects.requireNonNull(limitDay, "limitDay"));
+        this.hyperLinkFactory = Objects.requireNonNull(hyperLinkFactory, "hyperLinkFactory");
+    }
+
+    @GetMapping(value = "/getResponseTimeHistogramData")
+    public ApplicationTimeHistogramViewModel getResponseTimeHistogramData(
+            @Valid @ModelAttribute
+            ApplicationForm appForm,
+            @Valid @ModelAttribute
+            RangeForm rangeForm) {
+        final Range range = toRange(rangeForm);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Application application = getApplication(appForm);
+
+        AgentHistogramList responseTimes = responseTimeHistogramService.selectResponseTimeHistogramData(application, timeWindow);
+        return new ApplicationTimeHistogramViewModel(TimeHistogramView.ResponseTime, application, responseTimes);
+    }
+
+    private Range toRange(RangeForm rangeForm) {
+        Range between = Range.between(rangeForm.getFrom(), rangeForm.getTo());
+        this.rangeValidator.validate(between);
+        return between;
+    }
+
+    @PostMapping(value = "/getResponseTimeHistogramDataV2")
+    public NodeHistogramSummaryView postResponseTimeHistogramDataV2(
+            @Valid @ModelAttribute
+            ApplicationForm appForm,
+            @Valid @ModelAttribute
+            RangeForm rangeForm,
+            @RequestBody ApplicationPairs applicationPairs,
+            @RequestParam(value = "useStatisticsAgentState", defaultValue = "true", required = false)
+            boolean useStatisticsAgentState
+    ) {
+        final Range range = toRange(rangeForm);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Application application = getApplication(appForm);
+
+        final List<Application> fromApplications =
+                mapApplicationPairsToApplications(applicationPairs.getFromApplications());
+        final List<Application> toApplications =
+                mapApplicationPairsToApplications(applicationPairs.getToApplications());
+        final ResponseTimeHistogramServiceOption option = new ResponseTimeHistogramServiceOption
+                .Builder(application, timeWindow, fromApplications, toApplications)
+                .setUseStatisticsAgentState(useStatisticsAgentState)
+                .build();
+        final NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+
+        ServerGroupList serverGroupList = nodeHistogramSummary.getServerGroupList();
+        ServerGroupListView serverGroupListView = new ServerGroupListView(serverGroupList, hyperLinkFactory);
+        return new NodeHistogramSummaryView(nodeHistogramSummary, timeWindow, serverGroupListView, TimeHistogramView.ResponseTime);
+    }
+
+
+    @GetMapping(value = "/getResponseTimeHistogramDataV2")
+    public NodeHistogramSummaryView getResponseTimeHistogramDataV2(
+            @Valid @ModelAttribute
+            ApplicationForm appForm,
+            @Valid @ModelAttribute
+            RangeForm rangeForm,
+            @RequestParam(value = "fromApplicationNames", defaultValue = "", required = false)
+            List<String> fromApplicationNames,
+            @RequestParam(value = "fromServiceTypeCodes", defaultValue = "", required = false)
+            List<Short> fromServiceTypeCodes,
+            @RequestParam(value = "toApplicationNames", defaultValue = "", required = false)
+            List<String> toApplicationNames,
+            @RequestParam(value = "toServiceTypeCodes", defaultValue = "", required = false)
+            List<Short> toServiceTypeCodes,
+            @RequestParam(value = "useStatisticsAgentState", defaultValue = "true", required = false)
+            boolean useStatisticsAgentState
+    ) {
+        final Range range = toRange(rangeForm);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        if (fromApplicationNames.size() != fromServiceTypeCodes.size()) {
+            throw new IllegalArgumentException(
+                    "fromApplicationNames and fromServiceTypeCodes must have the same number of elements");
+        }
+        if (toApplicationNames.size() != toServiceTypeCodes.size()) {
+            throw new IllegalArgumentException(
+                    "toApplicationNames and toServiceTypeCodes must have the same number of elements");
+        }
+
+        final Application application = getApplication(appForm);
+
+        final List<Application> fromApplications = toApplications(fromApplicationNames, fromServiceTypeCodes);
+        final List<Application> toApplications = toApplications(toApplicationNames, toServiceTypeCodes);
+        final ResponseTimeHistogramServiceOption option = new ResponseTimeHistogramServiceOption
+                .Builder(application, timeWindow, fromApplications, toApplications)
+                .setUseStatisticsAgentState(useStatisticsAgentState)
+                .build();
+
+        final NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+
+        ServerGroupList serverGroupList = nodeHistogramSummary.getServerGroupList();
+        ServerGroupListView serverGroupListView = new ServerGroupListView(serverGroupList, hyperLinkFactory);
+        return new NodeHistogramSummaryView(nodeHistogramSummary, timeWindow, serverGroupListView, TimeHistogramView.ResponseTime);
+    }
+
+    private List<Application> toApplications(List<String> applicationNames, List<Short> serviceTypeCodes) {
+        final List<Application> result = new ArrayList<>(applicationNames.size());
+        for (int i = 0; i < applicationNames.size(); i++) {
+            String applicationName = applicationNames.get(i);
+            int serviceTypeCode = serviceTypeCodes.get(i);
+
+            final Application application =
+                    this.applicationFactory.createApplication(Service.DEFAULT, applicationName, serviceTypeCode);
+            result.add(application);
+        }
+        return result;
+    }
+
+    private List<Application> mapApplicationPairsToApplications(List<ApplicationPair> applicationPairs) {
+        if (CollectionUtils.isEmpty(applicationPairs)) {
+            return Collections.emptyList();
+        }
+        final List<Application> applications = new ArrayList<>(applicationPairs.size());
+        for (ApplicationPair applicationPair : applicationPairs) {
+            final String applicationName = applicationPair.getApplicationName();
+            final int serviceTypeCode = applicationPair.getServiceTypeCode();
+            final Application application = this.applicationFactory.createApplication(Service.DEFAULT, applicationName, serviceTypeCode);
+            applications.add(application);
+        }
+        return applications;
+    }
+
+    @GetMapping(value = "/getLinkTimeHistogramData")
+    public LinkHistogramSummaryView getLinkTimeHistogramData(
+            @RequestParam(value = "fromApplicationName", required = false) @NullOrNotBlank String fromApplicationName,
+            @RequestParam(value = "fromServiceTypeCode", required = false) Short fromServiceTypeCode,
+            @RequestParam(value = "toApplicationName", required = false) @NullOrNotBlank String toApplicationName,
+            @RequestParam(value = "toServiceTypeCode", required = false) Short toServiceTypeCode,
+            @Valid @ModelAttribute
+            RangeForm rangeForm
+    ) {
+        final Range range = toRange(rangeForm);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Application fromApplication = this.createApplication(Service.DEFAULT, fromApplicationName, fromServiceTypeCode);
+        final Application toApplication = this.createApplication(Service.DEFAULT,toApplicationName, toServiceTypeCode);
+        final LinkHistogramSummary linkHistogramSummary =
+                responseTimeHistogramService.selectLinkHistogramData(fromApplication, toApplication, timeWindow);
+
+        return new LinkHistogramSummaryView(linkHistogramSummary, timeWindow, TimeHistogramView.ResponseTime);
+    }
+
+    @Nullable
+    private Application createApplication(Service serviceUid, @Nullable String name, Short serviceTypeCode) {
+        if (name == null) {
+            return null;
+        }
+        return this.applicationFactory.createApplication(serviceUid, name, serviceTypeCode);
+    }
+
+    private Application getApplication(ApplicationForm appForm) {
+        return applicationValidator.newApplication(Service.DEFAULT, appForm.getApplicationName(), appForm.getServiceTypeCode(), appForm.getServiceTypeName());
+    }
+}

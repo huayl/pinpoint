@@ -1,0 +1,232 @@
+/*
+ * Copyright 2025 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.otlp.trace.collector;
+
+import com.navercorp.pinpoint.collector.applicationmap.config.ApplicationMapModule;
+import com.navercorp.pinpoint.collector.config.CollectorProperties;
+import com.navercorp.pinpoint.collector.grpc.config.GrpcReceiverProperties;
+import com.navercorp.pinpoint.collector.grpc.config.ServerServiceDefinitions;
+import com.navercorp.pinpoint.collector.heatmap.HeatmapCollectorModule;
+import com.navercorp.pinpoint.collector.receiver.grpc.GrpcReceiver;
+import com.navercorp.pinpoint.collector.receiver.grpc.monitor.BasicMonitor;
+import com.navercorp.pinpoint.collector.receiver.grpc.monitor.Monitor;
+import com.navercorp.pinpoint.collector.uid.ServiceLookupConfiguration;
+import com.navercorp.pinpoint.collector.uid.StaticServiceLookupConfiguration;
+import com.navercorp.pinpoint.common.server.config.TypeLoaderConfiguration;
+import com.navercorp.pinpoint.common.server.executor.ExecutorCustomizer;
+import com.navercorp.pinpoint.common.server.executor.ThreadPoolExecutorCustomizer;
+import com.navercorp.pinpoint.common.server.uid.ObjectNameVersion;
+import com.navercorp.pinpoint.common.server.util.IgnoreAddressFilter;
+import com.navercorp.pinpoint.exceptiontrace.collector.ExceptionTraceCollectorConfig;
+import com.navercorp.pinpoint.grpc.channelz.ChannelzRegistry;
+import com.navercorp.pinpoint.otlp.trace.collector.inspector.OtlpMetricInspectorGateReporter;
+import com.navercorp.pinpoint.otlp.trace.collector.inspector.OtlpMetricInspectorModule;
+import com.navercorp.pinpoint.otlp.trace.collector.linkindex.OtlpLinkIndexModule;
+import com.navercorp.pinpoint.otlp.trace.collector.service.GrpcOtlpTraceService;
+import com.navercorp.pinpoint.otlp.trace.collector.service.OtlpTraceExportService;
+import com.navercorp.pinpoint.otlp.trace.collector.service.OtlpTraceIngestMetrics;
+import com.navercorp.pinpoint.otlp.trace.collector.service.OtlpUriStatService;
+import com.navercorp.pinpoint.pinot.tenant.TenantProvider;
+import com.navercorp.pinpoint.uristat.collector.UriStatCollectorConfig;
+import com.navercorp.pinpoint.uristat.collector.dao.UriStatDao;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.grpc.BindableService;
+import io.grpc.ServerInterceptor;
+import io.grpc.ServerInterceptors;
+import io.grpc.ServerServiceDefinition;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.binder.grpc.MetricCollectingServerInterceptor;
+import io.netty.buffer.ByteBufAllocator;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
+import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
+
+import java.util.List;
+import java.util.concurrent.Executor;
+
+@Configuration
+@Import({
+        // First, as PinpointCollectorModule does with CollectorAppPropertySources: the
+        // @ConditionalOnProperty configurations imported below are evaluated when they are parsed
+        // and again when their beans are registered. A key known only from these files would be
+        // absent at the first evaluation and present at the second, so a pair such as
+        // ServiceLookupConfiguration (enabled=true) / StaticServiceLookupConfiguration (false or
+        // missing) would both drop out and leave no ServiceLookupService.
+        OtlpTraceCollectorPropertySources.class,
+
+        ApplicationMapModule.class,
+        TypeLoaderConfiguration.class,
+
+        ServiceLookupConfiguration.class,
+        StaticServiceLookupConfiguration.class,
+        HeatmapCollectorModule.class,
+
+        // URI stat storage beans (UriStatDao / TenantProvider / kafkaUriStatTemplate) used by
+        // OtlpUriStatService. Self-guarded by @ConditionalOnProperty(uristat.enabled); without this
+        // import the OTLP trace app runs as its own Spring context with no uristat beans, so
+        // OtlpUriStatService cannot be created even when both uristat flags are true.
+        UriStatCollectorConfig.class,
+
+        // Error Analysis storage beans (PinotExceptionMetaDataService / ExceptionTraceDao / Kafka
+        // template) that OtlpTraceExportService writes the mapped ExceptionMetaDataBo to. Same
+        // situation as the uristat import above: self-guarded by
+        // @ConditionalOnProperty(exceptiontrace.enabled), and without it this standalone context has
+        // no ExceptionMetaDataService at all — the Optional injection stays empty and OTel exceptions
+        // are silently not stored. The BASIC app gets the same config from PinpointCollectorStarter.
+        ExceptionTraceCollectorConfig.class,
+
+        OtlpTraceCollectorHbaseModule.class,
+        OtlpTraceCollectorGrpcModule.class,
+        OtlpTraceCollectorGrpcSslModule.class,
+        OtlpTraceCollectorHttpModule.class,
+
+        // Link index writer for the join job (pinpoint.collector.otlptrace.link-index.enabled, default off).
+        OtlpLinkIndexModule.class,
+
+        // OTLP metrics -> Inspector agent stat receiver (pinpoint.collector.otlptrace.inspector.enabled,
+        // default off; also needs the Inspector storage module). MetricsService on the same gRPC
+        // servers, POST /v1/metrics on the servlet port.
+        OtlpMetricInspectorModule.class
+})
+@ComponentScan({
+        "com.navercorp.pinpoint.otlp.trace.collector.mapper",
+        "com.navercorp.pinpoint.otlp.trace.collector.service",
+        "com.navercorp.pinpoint.otlp.trace.collector.controller"
+})
+@ConditionalOnProperty(name = "pinpoint.modules.collector.otlptrace.enabled", havingValue = "true")
+public class OtlpTraceCollectorModule {
+
+    @Bean
+    public ObjectNameVersion serverNameVersion(@Value(ObjectNameVersion.VALUE_KEY) String version) {
+        return ObjectNameVersion.getVersion(version);
+    }
+
+    // ServiceLookupConfiguration.collectorServiceLookupExecutor injects this bean by name. It is
+    // defined in CollectorConfiguration, which only the BASIC app (PinpointCollectorModule)
+    // registers, so this app has to provide its own or fail to boot once
+    // pinpoint.collector.service.lookup.enabled=true. Same customizer instance type as the BASIC
+    // bean; pool sizing still comes from collectorServiceLookupExecutorProperties.
+    @Bean
+    public ExecutorCustomizer<ThreadPoolExecutorFactoryBean> collectorExecutorCustomizer() {
+        return new ThreadPoolExecutorCustomizer();
+    }
+
+    // Shared, thread-safe, bounded dedup of already-persisted agentIds. Injected into the single
+    // OtlpTraceExportService so gRPC and HTTP transports share one cache (dedup is effective across
+    // both) instead of the former per-instance, non-thread-safe LRUCache.
+    @Bean
+    public Cache<String, Boolean> otlpAgentIdCache(
+            @Value("${pinpoint.collector.otlptrace.agent-id-cache.max-size:10000}") int maxSize) {
+        return Caffeine.newBuilder().maximumSize(maxSize).build();
+    }
+
+    @Bean
+    public ServerServiceDefinition serverServiceDefinition(OtlpTraceExportService exportService,
+                                                           @Qualifier("grpcOtlpTraceWorkerExecutor") Executor workerExecutor,
+                                                           @Value("${pinpoint.collector.otlptrace.admission.max-in-flight-bytes:268435456}") int maxInFlightBytes,
+                                                           OtlpTraceIngestMetrics ingestMetrics,
+                                                           MeterRegistry meterRegistry) {
+        BindableService spanService = new GrpcOtlpTraceService(exportService, workerExecutor, maxInFlightBytes, ingestMetrics);
+        // gRPC server metrics (request count / latency / status code) for the OTLP trace endpoint,
+        // tagged service=otlptrace to match the agent/stat/span receivers' metrics.
+        final ServerInterceptor metricInterceptor = new MetricCollectingServerInterceptor(meterRegistry,
+                (Counter.Builder builder) -> builder.tag("service", "otlptrace"),
+                (Timer.Builder builder) -> builder.tag("service", "otlptrace"));
+        return ServerInterceptors.intercept(spanService, metricInterceptor);
+    }
+
+    /**
+     * Every {@link ServerServiceDefinition} bean in this context, so another OTLP signal's gRPC
+     * service (e.g. {@code LogsService}) registers on the same 9998 / 9448 servers just by declaring
+     * its definition bean — OTLP exporters send all signals to one endpoint and gRPC routes by
+     * service name.
+     */
+    @Bean
+    public ServerServiceDefinitions serviceList(List<ServerServiceDefinition> serviceDefinitions) {
+        return ServerServiceDefinitions.of(serviceDefinitions.toArray(new ServerServiceDefinition[0]));
+    }
+
+    // A @Bean method, not a component-scanned @Service: bean-method conditions are evaluated after
+    // the whole configuration tree (including the imported @PropertySources) is parsed, so the
+    // profile-file flags are visible here — a scanned class' condition would run before them.
+    @Bean
+    @ConditionalOnProperty(
+            name = {"pinpoint.modules.collector.uristat.enabled", "pinpoint.collector.otlptrace.uristat.enabled"},
+            havingValue = "true")
+    public OtlpUriStatService otlpUriStatService(UriStatDao uriStatDao, TenantProvider tenantProvider) {
+        return new OtlpUriStatService(uriStatDao, tenantProvider);
+    }
+
+    @Bean
+    public CollectorProperties collectorProperties() {
+        return new CollectorProperties();
+    }
+
+    // Always registered (the module above is conditional): logs "feature on, storage module off" at
+    // startup so a silently skipped metrics receiver is not mistaken for a working one.
+    @Bean
+    public OtlpMetricInspectorGateReporter otlpMetricInspectorGateReporter(Environment environment) {
+        return new OtlpMetricInspectorGateReporter(environment);
+    }
+
+    @Bean
+    public IgnoreAddressFilter ignoreAddressFilter(CollectorProperties properties) {
+        return new IgnoreAddressFilter(properties.getL4IpList());
+    }
+
+    @Bean
+    public Monitor grpcReceiverMonitor(@Value("${collector.receiver.grpc.monitor.enable:true}") boolean enable) {
+        if (enable) {
+            return new BasicMonitor("GrpcReceiverMonitor");
+        } else {
+            return Monitor.NONE;
+        }
+    }
+
+    @Bean
+    public GrpcReceiver grpcSpanReceiver(@Qualifier("grpcOtlpTraceReceiverProperties")
+                                         GrpcReceiverProperties properties,
+                                         @Qualifier("monitoredByteBufAllocator") ByteBufAllocator byteBufAllocator,
+                                         IgnoreAddressFilter addressFilter,
+                                         @Qualifier("serviceList")
+                                         ServerServiceDefinitions spanServices,
+                                         ChannelzRegistry channelzRegistry,
+                                         @Qualifier("grpcOtlpTraceServerExecutor")
+                                         Executor grpcSpanExecutor,
+                                         Monitor monitor) {
+        GrpcReceiver grpcReceiver = new GrpcReceiver();
+        grpcReceiver.setBindAddress(properties.getBindAddress());
+        grpcReceiver.setAddressFilter(addressFilter);
+        grpcReceiver.setBindableServiceList(spanServices.getDefinitions());
+        grpcReceiver.setChannelzRegistry(channelzRegistry);
+        grpcReceiver.setExecutor(grpcSpanExecutor);
+        grpcReceiver.setEnable(properties.isEnable());
+        grpcReceiver.setServerOption(properties.getServerOption());
+        grpcReceiver.setByteBufAllocator(byteBufAllocator);
+        grpcReceiver.setMonitor(monitor);
+        return grpcReceiver;
+    }
+}

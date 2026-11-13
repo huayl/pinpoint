@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.navercorp.pinpoint</groupId>
         <artifactId>pinpoint</artifactId>
-        <version>2.3.0-SNAPSHOT</version>
+        <version>4.1.0-SNAPSHOT</version>
     </parent>
 
     <!--
@@ -18,5 +18,9 @@
     <name>pinpoint-annotations</name>
     <packaging>jar</packaging>
 
+
+    <properties>
+        <junit-jupiter.version>${junit-jupiter5.version}</junit-jupiter.version>
+    </properties>
 
 </project>

@@ -47,6 +47,7 @@ import static com.navercorp.pinpoint.common.trace.AnnotationKeyProperty.VIEW_IN_
  * <tr><td>-40</td><td>cached_args[N]</td></tr>
  * <tr><td>-50</td><td>Exception</td></tr>
  * <tr><td>-51</td><td>ExceptionClass</td></tr>
+ * <tr><td>-52</td><td>ExceptionLinkId</td></tr>
  * <tr><td>-100</td><td>Asynchronous Invocation</td></tr>
  * <tr><td>-9999</td><td>UNKNOWN</td></tr>
  *
@@ -70,6 +71,8 @@ import static com.navercorp.pinpoint.common.trace.AnnotationKeyProperty.VIEW_IN_
  * <tr><td>48</td><td>http.internal.display</td></tr>
  * <tr><td>49</td><td>http.io</td></tr>
  * <tr><td>50</td><td>arcus.command</td></tr>
+ * <tr><td>55</td><td>http.resp.header</td></tr>
+ *
  * <tr><td>60</td><td><i>RESERVED</i></td></tr>
  * <tr><td>61</td><td><i>RESERVED</i></td></tr>
  * <tr><td>62</td><td><i>RESERVED</i></td></tr>
@@ -82,6 +85,9 @@ import static com.navercorp.pinpoint.common.trace.AnnotationKeyProperty.VIEW_IN_
  * <tr><td>82</td><td>thrift.result</td></tr>
  * <tr><td>90</td><td>dubbo.args</td></tr>
  * <tr><td>91</td><td>dubbo.result</td></tr>
+ *
+ * <tr><td>100</td><td>message.queue.url</td></tr>
+ *
  * <tr><td>110</td><td></td>hystrix.command</tr>
  * <tr><td>111</td><td></td>hystrix.command.execution</tr>
  * <tr><td>112</td><td></td>hystrix.command.fallback.cause</tr>
@@ -107,6 +113,8 @@ import static com.navercorp.pinpoint.common.trace.AnnotationKeyProperty.VIEW_IN_
  * <tr><td>174</td><td>es.action</td></tr>
  * <tr><td>175</td><td>es.responseHandle</td></tr>
  * <tr><td>176</td><td>es.version</td></tr>
+ * <tr><td>177</td><td>es.dsl</td></tr>
+ * <tr><td>178</td><td>es.version</td></tr>
  * <tr><td>180</td><td>process.command</td></tr>
  * <tr><td>181</td><td>process.pid</td></tr>
  *
@@ -123,6 +131,7 @@ import static com.navercorp.pinpoint.common.trace.AnnotationKeyProperty.VIEW_IN_
  * <tr><td>300</td><td>PROXY_HTTP_HEADER</td></tr>
  * <tr><td>310</td><td>REDIS.IO</td></tr>
  * <tr><td>320</td><td>hbase.client.params</td></tr>
+ * <tr><td>321</td><td>hbase.table.name</td></tr>
  * <tr><td>330</td><td>memory.usage</td></tr>
  * <tr><td>923</td><td>marker.message</td></tr>
  * <tr><td>9000</td><td>gson.json.length</td></tr>
@@ -159,7 +168,7 @@ public interface AnnotationKey {
 //    2147483647
 //    -2147483648
 
-//    @Deprecated  // moved apiId to spanEvent and span. dump by int
+    //    @Deprecated  // moved apiId to spanEvent and span. dump by int
 //    API_DID(10, "API-DID"),
 //    @Deprecated  // you should remove static API code. Use only API-DID. dump by int
 //    API_ID(11, "API-ID"),
@@ -188,6 +197,7 @@ public interface AnnotationKey {
     AnnotationKey SQL_METADATA = AnnotationKeyFactory.of(22, "SQL-METADATA");
     AnnotationKey SQL_PARAM = AnnotationKeyFactory.of(23, "SQL-PARAM");
     AnnotationKey SQL_BINDVALUE = AnnotationKeyFactory.of(24, "SQL-BindValue", VIEW_IN_RECORD_SET);
+    AnnotationKey SQL_UID = AnnotationKeyFactory.of(25, "SQL-UID");
 
     AnnotationKey STRING_ID = AnnotationKeyFactory.of(30, "STRING_ID");
 
@@ -200,6 +210,9 @@ public interface AnnotationKey {
     AnnotationKey HTTP_REQUEST_HEADER = AnnotationKeyFactory.of(47, "http.req.header", VIEW_IN_RECORD_SET);
     AnnotationKey HTTP_INTERNAL_DISPLAY = AnnotationKeyFactory.of(48, "http.internal.display");
     AnnotationKey HTTP_IO = AnnotationKeyFactory.of(49, "http.io", VIEW_IN_RECORD_SET);
+    AnnotationKey HTTP_METHOD = AnnotationKeyFactory.of(50, "http.method", VIEW_IN_RECORD_SET);
+    AnnotationKey HTTP_SECURE = AnnotationKeyFactory.of(51, "http.secure", VIEW_IN_RECORD_SET);
+    AnnotationKey HTTP_RESPONSE_HEADER = AnnotationKeyFactory.of(55, "http.resp.header", VIEW_IN_RECORD_SET);
     // post method parameter of httpclient
 
     AnnotationKey MESSAGE_QUEUE_URI = AnnotationKeyFactory.of(100, "message.queue.url");
@@ -231,6 +244,7 @@ public interface AnnotationKey {
     AnnotationKey EXCEPTION = AnnotationKeyFactory.of(-50, "Exception", VIEW_IN_RECORD_SET);
     @Deprecated
     AnnotationKey EXCEPTION_CLASS = AnnotationKeyFactory.of(-51, "ExceptionClass");
+    AnnotationKey EXCEPTION_CHAIN_ID = AnnotationKeyFactory.of(-52, "ExceptionChainId");
     AnnotationKey UNKNOWN = AnnotationKeyFactory.of(-9999, "UNKNOWN");
 
     AnnotationKey ASYNC = AnnotationKeyFactory.of(-100, "Asynchronous Invocation", VIEW_IN_RECORD_SET);
@@ -238,4 +252,37 @@ public interface AnnotationKey {
     AnnotationKey PROXY_HTTP_HEADER = AnnotationKeyFactory.of(300, "PROXY_HTTP_HEADER", VIEW_IN_RECORD_SET);
     AnnotationKey REDIS_IO = AnnotationKeyFactory.of(310, "redis.io");
     AnnotationKey MEMORY_USAGE = AnnotationKeyFactory.of(330, "memory.usage", VIEW_IN_RECORD_SET);
+
+    AnnotationKey OPENTELEMETRY_ATTRIBUTE = AnnotationKeyFactory.of(400, "Attribute", VIEW_IN_RECORD_SET);
+    // 401 was OPENTELEMETRY_START_TIME (StartTimeUnixNano): now stored on SpanBo/SpanEventBo as V3 nanos, no longer an annotation.
+    AnnotationKey OPENTELEMETRY_EVENT = AnnotationKeyFactory.of(402, "Event", VIEW_IN_RECORD_SET);
+    AnnotationKey OPENTELEMETRY_LINK = AnnotationKeyFactory.of(403, "Link", VIEW_IN_RECORD_SET);
+    AnnotationKey OPENTELEMETRY_SPAN_ID = AnnotationKeyFactory.of(404, "SpanId");
+    AnnotationKey OPENTELEMETRY_PARENT_SPAN_ID = AnnotationKeyFactory.of(405, "ParentSpanId");
+    // SDK-side data-loss summary from the OTel Span proto (dropped_attributes_count /
+    // dropped_events_count / dropped_links_count). Surfaced as a single composite annotation
+    // — e.g. "attributes=12 events=5 links=3" — so operators investigating "why is some data
+    // missing on this span" see a direct hint that the SDK hit its limits. Zero-valued
+    // components are omitted, and the annotation itself is suppressed when all counts are 0.
+    AnnotationKey OPENTELEMETRY_DROPPED = AnnotationKeyFactory.of(406, "Dropped", VIEW_IN_RECORD_SET);
+    // Collector-side truncation summary: number of attribute values / SQL statements that were
+    // truncated to the configured byte limits. Composite value e.g. "attributes=3 sql=1";
+    // suppressed when nothing was truncated.
+    AnnotationKey OPENTELEMETRY_TRUNCATED = AnnotationKeyFactory.of(407, "Truncated", VIEW_IN_RECORD_SET);
+    // OTel InstrumentationScope identity ("name@version", or bare "name") — which instrumentation
+    // library produced the span. Deliberately NOT VIEW_IN_RECORD_SET: nearly every OTel span
+    // carries one, so a call-tree child row per span would be pure noise. The web surfaces it as
+    // a dedicated Scope row (RecordFactory.getScope) that the frontend lifts into a row icon.
+    AnnotationKey OPENTELEMETRY_SCOPE = AnnotationKeyFactory.of(408, "Scope");
+    // GenAI (LLM call) semconv promotion, attached by the otlptrace collector's OtlpGenAiRecorder.
+    // The model that served the call: gen_ai.response.model (the model that actually responded,
+    // which may differ from the requested alias) wins over gen_ai.request.model.
+    AnnotationKey GEN_AI_MODEL = AnnotationKeyFactory.of(409, "gen_ai.model", VIEW_IN_RECORD_SET);
+    // Token usage summary composed from the gen_ai.usage.* attributes (bare nonstandard token
+    // keys as fallback), e.g. "in:1200 out:340 cache_r:5000 cache_w:0" — present parts only.
+    AnnotationKey GEN_AI_USAGE = AnnotationKeyFactory.of(410, "gen_ai.usage", VIEW_IN_RECORD_SET);
+    // Time to first token, e.g. "2659 ms". Kept separate from GEN_AI_USAGE: usage is the token
+    // namespace and a time value inside it would read as a token count. Source is the bare
+    // ttft_ms key (Claude Code) — OTel semconv defines TTFT only as a metric, not a span attribute.
+    AnnotationKey GEN_AI_TTFT = AnnotationKeyFactory.of(411, "gen_ai.ttft", VIEW_IN_RECORD_SET);
 }

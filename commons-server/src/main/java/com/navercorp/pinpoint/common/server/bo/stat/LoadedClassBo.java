@@ -16,44 +16,16 @@
 
 package com.navercorp.pinpoint.common.server.bo.stat;
 
-public class LoadedClassBo implements AgentStatDataPoint {
-    public static final long UNCOLLECTED_VALUE = -1L;
+public class LoadedClassBo extends AbstractStatDataPoint {
 
-    private String agentId;
-    private long startTimestamp;
-    private long timestamp;
+    private long loadedClassCount;
+    private long unloadedClassCount;
 
-    private long loadedClassCount = UNCOLLECTED_VALUE;
-    private long unloadedClassCount = UNCOLLECTED_VALUE;
-
-    @Override
-    public String getAgentId() {
-        return agentId;
-    }
-
-    @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    @Override
-    public long getStartTimestamp() {
-        return startTimestamp;
-    }
-
-    @Override
-    public void setStartTimestamp(long startTimestamp) {
-        this.startTimestamp = startTimestamp;
-    }
-
-    @Override
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    @Override
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
+    public LoadedClassBo(DataPoint point,
+                         long loadedClassCount, long unloadedClassCount) {
+        super(point);
+        this.loadedClassCount = loadedClassCount;
+        this.unloadedClassCount = unloadedClassCount;
     }
 
     @Override
@@ -77,36 +49,11 @@ public class LoadedClassBo implements AgentStatDataPoint {
         this.unloadedClassCount = unloadedClassCount;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
 
-        LoadedClassBo loadedClassBo = (LoadedClassBo) o;
-
-        if (startTimestamp != loadedClassBo.startTimestamp) return false;
-        if (timestamp != loadedClassBo.timestamp) return false;
-        if (loadedClassCount != loadedClassBo.loadedClassCount) return false;
-        if (unloadedClassCount != loadedClassBo.unloadedClassCount) return false;
-        return agentId != null ? agentId.equals(loadedClassBo.agentId) : loadedClassBo.agentId == null;
-    }
-
-    @Override
-    public int hashCode() {
-        int result;
-        result = agentId != null ? agentId.hashCode() : 0;
-        result = 31 * result + (int) (startTimestamp ^ (startTimestamp >>> 32));
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        result = 31 * result + (int) (loadedClassCount ^ (loadedClassCount >>> 32));
-        result = 31 * result + (int) (unloadedClassCount ^ (unloadedClassCount >>> 32));
-        return result;
-    }
     @Override
     public String toString() {
         return "LoadedClassBo{" +
-                "agentId='" + agentId + '\'' +
-                ", startTimestamp=" + startTimestamp +
-                ", timestamp=" + timestamp +
+                "point=" + point +
                 ", loadedClassCount=" + loadedClassCount +
                 ", unloadedClassCount=" + unloadedClassCount +
                 '}';

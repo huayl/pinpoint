@@ -16,10 +16,9 @@
 
 package com.navercorp.pinpoint.web.vo;
 
-import com.navercorp.pinpoint.common.profiler.util.TransactionId;
-import com.navercorp.pinpoint.common.profiler.util.TransactionIdUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.navercorp.pinpoint.common.server.trace.ServerTraceId;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +35,7 @@ public class GetTraceInfoParser {
     public static final String PREFIX_TIME = "T";
     public static final String PREFIX_RESPONSE_TIME = "R";
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     public List<GetTraceInfo> parse(Map<String, String> requestParam) {
         final String applicationName = requestParam.get(APPLICATION_NAME);
@@ -52,10 +51,10 @@ public class GetTraceInfoParser {
                 break;
             }
 
-            TransactionId traceId = TransactionIdUtils.parseTransactionId(transactionId);
             SpanHint spanHint = new SpanHint(Long.parseLong(time), Integer.parseInt(responseTime), applicationName);
+            ServerTraceId serverTraceId = ServerTraceId.of(transactionId);
 
-            final GetTraceInfo getTraceInfo = new GetTraceInfo(traceId, spanHint);
+            final GetTraceInfo getTraceInfo = new GetTraceInfo(serverTraceId, spanHint);
             getTraceInfoList.add(getTraceInfo);
             index++;
         }

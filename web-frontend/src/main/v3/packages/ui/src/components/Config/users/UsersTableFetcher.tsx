@@ -1,0 +1,120 @@
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  useConfiguration,
+  useGetConfigUsers,
+  usePostConfigUser,
+  usePutConfigUser,
+  useDeleteConfigUser,
+} from '@pinpoint-fe/ui/src/hooks';
+import { ConfigUsers } from '@pinpoint-fe/ui/src/constants';
+import { UsersTable } from './UsersTable';
+import { FaRegTrashCan } from 'react-icons/fa6';
+import { UserForm } from './UserForm';
+import { UsersSheet } from './UsersSheet';
+import { UserRemovePopup } from './UserRemovePopup';
+import { useReactToastifyToast, Button } from '../../../components';
+
+export interface UsersTableAction {
+  refresh: () => void;
+}
+
+export const UsersTableFetcher = () => {
+  const configuration = useConfiguration();
+  const { t } = useTranslation();
+  const toast = useReactToastifyToast();
+  const enableUserEdit = configuration?.editUserInfo;
+  const [query, setQuery] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+  const [selectedUser, setSelectedUser] = React.useState<ConfigUsers.User>();
+
+  const { data, refetch } = useGetConfigUsers(query ? { searchKey: query } : undefined, {
+    throwOnError: true,
+  });
+
+  const onSuccess = React.useCallback((message: string) => {
+    toast.success(message, {
+      autoClose: 2000,
+    });
+    refetch();
+  }, []);
+
+  const { mutate: postMutate } = usePostConfigUser({
+    onSuccess: () => onSuccess(t('COMMON.CREATE_SUCCESS')),
+  });
+
+  const { mutate: putMutate } = usePutConfigUser({
+    onSuccess: () => onSuccess(t('COMMON.UPDATE_SUCCESS')),
+  });
+
+  const { mutate: deleteMutate } = useDeleteConfigUser({
+    onSuccess: () => onSuccess(t('COMMON.REMOVE_SUCCESS')),
+  });
+
+  function handleRemove(userId: string) {
+    deleteMutate(userId);
+  }
+
+  function handleOnClickAdd() {
+    setSelectedUser(undefined);
+    setOpen(true);
+  }
+
+  function handleSubmit(data: ConfigUsers.User) {
+    if (selectedUser) {
+      putMutate(data);
+      setSelectedUser(undefined);
+    } else {
+      postMutate(data);
+    }
+    setOpen(false);
+  }
+
+  function handleClickRow(clickedUser: ConfigUsers.User) {
+    setOpen(true);
+    setSelectedUser(clickedUser);
+  }
+
+  function actionRenderer(user: ConfigUsers.User) {
+    return (
+      <UserRemovePopup
+        popupTrigger={
+          <Button
+            variant="ghost"
+            className="px-3"
+            disabled={!enableUserEdit}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <FaRegTrashCan />
+          </Button>
+        }
+        removeUser={user}
+        onClickRemove={() => handleRemove(user?.userId)}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <UsersTable
+        data={data || []}
+        hideAddButton={false}
+        enableUserEdit={enableUserEdit}
+        actionRenderer={actionRenderer}
+        onClickSearch={setQuery}
+        onClickRow={handleClickRow}
+        onClickAdd={handleOnClickAdd}
+      />
+      <UsersSheet open={open} onOpenChange={() => setOpen(false)} isEdit={!!selectedUser}>
+        <UserForm
+          userInfo={selectedUser}
+          enableUserEdit={true}
+          onSubmit={handleSubmit}
+          onClickCancel={() => setOpen(false)}
+        />
+      </UsersSheet>
+    </div>
+  );
+};

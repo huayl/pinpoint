@@ -1,11 +1,11 @@
 /*
- * Copyright 2017 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,17 +17,12 @@
 package com.navercorp.pinpoint.web.applicationmap.nodes;
 
 import com.navercorp.pinpoint.common.trace.ServiceType;
-import com.navercorp.pinpoint.web.applicationmap.appender.metric.DBMetric;
+import com.navercorp.pinpoint.applicationmap.histogram.ApdexScore;
+import com.navercorp.pinpoint.applicationmap.histogram.Histogram;
 import com.navercorp.pinpoint.web.applicationmap.histogram.NodeHistogram;
-import com.navercorp.pinpoint.web.view.NodeSerializer;
-import com.navercorp.pinpoint.web.vo.Application;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import org.jspecify.annotations.Nullable;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -37,60 +32,38 @@ import java.util.Objects;
  * @author emeroad
  * @author HyunGil Jeong
  */
-@JsonSerialize(using = NodeSerializer.class)
 public class Node {
-
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-
-    private static final String NODE_DELIMITER = "^";
-
-    private final NodeType nodeType;
 
     private final Application application;
 
     // avoid NPE
-    private ServerInstanceList serverInstanceList = new ServerInstanceList();
+    private ServerGroupList serverGroupList = ServerGroupList.empty();
 
     private NodeHistogram nodeHistogram;
-    
+
     private boolean authorized = true;
 
-    private List<DBMetric> dbMetricList = new ArrayList<>(0);
-
     public Node(Application application) {
-        this(NodeType.DETAILED, application);
-    }
-    
-    public Node(NodeType nodeType, Application application) {
-        this.nodeType = Objects.requireNonNull(nodeType, "nodeType");
         this.application = Objects.requireNonNull(application, "application");
-    }
-
-    public Node(Node copyNode) {
-        Objects.requireNonNull(copyNode, "copyNode");
-        this.nodeType = copyNode.nodeType;
-        this.application = copyNode.application;
     }
 
     public String getApplicationTextName() {
         if (application.getServiceType().isUser()) {
             return "USER";
         } else {
-            return application.getName();
+            return application.getApplicationName();
         }
     }
 
-    public NodeType getNodeType() {
-        return nodeType;
-    }
 
     // TODO remove setter
-    public void setServerInstanceList(ServerInstanceList serverInstanceList) {
-        this.serverInstanceList = Objects.requireNonNull(serverInstanceList, "serverInstanceList");
+    public void setServerGroupList(ServerGroupList serverGroupList) {
+        this.serverGroupList = Objects.requireNonNull(serverGroupList, "serverGroupList");
     }
 
-    public ServerInstanceList getServerInstanceList() {
-        return serverInstanceList;
+    @Nullable
+    public ServerGroupList getServerGroupList() {
+        return serverGroupList;
     }
 
 
@@ -98,18 +71,23 @@ public class Node {
         return application;
     }
 
-    public String getNodeName() {
-        return createNodeName(application);
+    public NodeName getNodeName() {
+        return NodeName.of(application);
     }
 
-    public static String createNodeName(Application application) {
-        return application.getName() + NODE_DELIMITER + application.getServiceType();
+    public String getNodeKey() {
+        return NodeName.toNodeKey(application.getApplicationName(), application.getServiceType());
+    }
+
+    public ServiceNodeName getServiceNodeName() {
+        return ServiceNodeName.of(application);
     }
 
     public ServiceType getServiceType() {
         return application.getServiceType();
     }
 
+    @Nullable
     public NodeHistogram getNodeHistogram() {
         return nodeHistogram;
     }
@@ -117,7 +95,12 @@ public class Node {
     public void setNodeHistogram(NodeHistogram nodeHistogram) {
         this.nodeHistogram = nodeHistogram;
     }
-    
+
+    public ApdexScore getApdexScore() {
+        Histogram histogram = nodeHistogram.getApplicationHistogram();
+        return ApdexScore.newApdexScore(histogram);
+    }
+
     public boolean isAuthorized() {
         return authorized;
     }
@@ -125,18 +108,10 @@ public class Node {
     public void setAuthorized(boolean authorized) {
         this.authorized = authorized;
     }
-    
+
     @Override
     public String toString() {
         return "Node [" + application + "]";
-    }
-
-    public void addDBMetric(DBMetric dbMetric) {
-        dbMetricList.add(dbMetric);
-    }
-
-    public List<DBMetric> getDBMetricList() {
-        return dbMetricList;
     }
 
 }

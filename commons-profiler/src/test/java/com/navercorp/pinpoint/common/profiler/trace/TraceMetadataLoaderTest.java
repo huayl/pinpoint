@@ -27,10 +27,8 @@ import com.navercorp.pinpoint.common.trace.ServiceTypeInfo;
 import com.navercorp.pinpoint.common.trace.ServiceTypeProperty;
 import com.navercorp.pinpoint.common.trace.TraceMetadataProvider;
 import com.navercorp.pinpoint.common.trace.TraceMetadataSetupContext;
-import com.navercorp.pinpoint.common.util.logger.CommonLoggerFactory;
-import com.navercorp.pinpoint.common.util.logger.StdoutCommonLoggerFactory;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,11 +40,9 @@ import java.util.NoSuchElementException;
  */
 public class TraceMetadataLoaderTest {
 
-    private static final CommonLoggerFactory LOGGER_FACTORY = StdoutCommonLoggerFactory.INSTANCE;
-
     @Test
     public void staticLookUpMetadataShouldBeLoaded() {
-        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader(LOGGER_FACTORY);
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
         ServiceTypeRegistry serviceTypeRegistry = traceMetadataLoader.createServiceTypeRegistry();
         AnnotationKeyRegistry annotationKeyRegistry = traceMetadataLoader.createAnnotationKeyRegistry();
         AnnotationKeyMatcherRegistry annotationKeyMatcherRegistry = traceMetadataLoader.createAnnotationKeyMatcherRegistry();
@@ -84,7 +80,7 @@ public class TraceMetadataLoaderTest {
         final AnnotationKey plugin2AnnotationKey = AnnotationKeyFactory.of(Integer.MAX_VALUE - 1, "plugin2Annotation");
         final TraceMetadataProvider traceMetadataProvider2 = createTraceMetadataProvider(new DefaultServiceTypeInfo(plugin2ServiceType, plugin2AnnotationKeyMatcher), plugin2AnnotationKey);
 
-        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader(LOGGER_FACTORY);
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
         traceMetadataLoader.load(Arrays.asList(traceMetadataProvider1, traceMetadataProvider2));
 
         ServiceTypeRegistry serviceTypeRegistry = traceMetadataLoader.createServiceTypeRegistry();
@@ -106,14 +102,14 @@ public class TraceMetadataLoaderTest {
 
         final TraceMetadataProvider traceMetadataProvider = createTraceMetadataProvider(new DefaultServiceTypeInfo(registeredServiceType));
 
-        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader(LOGGER_FACTORY);
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
         traceMetadataLoader.load(Collections.singletonList(traceMetadataProvider));
 
         ServiceTypeRegistry serviceTypeRegistry = traceMetadataLoader.createServiceTypeRegistry();
         verifyServiceType(serviceTypeRegistry, registeredServiceType);
 
-        Assert.assertSame(ServiceType.UNDEFINED, serviceTypeRegistry.findServiceType(unregisteredServiceType.getCode()));
-        Assert.assertSame(ServiceType.UNDEFINED, serviceTypeRegistry.findServiceTypeByName(unregisteredServiceType.getName()));
+        Assertions.assertSame(ServiceType.UNDEFINED, serviceTypeRegistry.findServiceType(unregisteredServiceType.getCode()));
+        Assertions.assertSame(ServiceType.UNDEFINED, serviceTypeRegistry.findServiceTypeByName(unregisteredServiceType.getName()));
     }
 
     @Test
@@ -123,17 +119,33 @@ public class TraceMetadataLoaderTest {
 
         final TraceMetadataProvider traceMetadataProvider = createTraceMetadataProvider(registeredAnnotationKey);
 
-        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader(LOGGER_FACTORY);
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
         traceMetadataLoader.load(Collections.singletonList(traceMetadataProvider));
 
         AnnotationKeyRegistry annotationKeyRegistry = traceMetadataLoader.createAnnotationKeyRegistry();
         verifyAnnotationKey(annotationKeyRegistry, registeredAnnotationKey);
 
-        Assert.assertSame(AnnotationKey.UNKNOWN, annotationKeyRegistry.findAnnotationKey(unregisteredAnnotationKey.getCode()));
-        try {
+        Assertions.assertSame(AnnotationKey.UNKNOWN, annotationKeyRegistry.findAnnotationKey(unregisteredAnnotationKey.getCode()));
+        Assertions.assertThrowsExactly(NoSuchElementException.class, () -> {
             annotationKeyRegistry.findAnnotationKeyByName(unregisteredAnnotationKey.getName());
-            Assert.fail();
-        } catch (NoSuchElementException expected) {}
+        });
+    }
+
+    @Test
+    public void openTelemetryClientDisplayArgumentTest() {
+        // HTTP client spans show the request URL like the native HTTP client plugins; the generic
+        // client type must NOT pick up HTTP_URL (it also carries non-HTTP spans).
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
+        AnnotationKeyMatcherRegistry annotationKeyMatcherRegistry = traceMetadataLoader.createAnnotationKeyMatcherRegistry();
+
+        AnnotationKeyMatcher httpClientMatcher = annotationKeyMatcherRegistry.findAnnotationKeyMatcher(ServiceType.OPENTELEMETRY_HTTP_CLIENT.getCode());
+        Assertions.assertNotNull(httpClientMatcher);
+        Assertions.assertTrue(httpClientMatcher.matches(AnnotationKey.HTTP_URL.getCode()));
+        Assertions.assertFalse(httpClientMatcher.matches(AnnotationKey.ARGS0.getCode()));
+
+        AnnotationKeyMatcher genericClientMatcher = annotationKeyMatcherRegistry.findAnnotationKeyMatcher(ServiceType.OPENTELEMETRY_CLIENT.getCode());
+        Assertions.assertNotNull(genericClientMatcher);
+        Assertions.assertFalse(genericClientMatcher.matches(AnnotationKey.HTTP_URL.getCode()));
     }
 
     @Test
@@ -144,18 +156,18 @@ public class TraceMetadataLoaderTest {
 
         final TraceMetadataProvider traceMetadataProvider = createTraceMetadataProvider(new DefaultServiceTypeInfo(registeredServiceType, registeredAnnotationKeyMatcher));
 
-        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader(LOGGER_FACTORY);
+        TraceMetadataLoader traceMetadataLoader = new TraceMetadataLoader();
         traceMetadataLoader.load(Collections.singletonList(traceMetadataProvider));
 
         AnnotationKeyMatcherRegistry annotationKeyMatcherRegistry = traceMetadataLoader.createAnnotationKeyMatcherRegistry();
         verifyAnnotationKeyMatcher(annotationKeyMatcherRegistry, registeredServiceType, registeredAnnotationKeyMatcher);
 
-        Assert.assertNull(annotationKeyMatcherRegistry.findAnnotationKeyMatcher(unregisteredServiceType.getCode()));
+        Assertions.assertNull(annotationKeyMatcherRegistry.findAnnotationKeyMatcher(unregisteredServiceType.getCode()));
     }
 
     private void verifyServiceType(ServiceTypeRegistry serviceTypeRegistry, ServiceType serviceType) {
-        Assert.assertSame(serviceType, serviceTypeRegistry.findServiceType(serviceType.getCode()));
-        Assert.assertSame(serviceType, serviceTypeRegistry.findServiceTypeByName(serviceType.getName()));
+        Assertions.assertSame(serviceType, serviceTypeRegistry.findServiceType(serviceType.getCode()));
+        Assertions.assertSame(serviceType, serviceTypeRegistry.findServiceTypeByName(serviceType.getName()));
         if (serviceType.isRecordStatistics()) {
             boolean found = false;
             List<ServiceType> descMatchedServiceTypes = serviceTypeRegistry.findDesc(serviceType.getDesc());
@@ -164,22 +176,20 @@ public class TraceMetadataLoaderTest {
                     found = true;
                 }
             }
-            Assert.assertTrue(found);
-            try {
+            Assertions.assertTrue(found);
+            Assertions.assertThrows(Exception.class, () -> {
                 descMatchedServiceTypes.add(serviceType);
-                Assert.fail("Adding to unmodifiable list should have failed");
-            } catch (Exception expected) {
-            }
+            }, "Adding to unmodifiable list should have failed");
         }
     }
 
     private void verifyAnnotationKey(AnnotationKeyRegistry annotationKeyRegistry, AnnotationKey annotationKey) {
-        Assert.assertSame(annotationKey, annotationKeyRegistry.findAnnotationKey(annotationKey.getCode()));
-        Assert.assertSame(annotationKey, annotationKeyRegistry.findAnnotationKeyByName(annotationKey.getName()));
+        Assertions.assertSame(annotationKey, annotationKeyRegistry.findAnnotationKey(annotationKey.getCode()));
+        Assertions.assertSame(annotationKey, annotationKeyRegistry.findAnnotationKeyByName(annotationKey.getName()));
     }
 
     private void verifyAnnotationKeyMatcher(AnnotationKeyMatcherRegistry annotationKeyMatcherRegistry, ServiceType serviceType, AnnotationKeyMatcher annotationKeyMatcher) {
-        Assert.assertSame(annotationKeyMatcher, annotationKeyMatcherRegistry.findAnnotationKeyMatcher(serviceType.getCode()));
+        Assertions.assertSame(annotationKeyMatcher, annotationKeyMatcherRegistry.findAnnotationKeyMatcher(serviceType.getCode()));
     }
 
     private TraceMetadataProvider createTraceMetadataProvider(ServiceTypeInfo serviceTypeInfo) {

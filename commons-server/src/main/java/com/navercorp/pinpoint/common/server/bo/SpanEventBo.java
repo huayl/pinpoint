@@ -16,15 +16,22 @@
 
 package com.navercorp.pinpoint.common.server.bo;
 
+import com.navercorp.pinpoint.io.SpanVersion;
+
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author emeroad
  * @author jaehong.kim
  */
-public class SpanEventBo implements Event {
+public class SpanEventBo {
 
-   // version 0 means that the type of prefix's size is int
+    public static final long DEFAULT_START_TIME = -1L;
+    public static final long DEFAULT_END_TIME = -1L;
+
+    // version 0 means that the type of prefix's size is int
 
     private byte version = 0;
 
@@ -32,9 +39,11 @@ public class SpanEventBo implements Event {
 
     private int startElapsed;
     private int endElapsed;
+    private long startTime = DEFAULT_START_TIME;
+    private long endTime = DEFAULT_END_TIME;
 
-//    private String rpc;
-    private short serviceType;
+    // private String rpc;
+    private int serviceType;
 
     private String destinationId;
     private String endPoint;
@@ -45,20 +54,15 @@ public class SpanEventBo implements Event {
     private int depth = -1;
     private long nextSpanId = -1;
 
-    private boolean hasException;
-    private int exceptionId;
-    private String exceptionMessage;
+    private ExceptionInfo exceptionInfo;
 
     // should get exceptionClass from dao
     private String exceptionClass;
 
     private int nextAsyncId = -1;
 
-    @Deprecated
-    private int asyncId = -1;
-    @Deprecated
-    private short asyncSequence = -1;
-    
+    private List<AttributeBo> attributeBoList = new ArrayList<>();
+
     public SpanEventBo() {
     }
 
@@ -79,6 +83,9 @@ public class SpanEventBo implements Event {
         this.sequence = sequence;
     }
 
+    /**
+     * Returns the event start offset in milliseconds from the parent span/chunk start time.
+     */
     public int getStartElapsed() {
         return startElapsed;
     }
@@ -87,6 +94,9 @@ public class SpanEventBo implements Event {
         this.startElapsed = startElapsed;
     }
 
+    /**
+     * Returns the event duration in milliseconds.
+     */
     public int getEndElapsed() {
         return endElapsed;
     }
@@ -95,21 +105,72 @@ public class SpanEventBo implements Event {
         this.endElapsed = endElapsed;
     }
 
-    @Deprecated
-    public String getRpc() {
-        return null;
+    /**
+     * Sets elapsed-only span event time for pre-V3 data.
+     * startElapsedMillis is the offset from the parent span/chunk start, and endElapsedMillis
+     * is the event duration.
+     */
+    public void setTraceTime(int version, int startElapsedMillis, int endElapsedMillis) {
+        setVersion((byte) version);
+
+        if (version == SpanVersion.TRACE_V3) {
+            throw new IllegalArgumentException("TRACE_V3 span event requires absolute start/end time");
+        }
+
+        this.startTime = DEFAULT_START_TIME;
+        this.endTime = DEFAULT_END_TIME;
+        this.startElapsed = startElapsedMillis;
+        this.endElapsed = endElapsedMillis;
     }
 
-    @Deprecated
-    public void setRpc(String rpc) {
-//        this.rpc = rpc;
+    /**
+     * Sets absolute span event time for TRACE_V3 data.
+     * startTime/endTime are epoch nanos. startElapsedMillis is retained as the compatibility
+     * offset from the parent span/chunk start; endElapsedMillis is derived from endTime-startTime.
+     */
+    public void setTraceTime(int version, long startTime, long endTime, int startElapsedMillis) {
+        setVersion((byte) version);
+
+        if (version != SpanVersion.TRACE_V3) {
+            throw new IllegalArgumentException("absolute start/end time is only supported for TRACE_V3 span events");
+        }
+        if (endTime < startTime) {
+            throw new IllegalArgumentException("span event end time must be greater than or equal to start time");
+        }
+
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.startElapsed = startElapsedMillis;
+        this.endElapsed = (int) TimeUnit.NANOSECONDS.toMillis(endTime - startTime);
     }
 
-    public short getServiceType() {
+    public boolean hasStartTime() {
+        return Byte.toUnsignedInt(version) == SpanVersion.TRACE_V3 && startTime != DEFAULT_START_TIME;
+    }
+
+    public long getStartTimeNanos() {
+        if (!hasStartTime()) {
+            throw new IllegalStateException("span event start time is not set");
+        }
+        return startTime;
+    }
+
+    public boolean hasEndTime() {
+        return Byte.toUnsignedInt(version) == SpanVersion.TRACE_V3 && endTime != DEFAULT_END_TIME;
+    }
+
+    public long getEndTimeNanos() {
+        if (!hasEndTime()) {
+            throw new IllegalStateException("span event end time is not set");
+        }
+        return endTime;
+    }
+
+    public int getServiceType() {
         return serviceType;
     }
 
-    public void setServiceType(short serviceType) {
+    public void setServiceType(int serviceType) {
         this.serviceType = serviceType;
     }
 
@@ -165,33 +226,33 @@ public class SpanEventBo implements Event {
         }
         this.annotationBoList = annotationList;
     }
-    
-    public boolean isAsync() {
-        return this.asyncId != -1;
+
+    public void addAnnotation(AnnotationBo annotation) {
+        if (annotation == null) {
+            return;
+        }
+        if (this.annotationBoList == null) {
+            this.annotationBoList = new ArrayList<>();
+        }
+        this.annotationBoList.add(annotation);
     }
-    
+
+
     public boolean hasException() {
-        return hasException;
+        return exceptionInfo != null;
     }
 
-    public int getExceptionId() {
-        return exceptionId;
+    public ExceptionInfo getExceptionInfo() {
+        return exceptionInfo;
     }
 
-    public String getExceptionMessage() {
-        return exceptionMessage;
+    public void setExceptionInfo(ExceptionInfo exceptionInfo) {
+        this.exceptionInfo = exceptionInfo;
     }
 
     public String getExceptionClass() {
         return exceptionClass;
     }
-
-    public void setExceptionInfo(int exceptionId, String exceptionMessage) {
-        this.hasException = true;
-        this.exceptionId = exceptionId;
-        this.exceptionMessage = exceptionMessage;
-    }
-
 
     public void setExceptionClass(String exceptionClass) {
         this.exceptionClass = exceptionClass;
@@ -205,79 +266,48 @@ public class SpanEventBo implements Event {
         this.nextAsyncId = nextAsyncId;
     }
 
-
-    @Deprecated
-    public int getAsyncId() {
-        return asyncId;
+    public List<AttributeBo> getAttributeBoList() {
+        return attributeBoList;
     }
 
-    @Deprecated
-    public void setAsyncId(int asyncId) {
-        this.asyncId = asyncId;
-    }
-
-    @Deprecated
-    public short getAsyncSequence() {
-        return asyncSequence;
-    }
-
-    @Deprecated
-    public void setAsyncSequence(short asyncSequence) {
-        this.asyncSequence = asyncSequence;
-    }
-
-    private boolean isDeprecatedAsyncFieldsSet() {
-        if (asyncId != -1 || asyncSequence != -1) {
-            return true;
+    public void setAttributeBoList(List<AttributeBo> attributeBoList) {
+        if (attributeBoList == null) {
+            return;
         }
+        this.attributeBoList = attributeBoList;
+    }
 
-        return false;
+    public void addAttribute(AttributeBo attributeBo) {
+        if (attributeBo == null) {
+            return;
+        }
+        if (this.attributeBoList == null) {
+            this.attributeBoList = new ArrayList<>();
+        }
+        this.attributeBoList.add(attributeBo);
     }
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("{version=");
-        builder.append(version);
-        builder.append(", sequence=");
-        builder.append(sequence);
-        builder.append(", startElapsed=");
-        builder.append(startElapsed);
-        builder.append(", endElapsed=");
-        builder.append(endElapsed);
-        builder.append(", serviceType=");
-        builder.append(serviceType);
-        builder.append(", destinationId=");
-        builder.append(destinationId);
-        builder.append(", endPoint=");
-        builder.append(endPoint);
-        builder.append(", apiId=");
-        builder.append(apiId);
-        builder.append(", annotationBoList=");
-        builder.append(annotationBoList);
-        builder.append(", depth=");
-        builder.append(depth);
-        builder.append(", nextSpanId=");
-        builder.append(nextSpanId);
-        builder.append(", hasException=");
-        builder.append(hasException);
-        if (hasException) {
-            builder.append(", exceptionId=");
-            builder.append(exceptionId);
-            builder.append(", exceptionMessage=");
-            builder.append(exceptionMessage);
-        }
-        builder.append(", exceptionClass=");
-        builder.append(exceptionClass);
-        builder.append(", nextAsyncId=");
-        builder.append(nextAsyncId);
-        if (isDeprecatedAsyncFieldsSet()) {
-            builder.append(", asyncId=");
-            builder.append(asyncId);
-            builder.append(", asyncSequence=");
-            builder.append(asyncSequence);
-        }
-        builder.append("}");
-        return builder.toString();
+        return "SpanEventBo{" +
+                "version=" + version +
+                ", sequence=" + sequence +
+                ", startElapsed=" + startElapsed +
+                ", endElapsed=" + endElapsed +
+                ", startTime=" + startTime +
+                ", endTime=" + endTime +
+                ", serviceType=" + serviceType +
+                ", destinationId='" + destinationId + '\'' +
+                ", endPoint='" + endPoint + '\'' +
+                ", apiId=" + apiId +
+                ", annotationBoList=" + annotationBoList +
+                ", depth=" + depth +
+                ", nextSpanId=" + nextSpanId +
+                ", exceptionInfo=" + exceptionInfo +
+                ", exceptionClass='" + exceptionClass + '\'' +
+                ", nextAsyncId=" + nextAsyncId +
+                ", attributeBoList=" + attributeBoList +
+                '}';
     }
+
 }

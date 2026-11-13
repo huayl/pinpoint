@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,33 +21,26 @@ import java.util.Objects;
 /**
  * @author Taejin Koo
  */
-public class StringCacheableBuffer extends FixedBuffer {
+public class StringCacheableBuffer extends OffsetFixedBuffer {
 
     private final StringAllocator stringAllocator;
 
     public StringCacheableBuffer(byte[] buffer, StringAllocator stringAllocator) {
-        super(buffer);
+        super(buffer, 0, buffer.length);
+        this.stringAllocator = Objects.requireNonNull(stringAllocator, "stringAllocator");
+    }
+
+    public StringCacheableBuffer(byte[] buffer, int offset, int length, StringAllocator stringAllocator) {
+        super(buffer, offset, length);
         this.stringAllocator = Objects.requireNonNull(stringAllocator, "stringAllocator");
     }
 
     protected String readString(final int size) {
-        checkBounds(buffer, offset, size);
+        Objects.checkFromIndexSize(offset, size, endOffset);
 
         String newValue = stringAllocator.allocate(buffer, offset, size, Buffer.UTF8_CHARSET);
         this.offset = offset + size;
         return newValue;
-    }
-
-    private void checkBounds(byte[] bytes, int offset, int size) {
-        if (size < 0) {
-            throw new StringIndexOutOfBoundsException(size);
-        }
-        if (offset < 0) {
-            throw new StringIndexOutOfBoundsException(offset);
-        }
-        if (bytes.length < offset + size) {
-            throw new StringIndexOutOfBoundsException(offset + size);
-        }
     }
 
 }

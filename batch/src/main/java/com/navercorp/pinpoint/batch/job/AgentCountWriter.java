@@ -17,34 +17,74 @@
 package com.navercorp.pinpoint.batch.job;
 
 import com.navercorp.pinpoint.web.dao.AgentStatisticsDao;
+import com.navercorp.pinpoint.web.util.DateTimeUtils;
 import com.navercorp.pinpoint.web.vo.AgentCountStatistics;
-import org.springframework.batch.core.JobExecutionException;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.jspecify.annotations.NonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.core.ExitStatus;
+import org.springframework.batch.core.job.JobExecutionException;
+import org.springframework.batch.core.step.StepExecution;
+import org.springframework.batch.core.listener.StepExecutionListener;
+import org.springframework.batch.infrastructure.item.Chunk;
+import org.springframework.batch.infrastructure.item.ItemWriter;
 
-import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * @author Taejin Koo
+ * @author youngjin.kim2
  */
-public class AgentCountWriter implements ItemWriter<AgentCountStatistics> {
+public class AgentCountWriter implements ItemWriter<Integer>, StepExecutionListener {
 
-    @Autowired
-    AgentStatisticsDao agentStatisticsDao;
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    private final AgentStatisticsDao agentStatisticsDao;
+    private final AtomicInteger count = new AtomicInteger(0);
+    private final long timestamp = DateTimeUtils.timestampToStartOfDay(System.currentTimeMillis());
+
+    public AgentCountWriter(AgentStatisticsDao agentStatisticsDao) {
+        this.agentStatisticsDao = Objects.requireNonNull(agentStatisticsDao, "agentStatisticsDao");
+    }
 
     @Override
-    public void write(List<? extends AgentCountStatistics> items) throws Exception {
-        if (items.size() == 1) {
-            AgentCountStatistics agentCountStatistics = items.get(0);
-            if (agentCountStatistics == null || agentCountStatistics.getAgentCount() < 0) {
-                throw new JobExecutionException("Bad parameter");
-            }
-            boolean success = agentStatisticsDao.insertAgentCount(agentCountStatistics);
-            if (!success) {
-                throw new JobExecutionException("insert AgentCount failed.");
-            }
-        } else {
-            throw new JobExecutionException("Bad parameter");
+    public void beforeStep(@NonNull StepExecution stepExecution) {}
+
+    @Override
+    public ExitStatus afterStep(@NonNull StepExecution stepExecution) {
+        if (!stepExecution.getFailureExceptions().isEmpty()) {
+            Throwable t = stepExecution.getFailureExceptions().get(0);
+            logger.error("Error detected while counting active agents", t);
+            return ExitStatus.FAILED;
+        }
+
+        if (stepExecution.getStatus().equals(BatchStatus.FAILED)) {
+            logger.error("Failed to count active agents");
+            return ExitStatus.FAILED;
+        }
+
+        try {
+            writeCount(count.get());
+        } catch (JobExecutionException e) {
+            logger.error("Failed to store agentCount in DB (agentCount: {})", count.get(), e);
+            return ExitStatus.FAILED;
+        }
+        return ExitStatus.COMPLETED;
+    }
+
+    @Override
+    public void write(Chunk<? extends Integer> items) {
+        int sum = items.getItems().stream().mapToInt(el -> el).sum();
+        count.getAndAdd(sum);
+    }
+
+    private void writeCount(int count) throws JobExecutionException {
+        logger.info("{} agents are alive", count);
+
+        AgentCountStatistics statistics = new AgentCountStatistics(count, timestamp);
+
+        if (!agentStatisticsDao.insertAgentCount(statistics)) {
+            throw new JobExecutionException("Failed to insert AgentCountStatistics: " + statistics);
         }
     }
 

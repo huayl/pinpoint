@@ -25,8 +25,8 @@ import java.util.Map;
  */
 public interface AlarmService {
 
-    Map<String, CheckerResult> selectBeforeCheckerResults(String applicationId);
+    Map<String, CheckerResult> selectBeforeCheckerResults(String applicationName);
 
-    void updateBeforeCheckerResult(CheckerResult beforeCheckerResult, AlarmChecker checker);
+    void updateBeforeCheckerResult(CheckerResult beforeCheckerResult, AlarmChecker<?> checker);
 
 }

@@ -22,27 +22,29 @@ import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+
 /**
  * @author Woonduk Kang(emeroad)
  */
-@RunWith(org.mockito.junit.MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class DiscardClientInterceptorTest {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private MethodDescriptor<String, Integer> descriptor;
     @Mock
@@ -65,10 +67,10 @@ public class DiscardClientInterceptorTest {
 
     private DiscardClientInterceptor interceptor;
 
-    private DiscardClientCall<String, Integer> call ;
+    private DiscardClientCall<String, Integer> call;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    public void setUp() {
         this.descriptor = MethodDescriptor.<String, Integer>newBuilder()
                 .setType(MethodDescriptor.MethodType.CLIENT_STREAMING)
                 .setFullMethodName("a.service/method")
@@ -79,7 +81,7 @@ public class DiscardClientInterceptorTest {
         this.clientCall = new ClientCallRecorder();
         when(channel.newCall(descriptor, callOptions)).thenReturn(clientCall);
 
-        discardEventListener = spy(new LoggingDiscardEventListener<String>(DiscardClientInterceptorTest.class.getName(), 1));
+        discardEventListener = spy(new LoggingDiscardEventListener<>(DiscardClientInterceptorTest.class.getName(), Duration.ofSeconds(1)));
         this.interceptor = new DiscardClientInterceptor(discardEventListener, 1, 100, 1000);
 
         this.call = (DiscardClientCall<String, Integer>) interceptor.interceptCall(descriptor, callOptions, channel);
@@ -92,7 +94,7 @@ public class DiscardClientInterceptorTest {
         clientCall.isReady = true;
 
         call.sendMessage("test");
-        Assert.assertTrue(call.getOnReadyState());
+        Assertions.assertTrue(call.getOnReadyState());
         verify(discardEventListener, never()).onDiscard(anyString(), anyString());
     }
 
@@ -105,7 +107,7 @@ public class DiscardClientInterceptorTest {
 
         call.sendMessage("test");
 
-        Assert.assertTrue(call.getOnReadyState());
+        Assertions.assertTrue(call.getOnReadyState());
         verify(discardEventListener).onDiscard(anyString(), anyString());
     }
 
@@ -113,9 +115,9 @@ public class DiscardClientInterceptorTest {
     public void interceptCall_pending_queue() {
 
         call.sendMessage("test");
-        Assert.assertFalse(call.getOnReadyState());
+        Assertions.assertFalse(call.getOnReadyState());
         verify(discardEventListener, never()).onDiscard(anyString(), anyString());
-        Assert.assertEquals(call.getPendingCount(), 1);
+        Assertions.assertEquals(call.getPendingCount(), 1);
     }
 
     @Test
@@ -124,14 +126,15 @@ public class DiscardClientInterceptorTest {
         call.sendMessage("test");
         call.sendMessage("test");
 
-        Assert.assertFalse(call.getOnReadyState());
+        Assertions.assertFalse(call.getOnReadyState());
         verify(discardEventListener).onDiscard(anyString(), anyString());
-        Assert.assertEquals(call.getPendingCount(), 2);
+        Assertions.assertEquals(call.getPendingCount(), 2);
     }
 
     private static class ClientCallRecorder extends ClientCall<String, Integer> {
         boolean isReady;
         Listener<Integer> responseListener;
+
         @Override
         public boolean isReady() {
             return isReady;

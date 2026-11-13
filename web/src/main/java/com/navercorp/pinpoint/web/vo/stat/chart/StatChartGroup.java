@@ -16,9 +16,9 @@
 
 package com.navercorp.pinpoint.web.vo.stat.chart;
 
-import com.navercorp.pinpoint.web.util.TimeWindow;
+import com.navercorp.pinpoint.common.timeseries.point.Point;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
 import com.navercorp.pinpoint.web.vo.chart.Chart;
-import com.navercorp.pinpoint.web.vo.chart.Point;
 
 import java.util.Map;
 
@@ -26,7 +26,7 @@ import java.util.Map;
  * @author HyunGil Jeong
  * @author minwoo.jung
  */
-public interface StatChartGroup {
+public interface StatChartGroup<P extends Point> {
 
     interface ChartType {
 
@@ -55,5 +55,5 @@ public interface StatChartGroup {
 
     TimeWindow getTimeWindow();
 
-    Map<ChartType, Chart<? extends Point>> getCharts();
+    Map<ChartType, Chart<P>> getCharts();
 }

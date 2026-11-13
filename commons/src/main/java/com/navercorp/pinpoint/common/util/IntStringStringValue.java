@@ -41,4 +41,33 @@ public class IntStringStringValue implements DataType {
     public String getStringValue2() {
         return stringValue2;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        IntStringStringValue that = (IntStringStringValue) o;
+
+        if (intValue != that.intValue) return false;
+        if (stringValue1 != null ? !stringValue1.equals(that.stringValue1) : that.stringValue1 != null) return false;
+        return stringValue2 != null ? stringValue2.equals(that.stringValue2) : that.stringValue2 == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = intValue;
+        result = 31 * result + (stringValue1 != null ? stringValue1.hashCode() : 0);
+        result = 31 * result + (stringValue2 != null ? stringValue2.hashCode() : 0);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "IntStringStringValue{" +
+                "intValue=" + intValue +
+                ", stringValue1='" + stringValue1 + '\'' +
+                ", stringValue2='" + stringValue2 + '\'' +
+                '}';
+    }
 }

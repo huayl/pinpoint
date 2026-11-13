@@ -40,11 +40,11 @@ public class SpanContext {
         this.serviceTypeRegistryService = Objects.requireNonNull(serviceTypeRegistryService, "serviceTypeRegistryService");
     }
 
-    public List<SpanBo> findNode(String findApplicationName, List<ServiceType> findServiceCode, AgentFilter agentFilter) {
+    public List<SpanBo> findNode(String findServiceName, String findApplicationName, List<ServiceType> findServiceCode, AgentFilter agentFilter) {
         List<SpanBo> findList = null;
         for (SpanBo span : nodeList) {
             final ServiceType applicationServiceType = serviceTypeRegistryService.findServiceType(span.getApplicationServiceType());
-            if (findApplicationName.equals(span.getApplicationId()) && includeServiceType(findServiceCode, applicationServiceType)) {
+            if (findServiceName.equals(span.getServiceName()) && findApplicationName.equals(span.getApplicationName()) && includeServiceType(findServiceCode, applicationServiceType)) {
                 // apply preAgentFilter
                 if (agentFilter.accept(span.getAgentId())) {
                     if (findList == null) {
@@ -69,7 +69,7 @@ public class SpanContext {
         return Filter.REJECT;
     }
 
-    public ServiceType findServiceType(short serviceType) {
+    public ServiceType findServiceType(int serviceType) {
         return serviceTypeRegistryService.findServiceType(serviceType);
     }
 }

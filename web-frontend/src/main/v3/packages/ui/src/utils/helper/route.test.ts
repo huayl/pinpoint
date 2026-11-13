@@ -1,0 +1,730 @@
+import {
+  getPagePath,
+  getServerImagePath,
+  getServerIconPath,
+  getApplicationPath,
+  getHostGroupPath,
+  getFilteredMapPath,
+  getFilteredMapPathOfApplication,
+  getFilterTargetApplication,
+  getFilterTargetServiceName,
+  getTransactionListPath,
+  getTransactionDetailPath,
+  getServiceMapPath,
+  getScatterFullScreenPath,
+  getScatterFullScreenRealtimePath,
+  getHeatmapFullScreenPath,
+  getHeatmapFullScreenRealtimePath,
+  getInspectorPath,
+  getUrlStatPath,
+  getErrorAnalysisPath,
+  getOpenTelemetryPath,
+  getThreadDumpPath,
+  getSystemMetricPath,
+} from './route';
+
+describe('Test route helper utils', () => {
+  describe('Test "getServerImagePath"', () => {
+    test('Return server image path when input application object', () => {
+      const application = {
+        serviceType: 'node',
+      };
+      const result = getServerImagePath(application);
+      expect(result).toEqual('/img/servers/node.png');
+    });
+
+    test('Return server UNKNOWN image path when input application object', () => {
+      const application = {};
+      const result = getServerImagePath(application);
+      expect(result).toEqual('/img/servers/UNKNOWN.png');
+    });
+  });
+
+  describe('Test "getServerIconPath"', () => {
+    test('Return icon image path when input application object', () => {
+      const application = {
+        serviceType: 'node',
+      };
+      const result = getServerIconPath(application);
+      expect(result).toEqual('/img/icons/node.png');
+    });
+
+    test('Return icon UNKNOWN image path when input application object', () => {
+      const application = {};
+      const result = getServerIconPath(application);
+      expect(result).toEqual('/img/icons/UNKNOWN.png');
+    });
+  });
+
+  describe('Test "getApplicationPath"', () => {
+    const pagePath = '/serverMap';
+
+    test('Return application path', () => {
+      const application = {
+        serviceType: 'node',
+        applicationName: 'pinpoint',
+      };
+      const result = getApplicationPath(pagePath)(application);
+      expect(result).toEqual(`${pagePath}/pinpoint@node`);
+    });
+
+    test('Return application path with searchParameters when input queryParam object(but only inlcudes "to" and "from"', () => {
+      const application = {
+        serviceType: 'node',
+        applicationName: 'pinpoint',
+      };
+      const queryParam = {
+        from: '2023-11-10-15-14-14',
+        to: '2023-11-10-15-19-14',
+        inbound: '2',
+        outbound: '2',
+        wasOnly: 'true',
+        bidirectional: 'true',
+      };
+      const result = getApplicationPath(pagePath)(application, queryParam);
+      expect(result).toEqual(
+        `${pagePath}/pinpoint@node?from=2023-11-10-15-14-14&to=2023-11-10-15-19-14`,
+      );
+    });
+
+    test('Return only page path when input abnormal application', () => {
+      const application = {
+        serviceType: 'node',
+      };
+      const result = getApplicationPath(pagePath)(application);
+      expect(result).toEqual(pagePath);
+
+      const application2 = {
+        applicationName: 'pinpoint',
+      };
+      const result2 = getApplicationPath(pagePath)(application2);
+      expect(result2).toEqual(pagePath);
+
+      const application3 = null;
+      const result3 = getApplicationPath(pagePath)(application3);
+      expect(result3).toEqual(pagePath);
+    });
+  });
+
+  describe('Test "getHostGroupPath"', () => {
+    const pagePath = '/serverMap';
+
+    test('Return hostGroup path', () => {
+      const hostGroup = 'pinpointHost';
+      const result = getHostGroupPath(pagePath)(hostGroup);
+      expect(result).toEqual(`${pagePath}/${hostGroup}`);
+    });
+
+    test('Return hostGroup path with searchParameters when input queryParam object(but only inlcudes "to" and "from"', () => {
+      const hostGroup = 'pinpointHost';
+      const queryParam = {
+        from: '2023-11-10-15-14-14',
+        to: '2023-11-10-15-19-14',
+      };
+      const result = getHostGroupPath(pagePath)(hostGroup, queryParam);
+      expect(result).toEqual(
+        `${pagePath}/${hostGroup}?from=2023-11-10-15-14-14&to=2023-11-10-15-19-14`,
+      );
+    });
+
+    test('Return only page path when input abnormal hostGroup name', () => {
+      const hostGroup = '';
+      const result = getHostGroupPath(pagePath)(hostGroup);
+      expect(result).toEqual(pagePath);
+
+      const hostGroup2 = null;
+      const result2 = getHostGroupPath(pagePath)(hostGroup2);
+      expect(result2).toEqual(pagePath);
+    });
+  });
+
+  describe('Test "getFilteredMapPath"', () => {
+    test('Return FilterMap path: using toApplication and toServiceType when applicationName is not exist and sourceIsWas is false', () => {
+      const filterState = {
+        fromApplication: '',
+        fromServiceType: '',
+        toApplication: '',
+        toServiceType: '',
+        transactionResult: null,
+        applicationName: 'applicationName',
+        serviceType: 'serviceType',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+        agents: ['agent'],
+      };
+      const sourceIsWas = false;
+
+      const result = getFilteredMapPath(filterState, sourceIsWas);
+      expect(result).toEqual('/filteredMap/applicationName@serviceType');
+    });
+
+    test('Return FilterMap path: using fromApplication and fromServiceType when applicationName is not exist and sourceIsWas is true', () => {
+      const filterState = {
+        fromApplication: 'fromApplication',
+        fromServiceType: 'fromServiceType',
+        toApplication: 'toApplication',
+        toServiceType: 'toServiceType',
+        transactionResult: null,
+        applicationName: '',
+        serviceType: '',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+        fromAgents: ['fromAgent'],
+      };
+      const sourceIsWas = true;
+
+      const result = getFilteredMapPath(filterState, sourceIsWas);
+      expect(result).toEqual('/filteredMap/fromApplication@fromServiceType');
+    });
+
+    test('Return FilterMap path: using toApplication and toServiceType when applicationName is not exist and sourceIsWas is false', () => {
+      const filterState = {
+        fromApplication: 'fromApplication',
+        fromServiceType: 'fromServiceType',
+        toApplication: 'toApplication',
+        toServiceType: 'toServiceType',
+        transactionResult: null,
+        applicationName: '',
+        serviceType: '',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+        fromAgents: ['fromAgent'],
+      };
+      const sourceIsWas = false;
+
+      const result = getFilteredMapPath(filterState, sourceIsWas);
+      expect(result).toEqual('/filteredMap/toApplication@toServiceType');
+    });
+
+    // servicemap에서 넘어오면 어떤 service를 보던 중이었는지 URL에 남아야 한다.
+    // filteredMap은 새 탭으로 열려서 전역 선택값을 믿을 수 없다.
+    describe('with a service name', () => {
+      const filterState = {
+        fromApplication: '',
+        fromServiceType: '',
+        toApplication: '',
+        toServiceType: '',
+        transactionResult: null,
+        applicationName: 'ACL-PORTAL-DEV',
+        serviceType: 'SPRING_BOOT',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+      };
+
+      test('Carry the service name as its own segment', () => {
+        expect(getFilteredMapPath(filterState, false, 'DEFAULT')).toEqual(
+          '/filteredMap/DEFAULT/ACL-PORTAL-DEV@SPRING_BOOT',
+        );
+        expect(getFilteredMapPath(filterState, false, 'blogService')).toEqual(
+          '/filteredMap/blogService/ACL-PORTAL-DEV@SPRING_BOOT',
+        );
+      });
+
+      // 백엔드가 serviceName 형식을 검증하지 않으므로 '/'나 '@'가 들어올 수 있다.
+      // 그대로 실으면 세그먼트가 쪼개져 라우트 매칭이 깨진다.
+      test('Encode a service name that would break the path', () => {
+        expect(getFilteredMapPath(filterState, false, 'team/a@b')).toEqual(
+          '/filteredMap/team%2Fa%40b/ACL-PORTAL-DEV@SPRING_BOOT',
+        );
+      });
+
+      // servermap에서 넘어올 때는 주어지지 않는다. 경로 형태가 예전과 같아야 한다.
+      test('Keep the path unchanged when no service name is given', () => {
+        expect(getFilteredMapPath(filterState, false, undefined)).toEqual(
+          '/filteredMap/ACL-PORTAL-DEV@SPRING_BOOT',
+        );
+      });
+
+      // 헤더(pServiceName)는 기준 application의 service여야 조회가 성립한다.
+      test('Use the service of the picked node instead of the viewed service', () => {
+        expect(
+          getFilteredMapPath({ ...filterState, serviceName: 'otherService' }, false, 'myService'),
+        ).toEqual('/filteredMap/otherService/ACL-PORTAL-DEV@SPRING_BOOT');
+      });
+
+      // 다른 service의 WAS → 보고 있는 service의 application. 출발지가 기준이라 service도 출발지 것.
+      test('Use the service of the link side picked by sourceIsWas', () => {
+        const linkFilter = {
+          ...filterState,
+          fromServiceName: 'demo-shop-front',
+          fromApplication: 'Shopping-Api',
+          fromServiceType: 'SPRING_BOOT',
+          toServiceName: 'demo-shop-commerce',
+          toApplication: 'Shopping-Order',
+          toServiceType: 'SPRING_BOOT',
+          applicationName: '',
+          serviceType: '',
+        };
+
+        expect(getFilteredMapPath(linkFilter, true, 'demo-shop-commerce')).toEqual(
+          '/filteredMap/demo-shop-front/Shopping-Api@SPRING_BOOT',
+        );
+        expect(getFilteredMapPath(linkFilter, false, 'demo-shop-front')).toEqual(
+          '/filteredMap/demo-shop-commerce/Shopping-Order@SPRING_BOOT',
+        );
+      });
+
+      // servermap에서 온 filteredMap도 설정이 켜져 있으면 id가 3단이라 필터에 service가 실린다.
+      // 그래도 세그먼트를 만들면 servicemap에서 온 화면처럼 보이므로 붙이지 않는다.
+      test('Keep the path without a service segment even when the filter carries a service', () => {
+        expect(getFilteredMapPath({ ...filterState, serviceName: 'DEFAULT' }, false)).toEqual(
+          '/filteredMap/ACL-PORTAL-DEV@SPRING_BOOT',
+        );
+      });
+    });
+
+    // servicemap의 service group(접힌 service)처럼 기준 application을 고를 수 없는 필터.
+    test('Return only the page path when no application can be picked', () => {
+      const emptyFilterState = {
+        fromApplication: '',
+        fromServiceType: '',
+        toApplication: '',
+        toServiceType: '',
+        transactionResult: null,
+        applicationName: '',
+        serviceType: '',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+      };
+
+      expect(getFilteredMapPath(emptyFilterState, false)).toEqual('/filteredMap');
+      expect(getFilteredMapPath(emptyFilterState, false, 'DEFAULT')).toEqual(
+        '/filteredMap/DEFAULT',
+      );
+    });
+  });
+
+  describe('Test "getFilteredMapPathOfApplication"', () => {
+    const application = { applicationName: 'ACL-PORTAL-DEV', serviceType: 'SPRING_BOOT' };
+
+    test('Build the path from the application already in hand', () => {
+      expect(getFilteredMapPathOfApplication(application)).toEqual(
+        '/filteredMap/ACL-PORTAL-DEV@SPRING_BOOT',
+      );
+      expect(getFilteredMapPathOfApplication(application, 'blogService')).toEqual(
+        '/filteredMap/blogService/ACL-PORTAL-DEV@SPRING_BOOT',
+      );
+    });
+
+    test('Encode the service name', () => {
+      expect(getFilteredMapPathOfApplication(application, 'team/a@b')).toEqual(
+        '/filteredMap/team%2Fa%40b/ACL-PORTAL-DEV@SPRING_BOOT',
+      );
+    });
+
+    test('Return only the page path when there is no application', () => {
+      expect(getFilteredMapPathOfApplication(null)).toEqual('/filteredMap');
+      expect(getFilteredMapPathOfApplication(undefined, 'DEFAULT')).toEqual('/filteredMap/DEFAULT');
+      expect(getFilteredMapPathOfApplication({ applicationName: 'A', serviceType: '' })).toEqual(
+        '/filteredMap',
+      );
+    });
+
+    // 기간만 바꿀 때 이 함수를 쓴다. 필터에서 다시 뽑으면 sourceIsWas를 알 수 없어 출발지가
+    // 기준이던 경로가 도착지로 뒤집힌다. 그 차이를 고정해 둔다.
+    test('Keep the source-based path that rebuilding from the filter would flip', () => {
+      const linkFilter = {
+        fromApplication: 'pasta-naver-dev',
+        fromServiceType: 'STAND_ALONE',
+        toApplication: 'API-PORTAL-DEV',
+        toServiceType: 'SPRING_BOOT',
+        transactionResult: null,
+        applicationName: '',
+        serviceType: '',
+        agentName: '',
+        responseFrom: 0,
+        responseTo: 'max',
+        url: '',
+        fromAgentName: '',
+        toAgentName: '',
+      };
+      const pathApplication = {
+        applicationName: 'pasta-naver-dev',
+        serviceType: 'STAND_ALONE',
+      };
+
+      expect(getFilteredMapPathOfApplication(pathApplication)).toEqual(
+        '/filteredMap/pasta-naver-dev@STAND_ALONE',
+      );
+      // sourceIsWas 없이 필터에서 다시 뽑으면 도착지로 넘어간다.
+      expect(getFilteredMapPath(linkFilter, undefined)).toEqual(
+        '/filteredMap/API-PORTAL-DEV@SPRING_BOOT',
+      );
+    });
+  });
+
+  describe('Test "getFilterTargetApplication"', () => {
+    const base = {
+      fromApplication: 'FRONT',
+      fromServiceType: 'TOMCAT',
+      toApplication: 'ACL-PORTAL-DEV',
+      toServiceType: 'SPRING_BOOT',
+      transactionResult: null,
+      applicationName: '',
+      serviceType: '',
+      agentName: '',
+      responseFrom: 0,
+      responseTo: 'max',
+      url: '',
+      fromAgentName: '',
+      toAgentName: '',
+    };
+
+    test('Pick the node application when the filter is on a node', () => {
+      expect(
+        getFilterTargetApplication({
+          ...base,
+          applicationName: 'ACL-PORTAL-DEV',
+          serviceType: 'SPRING_BOOT',
+        }),
+      ).toEqual({ applicationName: 'ACL-PORTAL-DEV', serviceType: 'SPRING_BOOT' });
+    });
+
+    test('Pick the link side by sourceIsWas', () => {
+      expect(getFilterTargetApplication(base, true)).toEqual({
+        applicationName: 'FRONT',
+        serviceType: 'TOMCAT',
+      });
+      expect(getFilterTargetApplication(base, false)).toEqual({
+        applicationName: 'ACL-PORTAL-DEV',
+        serviceType: 'SPRING_BOOT',
+      });
+    });
+
+    // filteredMap은 기준 application 없이 조회가 성립하지 않는다. 호출자가 화면을 열지 않는다.
+    test('Return null when neither side carries an application', () => {
+      expect(
+        getFilterTargetApplication({
+          ...base,
+          fromApplication: '',
+          fromServiceType: '',
+          toApplication: '',
+          toServiceType: '',
+        }),
+      ).toBeNull();
+    });
+
+    test('Return null when the service type is missing', () => {
+      expect(getFilterTargetApplication({ ...base, toServiceType: '' }, false)).toBeNull();
+    });
+
+    // servicemap의 Application→Service 링크. 출발지가 WAS라 기준은 잡히지만, 도착지가 service
+    // group이라 필터가 반쪽만 걸린다. Application→Application만 filteredMap으로 연결한다.
+    test('Return null when only one side of the link carries an application', () => {
+      const toServiceGroup = { ...base, toApplication: '', toServiceType: '' };
+      expect(getFilterTargetApplication(toServiceGroup, true)).toBeNull();
+      expect(getFilterTargetApplication(toServiceGroup, false)).toBeNull();
+
+      const fromServiceGroup = { ...base, fromApplication: '', fromServiceType: '' };
+      expect(getFilterTargetApplication(fromServiceGroup, true)).toBeNull();
+      expect(getFilterTargetApplication(fromServiceGroup, false)).toBeNull();
+    });
+  });
+
+  describe('Test "getFilterTargetServiceName"', () => {
+    const base = {
+      fromServiceName: 'fromService',
+      fromApplication: 'FRONT',
+      fromServiceType: 'TOMCAT',
+      toServiceName: 'toService',
+      toApplication: 'ACL-PORTAL-DEV',
+      toServiceType: 'SPRING_BOOT',
+      transactionResult: null,
+    };
+
+    test('Pick the node service when the filter is on a node', () => {
+      expect(
+        getFilterTargetServiceName({
+          ...base,
+          serviceName: 'nodeService',
+          applicationName: 'ACL-PORTAL-DEV',
+          serviceType: 'SPRING_BOOT',
+        }),
+      ).toBe('nodeService');
+    });
+
+    test('Pick the link side by sourceIsWas', () => {
+      expect(getFilterTargetServiceName(base, true)).toBe('fromService');
+      expect(getFilterTargetServiceName(base, false)).toBe('toService');
+    });
+
+    test('Return undefined when the filter carries no service', () => {
+      expect(
+        getFilterTargetServiceName(
+          { ...base, fromServiceName: undefined, toServiceName: undefined },
+          true,
+        ),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('Test "getServiceMapPath"', () => {
+    const application = { applicationName: 'appName', serviceType: 'TOMCAT' };
+    const dateRange = { from: 'from', to: 'to' };
+
+    // servicemap은 어떤 service를 보는지가 URL의 진실의 원천이라 DEFAULT도 예외 없이 싣는다.
+    test('Always carry the service name, DEFAULT included', () => {
+      expect(getServiceMapPath('DEFAULT')).toEqual('/serviceMap/DEFAULT');
+      expect(getServiceMapPath('blogService')).toEqual('/serviceMap/blogService');
+    });
+
+    test('Append the application as its own segment', () => {
+      expect(getServiceMapPath('DEFAULT', application)).toEqual(
+        '/serviceMap/DEFAULT/appName@TOMCAT',
+      );
+      expect(getServiceMapPath('DEFAULT', application, dateRange)).toEqual(
+        '/serviceMap/DEFAULT/appName@TOMCAT?from=from&to=to',
+      );
+    });
+
+    // application 없이도 map을 그리므로, 보고 있던 기간이 초기화되면 안 된다.
+    test('Keep the date range even without an application', () => {
+      expect(getServiceMapPath('blogService', null, dateRange)).toEqual(
+        '/serviceMap/blogService?from=from&to=to',
+      );
+    });
+
+    test('Omit the query string when only one of from/to is given', () => {
+      expect(getServiceMapPath('blogService', null, { from: 'from' })).toEqual(
+        '/serviceMap/blogService',
+      );
+    });
+
+    // 인코딩하지 않으면 '/'가 세그먼트를 쪼개 라우트 매칭이 깨지고, '@'는 application
+    // 세그먼트의 구분자와 구별되지 않는다.
+    test('Encode the service name so it cannot break the path segment', () => {
+      expect(getServiceMapPath('a/b')).toEqual('/serviceMap/a%2Fb');
+      expect(getServiceMapPath('a@b', application)).toEqual('/serviceMap/a%40b/appName@TOMCAT');
+      expect(getServiceMapPath('a b')).toEqual('/serviceMap/a%20b');
+    });
+  });
+
+  describe('Test "getTransactionListPath"', () => {
+    const application = { applicationName: 'appName', serviceType: 'TOMCAT' };
+    const dateRange = { from: 'from', to: 'to' };
+
+    test('Return only the page and service segments when application is not given', () => {
+      expect(getTransactionListPath()).toEqual('/transactionList');
+      expect(getTransactionListPath(null, dateRange, 'svc')).toEqual('/transactionList/svc');
+    });
+
+    test('Omit the service segment when service name is not given', () => {
+      expect(getTransactionListPath(application)).toEqual('/transactionList/appName@TOMCAT');
+      expect(getTransactionListPath(application, dateRange)).toEqual(
+        '/transactionList/appName@TOMCAT?from=from&to=to',
+      );
+    });
+
+    test('Carry the service name as its own segment, like servicemap', () => {
+      expect(getTransactionListPath(application, undefined, 'svc')).toEqual(
+        '/transactionList/svc/appName@TOMCAT',
+      );
+      expect(getTransactionListPath(application, dateRange, 'svc')).toEqual(
+        '/transactionList/svc/appName@TOMCAT?from=from&to=to',
+      );
+    });
+
+    test('Omit the query string when only one of from/to is given', () => {
+      expect(getTransactionListPath(application, { from: 'from' }, 'svc')).toEqual(
+        '/transactionList/svc/appName@TOMCAT',
+      );
+    });
+
+    // 백엔드가 service 이름 형식을 검증하지 않으므로 '/'나 '@'가 들어올 수 있다. 인코딩하지
+    // 않으면 '/'가 세그먼트를 쪼개 라우트 매칭이 깨지고, '@'는 application 세그먼트의 구분자와
+    // 구별되지 않는다.
+    test('Encode the service name so it cannot break the path segment', () => {
+      expect(getTransactionListPath(application, undefined, 'a/b')).toEqual(
+        '/transactionList/a%2Fb/appName@TOMCAT',
+      );
+      expect(getTransactionListPath(application, undefined, 'a@b')).toEqual(
+        '/transactionList/a%40b/appName@TOMCAT',
+      );
+      expect(getTransactionListPath(application, undefined, 'a b')).toEqual(
+        '/transactionList/a%20b/appName@TOMCAT',
+      );
+    });
+  });
+
+  describe('Test the fullScreenMode path builders', () => {
+    const application = { applicationName: 'appName', serviceType: 'TOMCAT' };
+
+    test('Omit the service segment when service name is not given', () => {
+      expect(getScatterFullScreenPath(application)).toEqual(
+        '/scatterFullScreenMode/appName@TOMCAT',
+      );
+      expect(getScatterFullScreenRealtimePath(application)).toEqual(
+        '/scatterFullScreenMode/realtime/appName@TOMCAT',
+      );
+      expect(getHeatmapFullScreenPath(application)).toEqual(
+        '/heatmapFullScreenMode/appName@TOMCAT',
+      );
+      expect(getHeatmapFullScreenRealtimePath(application)).toEqual(
+        '/heatmapFullScreenMode/realtime/appName@TOMCAT',
+      );
+    });
+
+    test('Carry the service name as its own segment, like servicemap', () => {
+      expect(getScatterFullScreenPath(application, undefined, 'svc')).toEqual(
+        '/scatterFullScreenMode/svc/appName@TOMCAT',
+      );
+      expect(getScatterFullScreenRealtimePath(application, undefined, 'svc')).toEqual(
+        '/scatterFullScreenMode/realtime/svc/appName@TOMCAT',
+      );
+      expect(getHeatmapFullScreenPath(application, undefined, 'svc')).toEqual(
+        '/heatmapFullScreenMode/svc/appName@TOMCAT',
+      );
+      expect(getHeatmapFullScreenRealtimePath(application, undefined, 'svc')).toEqual(
+        '/heatmapFullScreenMode/realtime/svc/appName@TOMCAT',
+      );
+    });
+
+    test('Encode the service name so it cannot break the path segment', () => {
+      expect(getHeatmapFullScreenPath(application, undefined, 'a/b')).toEqual(
+        '/heatmapFullScreenMode/a%2Fb/appName@TOMCAT',
+      );
+      expect(getHeatmapFullScreenPath(application, undefined, 'a@b')).toEqual(
+        '/heatmapFullScreenMode/a%40b/appName@TOMCAT',
+      );
+    });
+
+    test('Return only the page and service segments when application is not given', () => {
+      expect(getScatterFullScreenPath(null, undefined, 'svc')).toEqual(
+        '/scatterFullScreenMode/svc',
+      );
+      expect(getHeatmapFullScreenRealtimePath(null, undefined, 'svc')).toEqual(
+        '/heatmapFullScreenMode/realtime/svc',
+      );
+    });
+  });
+
+  describe('Test "getTransactionDetailPath"', () => {
+    const application = { applicationName: 'appName', serviceType: 'TOMCAT' };
+    const dateRange = { from: 'from', to: 'to' };
+
+    test('Return only the page and service segments when application is not given', () => {
+      expect(getTransactionDetailPath()).toEqual('/transactionDetail');
+      expect(getTransactionDetailPath(null, dateRange, 'svc')).toEqual('/transactionDetail/svc');
+    });
+
+    test('Omit the service segment when service name is not given', () => {
+      expect(getTransactionDetailPath(application)).toEqual('/transactionDetail/appName@TOMCAT');
+      expect(getTransactionDetailPath(application, dateRange)).toEqual(
+        '/transactionDetail/appName@TOMCAT?from=from&to=to',
+      );
+    });
+
+    test('Carry the service name as its own segment, like servicemap', () => {
+      expect(getTransactionDetailPath(application, undefined, 'svc')).toEqual(
+        '/transactionDetail/svc/appName@TOMCAT',
+      );
+    });
+
+    test('Encode the service name so it cannot break the path segment', () => {
+      expect(getTransactionDetailPath(application, undefined, 'a/b')).toEqual(
+        '/transactionDetail/a%2Fb/appName@TOMCAT',
+      );
+    });
+  });
+  describe('Test the application page path builders', () => {
+    const application = { applicationName: 'appName', serviceType: 'TOMCAT' };
+    const dateRange = { from: 'from', to: 'to' };
+
+    test.each([
+      [getInspectorPath, '/inspector'],
+      [getUrlStatPath, '/urlStatistic'],
+      [getErrorAnalysisPath, '/errorAnalysis'],
+      [getOpenTelemetryPath, '/openTelemetryMetric'],
+      [getThreadDumpPath, '/threadDump'],
+    ])('%#: carry the service name as its own segment, like servicemap', (builder, page) => {
+      expect(builder(application, dateRange, 'svc')).toEqual(
+        `${page}/svc/appName@TOMCAT?from=from&to=to`,
+      );
+      expect(builder(application, undefined, 'a/b')).toEqual(`${page}/a%2Fb/appName@TOMCAT`);
+    });
+
+    // enableServiceMap이 꺼져 있으면 serviceName이 undefined로 들어온다 — 예전과 같은 경로다.
+    test('Omit the service segment when service name is not given', () => {
+      expect(getInspectorPath(application, dateRange)).toEqual(
+        '/inspector/appName@TOMCAT?from=from&to=to',
+      );
+      expect(getThreadDumpPath(application)).toEqual('/threadDump/appName@TOMCAT');
+    });
+
+    // 메뉴 링크처럼 application을 아직 고르지 않았어도 service는 싣는다. 새 탭으로 열면 전역
+    // 선택값이 아니라 링크를 만든 화면의 service로 조회해야 한다(DEFAULT가 아닌 servicemap에는
+    // application이 없다).
+    test('Carry the service name even when application is not given', () => {
+      expect(getInspectorPath(null, dateRange, 'svc')).toEqual('/inspector/svc');
+      expect(getUrlStatPath(undefined, undefined, 'a/b')).toEqual('/urlStatistic/a%2Fb');
+      expect(
+        getErrorAnalysisPath({ applicationName: '', serviceType: '' }, dateRange, 'svc'),
+      ).toEqual('/errorAnalysis/svc');
+    });
+
+    test('Return the page path only when neither application nor service name is given', () => {
+      expect(getInspectorPath(null, dateRange)).toEqual('/inspector');
+      expect(getOpenTelemetryPath()).toEqual('/openTelemetryMetric');
+    });
+  });
+  describe('Test "getSystemMetricPath"', () => {
+    const dateRange = { from: 'from', to: 'to' };
+
+    test('Carry the service name as its own segment before the host group', () => {
+      expect(getSystemMetricPath('hostGroup', dateRange, 'svc')).toEqual(
+        '/systemMetric/svc/hostGroup?from=from&to=to',
+      );
+      expect(getSystemMetricPath('hostGroup', undefined, 'a/b')).toEqual(
+        '/systemMetric/a%2Fb/hostGroup',
+      );
+    });
+
+    test('Omit the service segment when service name is not given', () => {
+      expect(getSystemMetricPath('hostGroup', dateRange)).toEqual(
+        '/systemMetric/hostGroup?from=from&to=to',
+      );
+    });
+
+    test('Carry the service name even when host group is not given', () => {
+      expect(getSystemMetricPath(null, dateRange, 'svc')).toEqual('/systemMetric/svc');
+      expect(getSystemMetricPath(undefined, undefined, 'a/b')).toEqual('/systemMetric/a%2Fb');
+    });
+
+    test('Return the page path only when neither host group nor service name is given', () => {
+      expect(getSystemMetricPath()).toEqual('/systemMetric');
+    });
+  });
+});
+
+describe('getPagePath', () => {
+  test('drops the service segment and the trailing slash', () => {
+    expect(getPagePath('/config/alarm/svc')).toBe('/config/alarm');
+    expect(getPagePath('/config/alarm/svc/')).toBe('/config/alarm');
+    expect(getPagePath('/config/alarm/')).toBe('/config/alarm');
+  });
+
+  test('keeps a path that carries no service', () => {
+    expect(getPagePath('/config/webhook')).toBe('/config/webhook');
+    expect(getPagePath('/inspector/app@TOMCAT')).toBe('/inspector/app@TOMCAT');
+  });
+});

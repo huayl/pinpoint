@@ -1,0 +1,396 @@
+/*
+ * Copyright 2023 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.authorization.controller;
+
+import com.navercorp.pinpoint.common.server.bo.ApplicationFactory;
+import com.navercorp.pinpoint.common.timeseries.time.ForwardRangeValidator;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.timeseries.time.RangeValidator;
+import com.navercorp.pinpoint.common.timeseries.window.TimeWindow;
+import com.navercorp.pinpoint.web.applicationmap.histogram.ApplicationTimeHistogram;
+import com.navercorp.pinpoint.applicationmap.histogram.Histogram;
+import com.navercorp.pinpoint.applicationmap.histogram.TimeHistogram;
+import com.navercorp.pinpoint.web.applicationmap.link.LinkHistogramSummary;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeHistogramSummary;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramService;
+import com.navercorp.pinpoint.web.applicationmap.service.ResponseTimeHistogramServiceOption;
+import com.navercorp.pinpoint.web.config.ConfigProperties;
+import com.navercorp.pinpoint.web.hyperlink.HyperLinkFactory;
+import com.navercorp.pinpoint.web.view.histogram.HistogramView;
+import com.navercorp.pinpoint.web.view.histogram.ServerHistogramView;
+import com.navercorp.pinpoint.web.view.histogram.TimeHistogramChart;
+import com.navercorp.pinpoint.web.view.histogram.TimeHistogramChartBuilder;
+import com.navercorp.pinpoint.web.view.histogram.TimeHistogramType;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.web.vo.ApplicationPair;
+import com.navercorp.pinpoint.web.vo.ApplicationPairs;
+import com.navercorp.pinpoint.web.vo.ResponseTimeStatics;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.service.service.ServiceModelResolver;
+import com.navercorp.pinpoint.service.web.resolver.ServiceParam;
+import com.navercorp.pinpoint.service.web.vo.ServiceName;
+import com.navercorp.pinpoint.common.timeseries.time.Timestamp;
+import jakarta.validation.constraints.NotBlank;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+@RestController
+@RequestMapping("/api")
+public class ResponseTimeController {
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private final ResponseTimeHistogramService responseTimeHistogramService;
+    private final RangeValidator rangeValidator;
+    private final ApplicationFactory applicationFactory;
+    private final HyperLinkFactory hyperLinkFactory;
+    private final ServiceModelResolver serviceModelResolver;
+
+    public ResponseTimeController(ResponseTimeHistogramService responseTimeHistogramService,
+                                  ConfigProperties configProperties,
+                                  ApplicationFactory applicationFactory,
+                                  HyperLinkFactory hyperLinkFactory,
+                                  ServiceModelResolver serviceModelResolver) {
+        this.responseTimeHistogramService = Objects.requireNonNull(responseTimeHistogramService, "responseTimeHistogramService");
+        Objects.requireNonNull(configProperties, "configProperties");
+        this.rangeValidator = new ForwardRangeValidator(Duration.ofDays(configProperties.getServerMapPeriodMax()));
+        this.applicationFactory = Objects.requireNonNull(applicationFactory, "applicationFactory");
+        this.hyperLinkFactory = Objects.requireNonNull(hyperLinkFactory, "hyperLinkFactory");
+        this.serviceModelResolver = Objects.requireNonNull(serviceModelResolver, "serviceModelResolver");
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/getWas/serverHistogramData")
+    public ServerHistogramView getWasServerHistogramData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+
+        ResponseTimeHistogramServiceOption option = createWasOptionBuilder(application, timeWindow)
+                .setUseStatisticsAgentState(false) //set useStatisticsAgentState to false for agent data
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+        return ServerHistogramView.view(nodeHistogramSummary, hyperLinkFactory);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/getWas/histogram")
+    public Histogram getWasHistogram(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+
+        ResponseTimeHistogramServiceOption option = createWasOptionBuilder(application, timeWindow)
+                .setUseStatisticsAgentState(true)
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+        return nodeHistogramSummary.getHistogram();
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/getWas/responseStatistics")
+    public ResponseTimeStatics getWasResponseTimeStatistics(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        Histogram histogram = getWasHistogram(serviceName, applicationName, serviceTypeCode, serviceTypeName, from, to);
+        return ResponseTimeStatics.fromHistogram(histogram);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @GetMapping(value = "/getWas/{type}/chart")
+    public TimeHistogramChart getWasTimeHistogramChart(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @PathVariable("type") String type
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+        TimeHistogramType timeHistogramType = TimeHistogramType.valueOf(type);
+
+        ResponseTimeHistogramServiceOption option = createWasOptionBuilder(application, timeWindow)
+                .setUseStatisticsAgentState(true)
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+        ApplicationTimeHistogram applicationTimeHistogram = nodeHistogramSummary.getApplicationTimeHistogram();
+
+        return chartView(applicationTimeHistogram, timeHistogramType);
+    }
+
+    @GetMapping(value = "/getWas/histogramData")
+    public HistogramView getWasHistogramData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+
+        ResponseTimeHistogramServiceOption option = createWasOptionBuilder(application, timeWindow)
+                .setUseStatisticsAgentState(true)
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+        return HistogramView.view(nodeHistogramSummary);
+    }
+
+    private ResponseTimeHistogramServiceOption.Builder createWasOptionBuilder(Application application, TimeWindow timeWindow) {
+        if (!application.getServiceType().isWas()) {
+            throw new IllegalArgumentException("application is not WAS. application:" + application + ", serviceTypeCode:" + application.getServiceType());
+        }
+        return new ResponseTimeHistogramServiceOption.Builder(application, timeWindow, Collections.emptyList(), Collections.emptyList());
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @PostMapping(value = "/getNode/serverHistogramData")
+    public ServerHistogramView postNodeServerHistogramData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @RequestBody ApplicationPairs applicationPairs
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+
+        ResponseTimeHistogramServiceOption option = createOptionBuilder(service, application, timeWindow, applicationPairs)
+                .setUseStatisticsAgentState(false) //set useStatisticsAgentState to false for agent data
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+        return ServerHistogramView.view(nodeHistogramSummary, hyperLinkFactory);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @PostMapping(value = "/getNode/histogramData")
+    public HistogramView postNodeHistogramData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @RequestBody ApplicationPairs applicationPairs
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+
+        ResponseTimeHistogramServiceOption option = createOptionBuilder(service, application, timeWindow, applicationPairs)
+                .setUseStatisticsAgentState(true)
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+
+        return HistogramView.view(nodeHistogramSummary);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #applicationName)")
+    @PostMapping(value = "/getNode/{type}/chart")
+    public TimeHistogramChart postNodeTimeHistogramChart(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("applicationName") @NotBlank String applicationName,
+            @RequestParam(value = "serviceTypeCode", required = false) Short serviceTypeCode,
+            @RequestParam(value = "serviceTypeName", required = false) @NotBlank String serviceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @PathVariable("type") String type,
+            @RequestBody ApplicationPairs applicationPairs
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application application = createApplication(service, applicationName, serviceTypeCode, serviceTypeName);
+        TimeHistogramType timeHistogramType = TimeHistogramType.valueOf(type);
+
+        ResponseTimeHistogramServiceOption option = createOptionBuilder(service, application, timeWindow, applicationPairs)
+                .setUseStatisticsAgentState(true)
+                .build();
+        NodeHistogramSummary nodeHistogramSummary = responseTimeHistogramService.selectNodeHistogramData(option);
+
+        ApplicationTimeHistogram applicationTimeHistogram = nodeHistogramSummary.getApplicationTimeHistogram();
+
+        return chartView(applicationTimeHistogram, timeHistogramType);
+    }
+
+    private TimeHistogramChart chartView(ApplicationTimeHistogram applicationTimeHistogram, TimeHistogramType timeHistogramType) {
+        return new TimeHistogramChartBuilder(applicationTimeHistogram.getHistogramList())
+                .build(timeHistogramType);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #fromApplicationName) or @naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #toApplicationName)")
+    @GetMapping(value = "/getLink/histogramData")
+    public HistogramView getLinkHistogramData(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("fromApplicationName") @NotBlank String fromApplicationName,
+            @RequestParam(value = "fromServiceTypeCode", required = false) Short fromServiceTypeCode,
+            @RequestParam(value = "fromServiceTypeName", required = false) @NotBlank String fromServiceTypeName,
+            @RequestParam("toApplicationName") String toApplicationName,
+            @RequestParam(value = "toServiceTypeCode", required = false) Short toServiceTypeCode,
+            @RequestParam(value = "toServiceTypeName", required = false) @NotBlank String toServiceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        final TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application fromApplication = createApplication(service, fromApplicationName, fromServiceTypeCode, fromServiceTypeName);
+        Application toApplication = createApplication(service, toApplicationName, toServiceTypeCode, toServiceTypeName);
+
+        LinkHistogramSummary linkHistogramSummary =
+                responseTimeHistogramService.selectLinkHistogramData(fromApplication, toApplication, timeWindow);
+
+        return newHistogramView(linkHistogramSummary);
+    }
+
+    public HistogramView newHistogramView(LinkHistogramSummary summary) {
+        String linkName = summary.getLinkName().getName();
+        Histogram histogram = summary.getHistogram();
+        List<TimeHistogram> appHistogram = summary.getLinkApplicationTimeHistogram().getHistogramList();
+        return new HistogramView(linkName, histogram, appHistogram);
+    }
+
+    @PreAuthorize("@naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #fromApplicationName) or @naverPermissionEvaluator.hasInspectorPermission(#serviceName.getName(), #toApplicationName)")
+    @GetMapping(value = "/getLink/{type}/chart")
+    public TimeHistogramChart getLinkTimeHistogramChart(
+            @ServiceParam ServiceName serviceName,
+            @RequestParam("fromApplicationName") @NotBlank String fromApplicationName,
+            @RequestParam(value = "fromServiceTypeCode", required = false) Short fromServiceTypeCode,
+            @RequestParam(value = "fromServiceTypeName", required = false) @NotBlank String fromServiceTypeName,
+            @RequestParam("toApplicationName") String toApplicationName,
+            @RequestParam(value = "toServiceTypeCode", required = false) Short toServiceTypeCode,
+            @RequestParam(value = "toServiceTypeName", required = false) @NotBlank String toServiceTypeName,
+            @RequestParam("from") Timestamp from,
+            @RequestParam("to") Timestamp to,
+            @PathVariable("type") String type
+    ) {
+        final Range range = Range.between(from, to);
+        this.rangeValidator.validate(range);
+        final TimeWindow timeWindow = new TimeWindow(range);
+
+        final Service service = serviceModelResolver.getService(serviceName.getName());
+        Application fromApplication = createApplication(service, fromApplicationName, fromServiceTypeCode, fromServiceTypeName);
+        Application toApplication = createApplication(service, toApplicationName, toServiceTypeCode, toServiceTypeName);
+        TimeHistogramType timeHistogramType = TimeHistogramType.valueOf(type);
+
+        LinkHistogramSummary linkHistogramSummary =
+                responseTimeHistogramService.selectLinkHistogramData(fromApplication, toApplication, timeWindow);
+
+        ApplicationTimeHistogram histogram = linkHistogramSummary.getLinkApplicationTimeHistogram();
+
+        return chartView(histogram, timeHistogramType);
+    }
+
+    private ResponseTimeHistogramServiceOption.Builder createOptionBuilder(Service service, Application application, TimeWindow timeWindow,
+                                                                           ApplicationPairs applicationPairs) {
+        // applicationPairs is used only for non-WAS nodes, which link to the selected service only for now,
+        // so every pair is bound to the request service. Change this once non-WAS nodes link across services.
+        List<Application> fromApplications = mapApplicationPairsToApplications(service, applicationPairs.getFromApplications());
+        List<Application> toApplications = mapApplicationPairsToApplications(service, applicationPairs.getToApplications());
+        return new ResponseTimeHistogramServiceOption.Builder(application, timeWindow, fromApplications, toApplications);
+    }
+
+    private List<Application> mapApplicationPairsToApplications(Service service, List<ApplicationPair> applicationPairs) {
+        if (CollectionUtils.isEmpty(applicationPairs)) {
+            return Collections.emptyList();
+        }
+        List<Application> applications = new ArrayList<>(applicationPairs.size());
+        for (ApplicationPair applicationPair : applicationPairs) {
+            String applicationName = applicationPair.getApplicationName();
+            short serviceTypeCode = applicationPair.getServiceTypeCode();
+            Application application = applicationFactory.createApplication(service, applicationName, serviceTypeCode);
+            applications.add(application);
+        }
+        return applications;
+    }
+
+    private Application createApplication(Service service, String applicationName, Short serviceTypeCode, String serviceTypeName) {
+        if (StringUtils.hasLength(applicationName)) {
+            if (serviceTypeCode != null) {
+                return applicationFactory.createApplication(service, applicationName, serviceTypeCode);
+            } else if (serviceTypeName != null) {
+                return applicationFactory.createApplicationByTypeName(service, applicationName, serviceTypeName);
+            }
+        }
+        logger.error("can not create application. applicationName: {}, serviceTypeCode: {}, serviceTypeName: {}", applicationName, serviceTypeCode, serviceTypeName);
+        throw new IllegalArgumentException("can not create application. applicationName: " + applicationName);
+    }
+}

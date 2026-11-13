@@ -19,8 +19,8 @@ package com.navercorp.pinpoint.hbase.schema.reader.xml;
 import com.navercorp.pinpoint.hbase.schema.reader.HbaseSchemaParseException;
 import com.navercorp.pinpoint.hbase.schema.reader.HbaseSchemaReader;
 import com.navercorp.pinpoint.hbase.schema.reader.core.ChangeSet;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.core.io.FileSystemResourceLoader;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author HyunGil Jeong
@@ -39,10 +40,19 @@ public class XmlHbaseSchemaReader implements HbaseSchemaReader {
 
     public static final String DEFAULT_HBASE_SCHEMA_PATH = "classpath:hbase-schema/hbase-schema.xml";
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final ResourceLoader resourceLoader = new FileSystemResourceLoader();
     private final XmlHbaseSchemaParser xmlHbaseSchemaParser = new XmlHbaseSchemaParser();
+    private final String schemaPath;
+
+    public XmlHbaseSchemaReader() {
+        this(DEFAULT_HBASE_SCHEMA_PATH);
+    }
+
+    public XmlHbaseSchemaReader(String schemaPath) {
+        this.schemaPath = Objects.requireNonNull(schemaPath, "schemaPath");
+    }
 
     /**
      * Loads change sets from the hbase schema xml file from the default path - {@value DEFAULT_HBASE_SCHEMA_PATH}.
@@ -52,7 +62,7 @@ public class XmlHbaseSchemaReader implements HbaseSchemaReader {
      */
     @Override
     public List<ChangeSet> loadChangeSets() {
-        return loadChangeSets(DEFAULT_HBASE_SCHEMA_PATH);
+        return loadChangeSets(schemaPath);
     }
 
     /**

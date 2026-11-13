@@ -21,6 +21,7 @@ import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
+import org.jspecify.annotations.NonNull;
 import java.util.Map;
 
 /**
@@ -29,16 +30,26 @@ import java.util.Map;
 public class WebSocketSessionContextPrepareHandshakeInterceptor implements HandshakeInterceptor {
 
     @Override
-    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+    public boolean beforeHandshake(
+            @NonNull ServerHttpRequest request,
+            @NonNull ServerHttpResponse response,
+            @NonNull WebSocketHandler wsHandler,
+            Map<String, Object> attributes
+    ) {
 
         final WebSocketSessionContext context = new WebSocketSessionContext();
         attributes.put(WebSocketSessionContext.WEBSOCKET_SESSION_CONTEXT_KEY, context);
-
         return true;
     }
 
     @Override
-    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Exception exception) {
+    public void afterHandshake(
+            @NonNull ServerHttpRequest request,
+            @NonNull ServerHttpResponse response,
+            @NonNull WebSocketHandler wsHandler,
+            Exception exception
+    ) {
 
     }
+
 }

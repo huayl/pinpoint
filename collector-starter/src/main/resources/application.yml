@@ -1,0 +1,111 @@
+spring:
+  main:
+    allow-bean-definition-overriding: false
+#    web-application-type: none
+  profiles:
+    active: local
+  shell:
+    history:
+      enabled: false
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
+
+management:
+  metrics:
+    enable:
+      tomcat: true
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  health:
+    defaults:
+      enabled: false
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+      access: read_only
+    beans:
+      access: read_only
+    conditions:
+      access: read_only
+    configprops:
+      access: read_only
+      show-values: always
+    env:
+      access: read_only
+      show-values: always
+    logfile:
+      access: read_only
+    loggers:
+      access: unrestricted
+    mappings:
+      access: read_only
+    info:
+      access: read_only
+    threaddump:
+      access: read_only
+    heapdump:
+      access: none
+    metrics:
+      access: read_only
+    httptrace:
+      access: none
+    prometheus:
+      access: none
+    shutdown:
+      access: none
+  endpoints:
+    web:
+      exposure:
+        include: health,beans,conditions,configprops,env,logfile,loggers,mappings,info,threaddump,metrics,pause
+      base-path: /monitor
+      path-mapping:
+        health: l7check
+
+pinpoint:
+  modules:
+    collector:
+      exceptiontrace:
+        enabled: true
+      inspector:
+        enabled: true
+        hbase:
+          enabled: true
+      otlpmetric:
+        enabled: true
+      otlptrace:
+        enabled: true
+      # OTLP logs receiver co-hosted in the OTLPTRACE collector (exception LogRecords -> Error
+      # Analysis). Off by default; turn it on here or through external config together with the
+      # exceptiontrace storage module. This file outranks the profile property files.
+      otlplog:
+        enabled: false
+      heatmap:
+        enabled: true
+      uristat:
+        enabled: true
+      systemmetric:
+        enabled: true
+    realtime:
+      enabled: true
+    uid:
+      # v3: 254-character ApplicationName
+      # v4: ServiceName required, UUID-based agentId
+      version: v4
+  collector:
+    service:
+      lookup:
+        enabled: true
+    otlptrace:
+      # Test/dev only. When true, requests with no per-instance identifier
+      # (service.instance.id / k8s.pod.uid / container.id / host.name) fall back
+      # to using applicationName as agentId — collapsing all instances of the
+      # same application into one agent. Keep false in production.
+      application-name-fallback:
+        enabled: false

@@ -1,0 +1,30 @@
+{
+  "name": "pinpoint-fe-v3",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "prepare": "cd ../../../.. && husky web-frontend/src/main/v3/.husky",
+    "build": "yarn workspace @pinpoint-fe/web build",
+    "dev": "yarn workspace @pinpoint-fe/web dev",
+    "dev:mock": "yarn workspace @pinpoint-fe/web dev:mock",
+    "dev:forbidden": "yarn workspace @pinpoint-fe/web dev:forbidden",
+    "lint": "yarn workspaces run lint",
+    "test": "yarn workspaces run test",
+    "test:e2e": "yarn workspace @pinpoint-fe/web test:e2e",
+    "clean": "yarn workspace @pinpoint-fe/web clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "npm": ">=7.0.0",
+    "node": ">=22.23.4"
+  },
+  "packageManager": "yarn@1.22.22",
+  "dependencies": {}
+}

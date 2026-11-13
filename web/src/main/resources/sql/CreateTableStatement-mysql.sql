@@ -17,6 +17,7 @@ CREATE TABLE `user_group_member` (
   PRIMARY KEY (`number`)
 );
 ALTER TABLE user_group_member ADD UNIQUE KEY user_group_id_member_id_idx (`user_group_id`,`member_id`);
+ALTER TABLE user_group_member ADD INDEX member_id_idx (member_id);
 
 CREATE TABLE `puser` (
   `number` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, 
@@ -61,4 +62,20 @@ CREATE TABLE `agent_statistics` (
   `agent_count` INT(10) UNSIGNED NOT NULL,
   `date_val`DATETIME NOT NULL,
   PRIMARY KEY (`date_val`)
+);
+
+CREATE TABLE `webhook` (
+  `webhook_id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `alias` VARCHAR(256) NULL,
+  `url` VARCHAR(256) NOT NULL,
+  `application_id` VARCHAR(127) NULL,
+  `service_name` VARCHAR(127) NULL,
+  PRIMARY KEY (`webhook_id`)
+);
+
+CREATE TABLE `webhook_send` (
+  `webhook_send_info_id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `webhook_id` INT UNSIGNED NOT NULL,
+  `rule_id` INT UNSIGNED NOT NULL,
+  PRIMARY KEY (`webhook_send_info_id`)
 );

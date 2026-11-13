@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NAVER Corp.
+ * Copyright 2024 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,12 @@ package com.navercorp.pinpoint.grpc.client;
 
 import com.navercorp.pinpoint.common.util.Assert;
 import com.navercorp.pinpoint.grpc.client.config.ClientOption;
+import com.navercorp.pinpoint.grpc.client.config.ClientRetryOption;
 import io.grpc.ClientInterceptor;
 import io.grpc.NameResolverProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.netty.handler.ssl.SslContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedList;
 import java.util.Objects;
@@ -31,7 +33,7 @@ import java.util.Objects;
  */
 public class DefaultChannelFactoryBuilder implements ChannelFactoryBuilder {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     private final String factoryName;
 
@@ -39,8 +41,10 @@ public class DefaultChannelFactoryBuilder implements ChannelFactoryBuilder {
     private HeaderFactory headerFactory;
 
     private ClientOption clientOption;
+    private SslContext sslContext;
+    private ClientRetryOption clientRetryOption;
 
-    private final LinkedList<ClientInterceptor> clientInterceptorList = new LinkedList<ClientInterceptor>();
+    private final LinkedList<ClientInterceptor> clientInterceptorList = new LinkedList<>();
     private NameResolverProvider nameResolverProvider;
 
     public DefaultChannelFactoryBuilder(String factoryName) {
@@ -76,6 +80,16 @@ public class DefaultChannelFactoryBuilder implements ChannelFactoryBuilder {
     }
 
     @Override
+    public void setSslContext(SslContext sslContext) {
+        this.sslContext = sslContext;
+    }
+
+    @Override
+    public void setClientRetryOption(ClientRetryOption clientRetryOption) {
+        this.clientRetryOption = clientRetryOption;
+    }
+
+    @Override
     public void setNameResolverProvider(NameResolverProvider nameResolverProvider) {
         this.nameResolverProvider = Objects.requireNonNull(nameResolverProvider, "nameResolverProvider");
     }
@@ -88,6 +102,7 @@ public class DefaultChannelFactoryBuilder implements ChannelFactoryBuilder {
 
         return new DefaultChannelFactory(factoryName, executorQueueSize,
                 headerFactory, nameResolverProvider,
-                clientOption, clientInterceptorList);
+                clientOption, clientInterceptorList,
+                sslContext, clientRetryOption);
     }
 }

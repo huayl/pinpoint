@@ -24,14 +24,14 @@ import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 import io.grpc.Status;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public class TransportMetadataServerInterceptor implements ServerInterceptor {
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     public TransportMetadataServerInterceptor() {
     }
@@ -50,8 +50,12 @@ public class TransportMetadataServerInterceptor implements ServerInterceptor {
             };
         }
 
+        final TransportMutableContext transportServiceContext = attributes.get(MetadataServerTransportFilter.TRANSPORT_MUTABLE_CONTEXT_KEY);
+
         final Context currentContext = Context.current();
-        final Context newContext = currentContext.withValue(ServerContext.getTransportMetadataKey(), transportMetadata);
+        final Context newContext = currentContext
+                .withValue(ServerContext.getTransportMetadataKey(), transportMetadata)
+                .withValue(ServerContext.getTransportMutableContextKey(), transportServiceContext);
         if (logger.isDebugEnabled()) {
             logger.debug("bind metadata method={}, headers={}, attr={}", serverCall.getMethodDescriptor().getFullMethodName(), headers, serverCall.getAttributes());
         }

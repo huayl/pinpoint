@@ -15,7 +15,7 @@
 
 package com.navercorp.pinpoint.web.scatter;
 
-import com.navercorp.pinpoint.web.vo.scatter.Dot;
+import com.navercorp.pinpoint.web.scatter.vo.Dot;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -46,7 +46,7 @@ public class DotGroups {
         Objects.requireNonNull(coordinates, "coordinates");
         Objects.requireNonNull(dot, "dot");
 
-        final Key key = new Key(coordinates, dot.getSimpleExceptionCode());
+        final Key key = new Key(coordinates, dot.getStatus().getCode());
 
         DotGroup dotGroup = dotGroupMap.get(key);
         if (dotGroup == null) {
@@ -94,7 +94,7 @@ public class DotGroups {
 
         Collection<DotGroup> dotGroupList = dotGroupMap.values();
         for (DotGroup dotGroup : dotGroupList) {
-            if (dotGroup.getDotLeader() != null) {
+            if (!dotGroup.isEmpty()) {
                 dotLeaderMap.put(dotGroup.getDotLeader(), dotGroup);
             }
         }
@@ -117,7 +117,7 @@ public class DotGroups {
 
     @Override
     public int hashCode() {
-        return (int) (xCoordinates ^ (xCoordinates >>> 32));
+        return Long.hashCode(xCoordinates);
     }
 
     @Override
@@ -125,62 +125,7 @@ public class DotGroups {
         return "DotGroups{" + "xCoordinates=" + xCoordinates + ", dotGroupMap=" + dotGroupMap + '}';
     }
 
-    static class Key {
-
-        private final Coordinates coordinates;
-        private final int code;
-
-        private int hashCode = 0;
-
-        public Key(Coordinates coordinates, int code) {
-            this.coordinates = Objects.requireNonNull(coordinates, "coordinates");
-            this.code = code;
-
-            hashCode();
-        }
-
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null || getClass() != obj.getClass()) {
-                return false;
-            }
-
-            Key that = (Key) obj;
-
-            if (!coordinates.equals(that.coordinates)) {
-                return false;
-            }
-
-            if (code != that.code) {
-                return false;
-            }
-
-            return true;
-        }
-
-        @Override
-        public int hashCode() {
-            if (hashCode == 0) {
-                int result = coordinates != null ? coordinates.hashCode() : 0;
-                result = 31 * result + code;
-
-                this.hashCode = result;
-            }
-            return hashCode;
-        }
-
-        @Override
-        public String toString() {
-            return "Key{" +
-                    "coordinates=" + coordinates +
-                    ", code=" + code +
-                    '}';
-        }
-
+    record Key(Coordinates coordinates, int code) {
     }
 
 }

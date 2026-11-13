@@ -1,0 +1,127 @@
+import { TransactionInfoType as TransactionInfo } from '@pinpoint-fe/ui/src/constants';
+
+// Pure helpers for the Call Tree "Timeline" column. Kept free of React / component imports so
+// they can be unit-tested in isolation. The timeline axis itself is supplied by the server.
+const toTimelineNumber = (value: unknown): number => {
+  if (value === undefined || value === null || value === '') {
+    return Number.NaN;
+  }
+  return Number(value);
+};
+
+export const getRowStartOffsetNanos = (r: TransactionInfo.CallStackKeyValueMap): number =>
+  toTimelineNumber(r.beginOffsetNanos);
+
+export const getRowEndOffsetNanos = (r: TransactionInfo.CallStackKeyValueMap): number =>
+  toTimelineNumber(r.endOffsetNanos);
+
+// `startNanos` is the offset the axis begins at. It is 0 for the whole transaction and moves to
+// the stepped-into span's start, so that subtree fills the column.
+export type TimelineAxis = { durationNanos: number; startNanos?: number };
+
+export const isTimelineWorkRow = (r: TransactionInfo.CallStackKeyValueMap): boolean => {
+  // excludeFromTimeline is deliberately ignored here: the server sets it on INTERNAL_METHOD
+  // rows for the RPC-oriented Timeline view, but Call Tree bars must render for every executed
+  // row — OTel kind-unclassified spans (e.g. Claude Code) map entirely to INTERNAL_METHOD and
+  // would otherwise lose their whole Exec(%) column. Metadata rows are excluded by isMethod.
+  if (r.isMethod === false) {
+    return false;
+  }
+  if (r.apiType === 'ASYNC' || Number(r.methodType) === 200) {
+    return false;
+  }
+
+  const start = getRowStartOffsetNanos(r);
+  const end = getRowEndOffsetNanos(r);
+  return Number.isFinite(start) && Number.isFinite(end);
+};
+
+/**
+ * Timeline axis covering only the stepped-into span and its descendants. Spans the whole subtree
+ * rather than just its root, because an async descendant can outlive its parent and would
+ * otherwise be drawn past the right edge. Returns `undefined` when the subtree has no measurable
+ * window, so callers fall back to the transaction-wide axis.
+ */
+export const getSteppedInTimelineAxis = (
+  rows: TransactionInfo.CallStackKeyValueMap[] | undefined,
+  steppedInIds: Set<string> | undefined,
+): TimelineAxis | undefined => {
+  if (!steppedInIds?.size || !rows?.length) {
+    return undefined;
+  }
+
+  let start = Number.POSITIVE_INFINITY;
+  let end = Number.NEGATIVE_INFINITY;
+  rows.forEach((row) => {
+    if (!steppedInIds.has(String(row.id)) || !isTimelineWorkRow(row)) {
+      return;
+    }
+    start = Math.min(start, getRowStartOffsetNanos(row));
+    end = Math.max(end, getRowEndOffsetNanos(row));
+  });
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return undefined;
+  }
+  return { startNanos: start, durationNanos: end - start };
+};
+
+export type ParallelGroup = { start: number; end: number; size: number };
+export type ParallelInfo = Map<string, { group: ParallelGroup; isFirst: boolean }>;
+
+/**
+ * Detects parallel sibling groups: consecutive children of the same parent whose time windows
+ * overlap (a sibling that starts before the running group's max-end was executing concurrently).
+ * Each member of a group of >= 2 maps to the shared group window, used to draw a "parallel lane".
+ * Sequential (sync) siblings never overlap, so this is a no-op for non-async traces.
+ * Async-invocation dividers and metadata rows (annotations / exception details) are skipped.
+ */
+export const computeParallelGroups = (
+  rows: TransactionInfo.CallStackKeyValueMap[] | undefined,
+): ParallelInfo => {
+  if (!rows?.length) {
+    return new Map();
+  }
+
+  const childrenByParent = new Map<string, TransactionInfo.CallStackKeyValueMap[]>();
+  rows.forEach((r) => {
+    if (!isTimelineWorkRow(r)) {
+      return; // separators and annotation rows are not timeline work
+    }
+    const pid = String(r.parentId);
+    const list = childrenByParent.get(pid);
+    if (list) {
+      list.push(r);
+    } else {
+      childrenByParent.set(pid, [r]);
+    }
+  });
+
+  if (!childrenByParent.size) {
+    return new Map();
+  }
+
+  const result: ParallelInfo = new Map();
+  childrenByParent.forEach((children) => {
+    let i = 0;
+    while (i < children.length) {
+      const members = [children[i]];
+      let maxEnd = getRowEndOffsetNanos(children[i]);
+      let j = i + 1;
+      // a sibling joins the group while it starts before the group's running max-end
+      while (j < children.length && getRowStartOffsetNanos(children[j]) < maxEnd) {
+        members.push(children[j]);
+        maxEnd = Math.max(maxEnd, getRowEndOffsetNanos(children[j]));
+        j++;
+      }
+      if (members.length >= 2) {
+        const start = Math.min(...members.map(getRowStartOffsetNanos));
+        const group: ParallelGroup = { start, end: maxEnd, size: members.length };
+        members.forEach((m, idx) => result.set(String(m.id), { group, isFirst: idx === 0 }));
+      }
+      i = j;
+    }
+  });
+
+  return result;
+};

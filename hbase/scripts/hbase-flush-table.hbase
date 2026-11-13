@@ -1,6 +1,4 @@
 flush 'AgentInfo'
-flush 'AgentStatV2'
-flush 'ApplicationStatAggre'
 
 flush 'AgentLifeCycle'
 flush 'AgentEvent'
@@ -10,11 +8,23 @@ flush 'StringMetaData'
 flush 'ApiMetaData'
 
 flush 'SqlMetaData_Ver2'
+flush 'SqlUidMetaData'
 
 flush 'ApplicationMapStatisticsCaller_Ver2'
 flush 'ApplicationMapStatisticsCallee_Ver2'
 flush 'ApplicationMapStatisticsSelf_Ver2'
 
 flush 'HostApplicationMap_Ver2'
+
+flush 'MapAppSelf'
+flush 'MapAgentSelf'
+flush 'MapAppOut'
+flush 'MapAppIn'
+flush 'MapAppHost'
+
+flush 'TraceIndex'
+
+flush 'Application'
+flush 'AgentId'
 
 exit

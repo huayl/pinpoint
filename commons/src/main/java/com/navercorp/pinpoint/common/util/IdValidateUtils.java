@@ -18,8 +18,7 @@ package com.navercorp.pinpoint.common.util;
 
 import com.navercorp.pinpoint.common.PinpointConstants;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Objects;
 
 /**
  * @author emeroad
@@ -27,12 +26,22 @@ import java.util.regex.Pattern;
 public final class IdValidateUtils {
 
     private static final int DEFAULT_MAX_LENGTH = PinpointConstants.AGENT_ID_MAX_LEN;
+    private static final int MIN_LENGTH = 1;
 
-    public static String STABLE_VERSION_PATTERN_VALUE = "[0-9]+\\.[0-9]+\\.[0-9]";
+    @Deprecated
+    public static String STABLE_VERSION_PATTERN_VALUE = AgentVersionPostfix.STABLE_VERSION_PATTERN_STRING;
 
-    //    private static final Pattern ID_PATTERN = Pattern.compile("[a-zA-Z0-9\\._\\-]{1,24}");
-    public static final String ID_PATTERN_VALUE = "[a-zA-Z0-9\\._\\-]+";
-    private static final Pattern ID_PATTERN = Pattern.compile(ID_PATTERN_VALUE);
+    /**
+     * Kept for error messages. {@link #checkIdPattern(String)} checks the same character set without a regex,
+     * because it runs on the collector for every span and header.
+     */
+    public static final String ID_PATTERN_VALUE = "[a-zA-Z0-9._\\-]+";
+
+    /**
+     * Kept for error messages. {@link #checkUrlPattern(String)} checks the same character set without a regex.
+     * The set is the RFC 3986 URI characters: unreserved, gen-delims, sub-delims and {@code %} for percent-encoding.
+     */
+    public static final String URL_PATTERN_VALUE = "[a-zA-Z0-9._\\-~:/?#\\[\\]@!$&'()*+,;=%]+";
 
     private IdValidateUtils() {
     }
@@ -42,51 +51,150 @@ public final class IdValidateUtils {
     }
 
     public static boolean validateId(String id, int maxLength) {
-        if (id == null) {
-            throw new NullPointerException("id");
-        }
-        if (maxLength <= 0) {
-            throw new IllegalArgumentException("negative maxLength:" + maxLength);
-        }
-
-        if (!checkPattern(id)) {
-            return false;
-        }
-        if (!checkLength(id, maxLength)) {
-            return false;
-        }
-
-        return true;
+        final CheckResult result = checkId(id, maxLength);
+        return result == CheckResult.SUCCESS;
     }
 
-    public static boolean checkPattern(String id) {
-        final Matcher matcher = ID_PATTERN.matcher(id);
-        return matcher.matches();
+    public static boolean validateId(String id, int minLength, int maxLength) {
+        final CheckResult result = checkId(id, minLength, maxLength);
+        return result == CheckResult.SUCCESS;
+    }
+
+    public enum CheckResult {
+        SUCCESS,
+        FAIL_LENGTH,
+        FAIL_PATTERN;
+    }
+
+    public static CheckResult checkId(String id, int maxLength) {
+        return checkId(id, MIN_LENGTH, maxLength);
+    }
+
+    /**
+     * @param minLength inclusive minimum length, at least 1
+     * @param maxLength inclusive maximum length
+     */
+    public static CheckResult checkId(String id, int minLength, int maxLength) {
+        Objects.requireNonNull(id, "id");
+
+        if (minLength < MIN_LENGTH) {
+            throw new IllegalArgumentException("negative minLength:" + minLength);
+        }
+        if (maxLength < minLength) {
+            throw new IllegalArgumentException("maxLength:" + maxLength + " < minLength:" + minLength);
+        }
+
+        if (!checkLength(id, minLength, maxLength)) {
+            return CheckResult.FAIL_LENGTH;
+        }
+        if (!checkIdPattern(id)) {
+            return CheckResult.FAIL_PATTERN;
+        }
+        return CheckResult.SUCCESS;
+    }
+
+    public static boolean checkIdPattern(String id) {
+        return checkIdPattern(id, 0, id.length());
     }
 
     public static boolean checkLength(String id, int maxLength) {
-        if (id == null) {
-            throw new NullPointerException("id");
-        }
-        // try encode
-        final int idLength = getLength(id);
-        if (idLength <= 0) {
+        return checkLength(id, MIN_LENGTH, maxLength);
+    }
+
+    public static boolean checkLength(String id, int minLength, int maxLength) {
+        Objects.requireNonNull(id, "id");
+
+        final int idLength = id.length();
+        if (idLength < minLength) {
             return false;
         }
         return idLength <= maxLength;
     }
 
-    public static int getLength(String id) {
-        if (id == null) {
-            return -1;
+    /**
+     * @param start inclusive start index
+     * @param end   exclusive end index
+     * @return true when {@code id[start, end)} is non-empty and every char matches {@link #ID_PATTERN_VALUE}
+     */
+    public static boolean checkIdPattern(String id, int start, int end) {
+        if (start < 0 || end > id.length() || start > end) {
+            throw new IndexOutOfBoundsException("start:" + start + " end:" + end + " length:" + id.length());
         }
+        if (start == end) {
+            return false;
+        }
+        for (int i = start; i < end; i++) {
+            if (!isIdChar(id.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-        final byte[] idBytes = BytesUtils.toBytes(id);
-        if (idBytes == null) {
-            // encoding fail
-            return -1;
+    /**
+     * @return true when {@code url} is non-empty and every char matches {@link #URL_PATTERN_VALUE}
+     */
+    public static boolean checkUrlPattern(String url) {
+        Objects.requireNonNull(url, "url");
+
+        final int length = url.length();
+        if (length == 0) {
+            return false;
         }
-        return idBytes.length;
+        for (int i = 0; i < length; i++) {
+            if (!isUrlChar(url.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isUrlChar(char c) {
+        if (isIdChar(c)) {
+            return true;
+        }
+        switch (c) {
+            // unreserved
+            case '~':
+            // gen-delims
+            case ':':
+            case '/':
+            case '?':
+            case '#':
+            case '[':
+            case ']':
+            case '@':
+            // sub-delims
+            case '!':
+            case '$':
+            case '&':
+            case '\'':
+            case '(':
+            case ')':
+            case '*':
+            case '+':
+            case ',':
+            case ';':
+            case '=':
+            // percent-encoding
+            case '%':
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isIdChar(char c) {
+        if (c >= 'a' && c <= 'z') {
+            return true;
+        }
+        if (c >= 'A' && c <= 'Z') {
+            return true;
+        }
+        if (c >= '0' && c <= '9') {
+            return true;
+        }
+        return c == '.' || c == '_' || c == '-';
     }
 
 }

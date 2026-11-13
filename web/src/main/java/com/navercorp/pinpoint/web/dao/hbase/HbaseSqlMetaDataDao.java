@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,18 +16,22 @@
 
 package com.navercorp.pinpoint.web.dao.hbase;
 
-import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
-import com.navercorp.pinpoint.common.hbase.HbaseOperations2;
+import com.navercorp.pinpoint.common.hbase.HbaseOperations;
+import com.navercorp.pinpoint.common.hbase.HbaseTables;
 import com.navercorp.pinpoint.common.hbase.RowMapper;
-import com.navercorp.pinpoint.common.hbase.TableDescriptor;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
 import com.navercorp.pinpoint.common.server.bo.SqlMetaDataBo;
+import com.navercorp.pinpoint.common.server.bo.serializer.RowKeyEncoder;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.DefaultMetaDataRowKey;
+import com.navercorp.pinpoint.common.server.bo.serializer.metadata.MetaDataRowKey;
+import com.navercorp.pinpoint.common.server.uid.ServiceUid;
 import com.navercorp.pinpoint.web.dao.SqlMetaDataDao;
-
-import com.sematext.hbase.wd.RowKeyDistributorByHashPrefix;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Get;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -35,43 +39,61 @@ import java.util.Objects;
  * @author emeroad
  * @author minwoo.jung
  */
-//@Repository
+@Repository
 public class HbaseSqlMetaDataDao implements SqlMetaDataDao {
 
-    private final HbaseOperations2 hbaseOperations2;
+    private final HbaseTables.SqlMetadataV2 DESCRIPTOR = HbaseTables.SQL_METADATA_VER2_SQL;
 
-    private final TableDescriptor<HbaseColumnFamily.SqlMetadataV2> descriptor;
+    private final HbaseOperations hbaseOperations;
+    private final TableNameProvider tableNameProvider;
 
     private final RowMapper<List<SqlMetaDataBo>> sqlMetaDataMapper;
 
-    private final RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix;
+    private final RowKeyEncoder<MetaDataRowKey> rowKeyEncoder;
 
-    public HbaseSqlMetaDataDao(HbaseOperations2 hbaseOperations2,
-                               TableDescriptor<HbaseColumnFamily.SqlMetadataV2> descriptor,
-                               @Qualifier("sqlMetaDataMapper2") RowMapper<List<SqlMetaDataBo>> sqlMetaDataMapper,
-                               @Qualifier("metadataRowKeyDistributor2") RowKeyDistributorByHashPrefix rowKeyDistributorByHashPrefix) {
-        this.hbaseOperations2 = Objects.requireNonNull(hbaseOperations2, "hbaseOperations2");
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
+    public HbaseSqlMetaDataDao(HbaseOperations hbaseOperations,
+                               @Qualifier("sqlDataRowKeyEncoder")
+                               RowKeyEncoder<MetaDataRowKey> rowKeyEncoder,
+                               TableNameProvider tableNameProvider,
+                               @Qualifier("sqlMetaDataMapper")
+                               RowMapper<List<SqlMetaDataBo>> sqlMetaDataMapper) {
+        this.hbaseOperations = Objects.requireNonNull(hbaseOperations, "hbaseOperations");
+        this.rowKeyEncoder = Objects.requireNonNull(rowKeyEncoder, "rowKeyEncoder");
+        this.tableNameProvider = Objects.requireNonNull(tableNameProvider, "tableNameProvider");
         this.sqlMetaDataMapper = Objects.requireNonNull(sqlMetaDataMapper, "sqlMetaDataMapper");
-        this.rowKeyDistributorByHashPrefix = Objects.requireNonNull(rowKeyDistributorByHashPrefix, "rowKeyDistributorByHashPrefix");
     }
 
     @Override
-    public List<SqlMetaDataBo> getSqlMetaData(String agentId, long time, int sqlId) {
+    public List<SqlMetaDataBo> getSqlMetaData(ServiceUid serviceUid, String agentId, long time, int sqlId) {
+        Objects.requireNonNull(serviceUid, "serviceUid");
         Objects.requireNonNull(agentId, "agentId");
 
-        SqlMetaDataBo sqlMetaData = new SqlMetaDataBo(agentId, time, sqlId);
-        byte[] rowKey = getDistributedKey(sqlMetaData.toRowKey());
+        MetaDataRowKey metaDataRowKey = new DefaultMetaDataRowKey(serviceUid, agentId, time, sqlId);
+        byte[] rowKey = rowKeyEncoder.encodeRowKey(metaDataRowKey);
 
         Get get = new Get(rowKey);
-        get.addFamily(descriptor.getColumnFamilyName());
+        get.addFamily(DESCRIPTOR.getName());
 
-        TableName sqlMetaDataTableName = descriptor.getTableName();
-        return hbaseOperations2.get(sqlMetaDataTableName, get, sqlMetaDataMapper);
+        TableName sqlMetaDataTableName = tableNameProvider.getTableName(DESCRIPTOR.getTable());
+        return hbaseOperations.get(sqlMetaDataTableName, get, sqlMetaDataMapper);
     }
 
-    private byte[] getDistributedKey(byte[] rowKey) {
-        return rowKeyDistributorByHashPrefix.getDistributedKey(rowKey);
+    @Override
+    public List<List<SqlMetaDataBo>> getSqlMetaData(List<SqlMetaDataKey> keys) {
+        Objects.requireNonNull(keys, "keys");
+        if (keys.isEmpty()) {
+            return List.of();
+        }
+
+        List<Get> gets = new ArrayList<>(keys.size());
+        for (SqlMetaDataKey key : keys) {
+            MetaDataRowKey metaDataRowKey = new DefaultMetaDataRowKey(key.serviceUid(), key.agentId(), key.agentStartTime(), key.sqlId());
+            Get get = new Get(rowKeyEncoder.encodeRowKey(metaDataRowKey));
+            get.addFamily(DESCRIPTOR.getName());
+            gets.add(get);
+        }
+
+        TableName sqlMetaDataTableName = tableNameProvider.getTableName(DESCRIPTOR.getTable());
+        return hbaseOperations.get(sqlMetaDataTableName, gets, sqlMetaDataMapper);
     }
-    
 }

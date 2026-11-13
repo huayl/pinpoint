@@ -16,8 +16,6 @@
 
 package com.navercorp.pinpoint.common.util;
 
-import java.util.EnumSet;
-
 /**
  * @author Roy Kim
  */
@@ -37,7 +35,7 @@ public enum OsType {
 
     private final String inclusiveString;
 
-    private static final EnumSet<OsType> OS_TYPE = EnumSet.allOf(OsType.class);
+    private static final OsType[] OS_TYPE = OsType.values();
 
     OsType(String inclusiveString) {
         this.inclusiveString = inclusiveString;
@@ -60,11 +58,12 @@ public enum OsType {
         if (osName == null) {
             return UNKNOWN;
         }
+        String lowerCase = osName.toLowerCase();
         for (OsType osType : OS_TYPE) {
             if (osType.inclusiveString == null) {
                 continue;
             }
-            if (osName.toLowerCase().contains(osType.inclusiveString.toLowerCase())) {
+            if (lowerCase.contains(osType.inclusiveString.toLowerCase())) {
                 return osType;
             }
         }

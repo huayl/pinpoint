@@ -1,11 +1,12 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2025 NAVER Corp.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,46 +15,53 @@
  */
 package com.navercorp.pinpoint.common.trace;
 
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.Objects;
 
 /**
  * @author Jongho Moon <jongho.moon@navercorp.com>
  *
  */
 public enum ServiceTypeCategory {
-    UNDEFINED_CATEGORY((short)-1, (short)-1),
-    PINPOINT_INTERNAL((short)0, (short)999),
-    SERVER((short)1000, (short)1999),
-    DATABASE((short)2000, (short)2999),
-    LIBRARY((short)5000, (short)7999),
-    CACHE_LIBRARY((short)8000, (short)8999, BaseHistogramSchema.FAST_SCHEMA),
-    RPC((short)9000, (short)9999);
-   
-    
-    private final short minCode;
-    private final short maxCode;
+    UNDEFINED_CATEGORY(-1, -1, NodeCategory.UNDEFINED),
+    PINPOINT_INTERNAL(0, 999, NodeCategory.UNDEFINED),
+    SERVER(1000, 1999, NodeCategory.SERVER),
+    DATABASE(2000, 2999, NodeCategory.DATABASE),
+    LIBRARY(5000, 7999, NodeCategory.UNDEFINED),
+    CACHE_LIBRARY(8000, 8299, NodeCategory.CACHE, HistogramSchemas.FAST_SCHEMA),
+    MESSAGE_BROKER(8300, 8799, NodeCategory.MESSAGE_BROKER),
+    HBASE(8800, 8899, NodeCategory.DATABASE),
+    CACHE_LIBRARY_SANDBOX(8900, 8999, NodeCategory.UNDEFINED, HistogramSchemas.FAST_SCHEMA),
+    RPC(9000, 9999, NodeCategory.UNKNOWN);
+
+
+    private final int minCode;
+    private final int maxCode;
+
+    private final NodeCategory nodeCategory;
+
     private final HistogramSchema histogramSchema;
 
-    private static final Set<ServiceTypeCategory> SERVICE_TYPE_CATEGORIES = EnumSet.allOf(ServiceTypeCategory.class);
+    private static final ServiceTypeCategory[] SERVICE_TYPE_CATEGORIES = ServiceTypeCategory.values();
 
-    ServiceTypeCategory(short minCode, short maxCode) {
-        this(minCode, maxCode, BaseHistogramSchema.NORMAL_SCHEMA);
+    ServiceTypeCategory(int minCode, int maxCode, NodeCategory nodeCategory) {
+        this(minCode, maxCode, nodeCategory, HistogramSchemas.NORMAL_SCHEMA);
     }
-    
-    ServiceTypeCategory(short minCode, short maxCode, HistogramSchema histogramSchema) {
+
+    ServiceTypeCategory(int minCode, int maxCode, NodeCategory nodeCategory, HistogramSchema histogramSchema) {
         this.minCode = minCode;
         this.maxCode = maxCode;
-        if (histogramSchema == null) {
-            throw new NullPointerException("histogramSchema");
-        }
-        this.histogramSchema = histogramSchema;
+        this.nodeCategory = nodeCategory;
+        this.histogramSchema = Objects.requireNonNull(histogramSchema, "histogramSchema");
     }
-    
-    public boolean contains(short code) {
-        return minCode <= code && code <= maxCode; 
+
+    public NodeCategory nodeCategory() {
+        return nodeCategory;
     }
-    
+
+    public boolean contains(int code) {
+        return minCode <= code && code <= maxCode;
+    }
+
     public boolean contains(ServiceType type) {
         return contains(type.getCode());
     }
@@ -62,12 +70,12 @@ public enum ServiceTypeCategory {
         return histogramSchema;
     }
 
-    public static ServiceTypeCategory findCategory(short code) {
+    public static ServiceTypeCategory findCategory(int code) {
         for (ServiceTypeCategory serviceTypeCategory : SERVICE_TYPE_CATEGORIES) {
             if (serviceTypeCategory.contains(code)) {
                 return serviceTypeCategory;
             }
         }
-        throw new IllegalStateException("Unknown Category code:" + code);
+        throw new IllegalArgumentException("Unknown Category code:" + code);
     }
 }

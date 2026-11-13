@@ -16,115 +16,68 @@
 
 package com.navercorp.pinpoint.common.server.bo.stat;
 
+
+import java.util.Objects;
+
 /**
  * @author Taejin Koo
  */
-public class EachUriStatBo implements AgentStatDataPoint {
+public class EachUriStatBo {
 
-    private String agentId;
-    private long startTimestamp;
+    private final long timestamp;
+    private final String uri;
 
-    private long timestamp;
+    private final UriStatHistogram totalHistogram ;
+    private final UriStatHistogram failedHistogram;
 
-    private String uri;
-    private UriStatHistogram totalHistogram = new UriStatHistogram();
-    private UriStatHistogram failedHistogram = null;
-
-    @Override
-    public String getAgentId() {
-        return agentId;
+    public EachUriStatBo(long timestamp, String uri,
+                         UriStatHistogram totalHistogram, UriStatHistogram failedHistogram) {
+        this.timestamp = timestamp;
+        this.uri = Objects.requireNonNull(uri, "uri");
+        this.totalHistogram = totalHistogram;
+        this.failedHistogram = failedHistogram;
     }
 
-    @Override
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    @Override
-    public long getStartTimestamp() {
-        return startTimestamp;
-    }
-
-    @Override
-    public void setStartTimestamp(long startTimestamp) {
-        this.startTimestamp = startTimestamp;
-    }
-
-    @Override
     public long getTimestamp() {
         return timestamp;
-    }
-
-    @Override
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    @Override
-    public AgentStatType getAgentStatType() {
-        return AgentStatType.URI;
     }
 
     public String getUri() {
         return uri;
     }
 
-    public void setUri(String uri) {
-        this.uri = uri;
-    }
-
     public UriStatHistogram getTotalHistogram() {
         return totalHistogram;
-    }
-
-    public void setTotalHistogram(UriStatHistogram totalHistogram) {
-        this.totalHistogram = totalHistogram;
     }
 
     public UriStatHistogram getFailedHistogram() {
         return failedHistogram;
     }
 
-    public void setFailedHistogram(UriStatHistogram failedHistogram) {
-        this.failedHistogram = failedHistogram;
-    }
-
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
         EachUriStatBo that = (EachUriStatBo) o;
-
-        if (startTimestamp != that.startTimestamp) return false;
-        if (timestamp != that.timestamp) return false;
-        if (agentId != null ? !agentId.equals(that.agentId) : that.agentId != null) return false;
-        if (uri != null ? !uri.equals(that.uri) : that.uri != null) return false;
-        if (totalHistogram != null ? !totalHistogram.equals(that.totalHistogram) : that.totalHistogram != null) return false;
-        return failedHistogram != null ? failedHistogram.equals(that.failedHistogram) : that.failedHistogram == null;
+        return timestamp == that.timestamp && uri.equals(that.uri) && Objects.equals(totalHistogram, that.totalHistogram) && Objects.equals(failedHistogram, that.failedHistogram);
     }
 
     @Override
     public int hashCode() {
-        int result = agentId != null ? agentId.hashCode() : 0;
-        result = 31 * result + (int) (startTimestamp ^ (startTimestamp >>> 32));
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        result = 31 * result + (uri != null ? uri.hashCode() : 0);
-        result = 31 * result + (totalHistogram != null ? totalHistogram.hashCode() : 0);
-        result = 31 * result + (failedHistogram != null ? failedHistogram.hashCode() : 0);
+        int result = uri.hashCode();
+        result = 31 * result + Objects.hashCode(totalHistogram);
+        result = 31 * result + Objects.hashCode(failedHistogram);
+        result = 31 * result + Long.hashCode(timestamp);
         return result;
     }
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("EachUriStatBo{");
-        sb.append("agentId='").append(agentId).append('\'');
-        sb.append(", startTimestamp=").append(startTimestamp);
-        sb.append(", timestamp=").append(timestamp);
-        sb.append(", uri='").append(uri).append('\'');
-        sb.append(", totalHistogram=").append(totalHistogram);
-        sb.append(", failedHistogram=").append(failedHistogram);
-        sb.append('}');
-        return sb.toString();
+        return "EachUriStatBo{" +
+                "uri='" + uri + '\'' +
+                ", totalHistogram=" + totalHistogram +
+                ", failedHistogram=" + failedHistogram +
+                ", timestamp=" + timestamp +
+                '}';
     }
 }

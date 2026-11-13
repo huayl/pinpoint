@@ -16,8 +16,8 @@
 
 package com.navercorp.pinpoint.web.service;
 
+import com.navercorp.pinpoint.common.timeseries.time.Range;
 import com.navercorp.pinpoint.web.vo.AgentCountStatistics;
-import com.navercorp.pinpoint.web.vo.Range;
 
 import java.util.List;
 
@@ -29,5 +29,7 @@ public interface AgentStatisticsService {
     boolean insertAgentCount(AgentCountStatistics agentCountStatistics);
 
     List<AgentCountStatistics> selectAgentCount(Range range);
+
+    List<AgentCountStatistics> selectLatestAgentCount(int size);
 
 }

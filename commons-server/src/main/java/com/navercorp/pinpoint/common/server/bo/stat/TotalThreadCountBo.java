@@ -16,47 +16,33 @@
 
 package com.navercorp.pinpoint.common.server.bo.stat;
 
-public class TotalThreadCountBo implements AgentStatDataPoint {
-    public static final long UNCOLLECTED_VALUE = -1L;
+public class TotalThreadCountBo extends AbstractStatDataPoint {
 
-    private String agentId;
-    private long startTimestamp;
-    private long timestamp;
-    private long totalThreadCount = UNCOLLECTED_VALUE;
+    private long totalThreadCount;
 
-    @Override
-    public String getAgentId() { return agentId; }
+    public TotalThreadCountBo(DataPoint point, long totalThreadCount) {
+        super(point);
+        this.totalThreadCount = totalThreadCount;
+    }
 
     @Override
-    public void setAgentId(String agentId) { this.agentId = agentId; }
+    public AgentStatType getAgentStatType() {
+        return AgentStatType.TOTAL_THREAD;
+    }
 
-    @Override
-    public long getStartTimestamp() { return startTimestamp; }
+    public long getTotalThreadCount() {
+        return totalThreadCount;
+    }
 
-    @Override
-    public void setStartTimestamp(long startTimestamp) { this.startTimestamp = startTimestamp; }
-
-    @Override
-    public long getTimestamp() { return timestamp; }
-
-    @Override
-    public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
-
-    @Override
-    public AgentStatType getAgentStatType() { return AgentStatType.TOTAL_THREAD; }
-
-    public long getTotalThreadCount() { return totalThreadCount; }
-
-    public void setTotalThreadCount(long totalThreadCount) { this.totalThreadCount = totalThreadCount; }
+    public void setTotalThreadCount(long totalThreadCount) {
+        this.totalThreadCount = totalThreadCount;
+    }
 
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("TotalThreadCountBo{");
-        sb.append("agentId='").append(agentId).append('\'');
-        sb.append(", startTimestamp=").append(startTimestamp);
-        sb.append(", timestamp=").append(timestamp);
-        sb.append(", totalThreadCount=").append(totalThreadCount);
-        sb.append('}');
-        return sb.toString();
+        return "TotalThreadCountBo{" +
+                "point=" + point +
+                ", totalThreadCount=" + totalThreadCount +
+                '}';
     }
 }

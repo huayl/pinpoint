@@ -1,0 +1,228 @@
+import { getDefaultStore } from 'jotai';
+import { configurationAtom, selectedServiceAtom } from '@pinpoint-fe/ui/src/atoms';
+import { Configuration } from '@pinpoint-fe/ui/src/constants';
+import {
+  getRequestService,
+  installServiceNameFetchInterceptor,
+  SERVICE_NAME_HEADER,
+} from './serviceNameFetchInterceptor';
+
+const store = getDefaultStore();
+const originalFetch = jest.fn(() => Promise.resolve(undefined as unknown as Response));
+
+const configWithServiceMap = (enable: boolean) =>
+  ({ 'experimental.enableServiceMap.value': enable }) as unknown as Configuration;
+
+const lastCall = () => originalFetch.mock.calls[originalFetch.mock.calls.length - 1];
+
+const headerOfLastCall = (): string | null => {
+  const [, init] = lastCall() as unknown as [RequestInfo | URL, RequestInit | undefined];
+  return new Headers(init?.headers).get(SERVICE_NAME_HEADER);
+};
+
+describe('serviceNameFetchInterceptor', () => {
+  beforeAll(() => {
+    // 패치 대상이 될 원본 fetch를 먼저 심어두고, 인터셉터를 한 번 설치한다.
+    // 인터셉터는 매 요청 시 configurationAtom에서 최신값을 직접 읽으므로 주입할 것이 없다.
+    window.fetch = originalFetch as typeof window.fetch;
+    installServiceNameFetchInterceptor();
+  });
+
+  beforeEach(() => {
+    originalFetch.mockClear();
+    store.set(configurationAtom, undefined);
+    store.set(selectedServiceAtom, 'DEFAULT');
+    window.history.replaceState({}, '', '/serviceMap');
+  });
+
+  test('does not add the service header when enableServiceMap is off', async () => {
+    store.set(configurationAtom, configWithServiceMap(false));
+    store.set(selectedServiceAtom, 'my-service');
+
+    await window.fetch('/api/serverMap');
+
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+    expect(headerOfLastCall()).toBeNull();
+  });
+
+  test('adds the selected service header on /api requests when enableServiceMap is on', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+
+    await window.fetch('/api/serverMap');
+
+    expect(headerOfLastCall()).toBe('my-service');
+  });
+
+  test('sends DEFAULT when the selected service is the default value', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+
+    await window.fetch('/api/configuration');
+
+    expect(headerOfLastCall()).toBe('DEFAULT');
+  });
+
+  test('does not add the header to non-/api requests', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+
+    await window.fetch('/static/logo.png');
+
+    expect(headerOfLastCall()).toBeNull();
+  });
+
+  test('preserves existing request headers while adding the service header', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+
+    await window.fetch('/api/userGroup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    const [, init] = lastCall() as unknown as [RequestInfo | URL, RequestInit | undefined];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get(SERVICE_NAME_HEADER)).toBe('my-service');
+    expect(init?.method).toBe('POST');
+  });
+
+  // 조회 대상이 화면과 다른 service에 속할 때 호출자가 직접 헤더를 싣는다.
+  // 인터셉터는 경로/전역 선택값만 보므로 그 사실을 알 수 없어, 실린 값을 덮어쓰면 안 된다.
+  test('keeps the service header the caller already set', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+
+    await window.fetch('/api/getApdexScore', {
+      headers: { [SERVICE_NAME_HEADER]: 'other-service' },
+    });
+
+    expect(headerOfLastCall()).toBe('other-service');
+  });
+
+  // pServiceName을 정하는 순서: 1) 이미 실린 값 → 2) 경로의 serviceName → 3) 전역 선택값
+  describe('pServiceName 우선순위', () => {
+    beforeEach(() => {
+      store.set(configurationAtom, configWithServiceMap(true));
+      store.set(selectedServiceAtom, 'global-service');
+      window.history.replaceState({}, '', '/transactionList/path-service/app-name@TOMCAT');
+    });
+
+    test('1) 이미 실린 값이 경로·전역 선택값을 모두 이긴다', async () => {
+      await window.fetch('/api/transactionmetadata', {
+        headers: { [SERVICE_NAME_HEADER]: 'caller-service' },
+      });
+
+      expect(headerOfLastCall()).toBe('caller-service');
+    });
+
+    // "건드리지 않고 그대로 보낸다" — 헤더를 다시 만들어 넘기지도 않는다.
+    test('1) 이미 실려 있으면 요청을 그대로 넘긴다', async () => {
+      const init = { headers: { [SERVICE_NAME_HEADER]: 'caller-service' } };
+
+      await window.fetch('/api/transactionmetadata', init);
+
+      const [, sentInit] = lastCall() as unknown as [RequestInfo | URL, RequestInit | undefined];
+      expect(sentInit).toBe(init);
+    });
+
+    test('2) 실린 값이 없으면 경로의 serviceName이 전역 선택값을 이긴다', async () => {
+      await window.fetch('/api/transactionmetadata');
+
+      expect(headerOfLastCall()).toBe('path-service');
+    });
+
+    test('3) 경로에도 없으면 전역 선택값으로 나간다', async () => {
+      window.history.replaceState({}, '', '/serverMap/app-name@TOMCAT');
+
+      await window.fetch('/api/transactionmetadata');
+
+      expect(headerOfLastCall()).toBe('global-service');
+    });
+
+    // 설정이 꺼져 있으면 인터셉터는 아무 것도 하지 않는다. 실린 헤더를 지우지도 않는다.
+    test('설정이 꺼져 있어도 이미 실린 값은 그대로 나간다', async () => {
+      store.set(configurationAtom, configWithServiceMap(false));
+
+      await window.fetch('/api/transactionmetadata', {
+        headers: { [SERVICE_NAME_HEADER]: 'caller-service' },
+      });
+
+      expect(headerOfLastCall()).toBe('caller-service');
+    });
+  });
+
+  test.each([
+    ['/serverMap/app-name@TOMCAT?from=1&to=2'],
+    ['/serverMap/realtime/app-name@TOMCAT'],
+    ['/serviceMap/app-name@TOMCAT?from=1&to=2'],
+    ['/inspector/app-name@TOMCAT'],
+    ['/config/general'],
+  ])('adds the header on every page when enableServiceMap is on: %s', async (pathname) => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+    window.history.replaceState({}, '', pathname);
+
+    await window.fetch('/api/agents/search-application');
+
+    expect(headerOfLastCall()).toBe('my-service');
+  });
+
+  test('sends the service name carried by the transactionList path, not the selected one', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+    window.history.replaceState({}, '', '/transactionList/url-service/app-name@TOMCAT?from=1&to=2');
+
+    await window.fetch('/api/transactionmetadata');
+
+    expect(headerOfLastCall()).toBe('url-service');
+  });
+
+  test('falls back to the selected service on a legacy transactionList path', async () => {
+    store.set(configurationAtom, configWithServiceMap(true));
+    store.set(selectedServiceAtom, 'my-service');
+    window.history.replaceState({}, '', '/transactionList/app-name@TOMCAT?from=1&to=2');
+
+    await window.fetch('/api/transactionmetadata');
+
+    expect(headerOfLastCall()).toBe('my-service');
+  });
+
+  describe('getRequestService', () => {
+    beforeEach(() => {
+      store.set(configurationAtom, configWithServiceMap(true));
+      store.set(selectedServiceAtom, 'my-service');
+    });
+
+    // 규칙의 2·3단계. 경로에 serviceName이 실려 있으면 그것이 전역 선택값을 이기고(URL이 진실의
+    // 원천이다), 아직 싣지 않는 화면에서는 전역 선택값으로 폴백한다. ServerMap도 예외가 아니다 —
+    // 헤더가 전역 선택값으로 나가므로 캐시 키도 같은 값에서 파생돼야 한다.
+    test.each([
+      ['/serviceMap/app-name@TOMCAT', 'my-service'],
+      ['/transactionList/url-service/app-name@TOMCAT', 'url-service'],
+      // 첫 세그먼트가 `{app}@{type}`으로 파싱되면 serviceName이 아니다.
+      ['/inspector/svc@app-name@TOMCAT', 'my-service'],
+      ['/serverMap/app-name@TOMCAT', 'my-service'],
+    ])('resolves the service of %s to %s', (pathname, expected) => {
+      window.history.replaceState({}, '', pathname);
+
+      expect(getRequestService()).toBe(expected);
+    });
+
+    test('falls back to DEFAULT when nothing carries a service', () => {
+      store.set(selectedServiceAtom, '');
+      window.history.replaceState({}, '', '/serverMap/app-name@TOMCAT');
+
+      expect(getRequestService()).toBe('DEFAULT');
+    });
+
+    // 설정이 꺼져 있으면 service 개념 자체가 없다. 헤더도, 캐시 키의 service 차원도 없어야 한다.
+    test('is undefined when enableServiceMap is off', () => {
+      store.set(configurationAtom, configWithServiceMap(false));
+      window.history.replaceState({}, '', '/serviceMap/blogService/app-name@TOMCAT');
+
+      expect(getRequestService()).toBeUndefined();
+    });
+  });
+});

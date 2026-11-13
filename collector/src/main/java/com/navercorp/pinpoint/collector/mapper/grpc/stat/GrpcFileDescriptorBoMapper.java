@@ -17,6 +17,7 @@
 package com.navercorp.pinpoint.collector.mapper.grpc.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatBo;
+import com.navercorp.pinpoint.common.server.bo.stat.DataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.FileDescriptorBo;
 import com.navercorp.pinpoint.grpc.trace.PAgentStat;
 import com.navercorp.pinpoint.grpc.trace.PFileDescriptor;
@@ -28,18 +29,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class GrpcFileDescriptorBoMapper implements GrpcStatMapper {
 
-    public FileDescriptorBo map(final PFileDescriptor tOpenFileDescriptor) {
-        final FileDescriptorBo fileDescriptorBo = new FileDescriptorBo();
-        fileDescriptorBo.setOpenFileDescriptorCount(tOpenFileDescriptor.getOpenFileDescriptorCount());
-        return fileDescriptorBo;
+    public FileDescriptorBo map(DataPoint point, final PFileDescriptor tOpenFileDescriptor) {
+        return new FileDescriptorBo(point,
+                tOpenFileDescriptor.getOpenFileDescriptorCount());
     }
 
     @Override
     public void map(AgentStatBo.Builder.StatBuilder builder, PAgentStat agentStat) {
         if (agentStat.hasFileDescriptor()) {
             final PFileDescriptor fileDescriptor = agentStat.getFileDescriptor();
-            final FileDescriptorBo fileDescriptorBo = this.map(fileDescriptor);
-            builder.addFileDescriptor(fileDescriptorBo);
+            DataPoint point = builder.getDataPoint();
+            final FileDescriptorBo fileDescriptorBo = this.map(point, fileDescriptor);
+            builder.addPoint(fileDescriptorBo);
         }
     }
 }

@@ -1,0 +1,143 @@
+import * as React from 'react';
+import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
+
+import { cn } from '../../lib/utils';
+import { buttonVariants } from '../../components/ui/button';
+
+const AlertDialog = AlertDialogPrimitive.Root;
+
+const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+
+const AlertDialogPortal = AlertDialogPrimitive.Portal;
+
+const AlertDialogOverlay = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay> & {
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Overlay>>;
+}) => (
+  <AlertDialogPrimitive.Overlay
+    className={cn(
+      'fixed inset-0 z-popup bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      className,
+    )}
+    {...props}
+    ref={ref}
+  />
+);
+AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
+
+const AlertDialogContent = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content> & {
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Content>>;
+}) => (
+  // 중앙 정렬(`translate-x/y-[-50%]`)은 Tailwind 4 에서 `translate` 속성을 쓰고,
+  // tailwindcss-animate 의 키프레임은 `transform` 을 쓴다. 서로 다른 속성이라 합산되므로
+  // 정렬을 상쇄하려던 `slide-*-left-1/2`/`-[48%]` 를 두면 창 하나 너비만큼 옆에서 날아온다.
+  // (3 까지는 둘 다 `transform` 이라 키프레임이 정렬을 덮어썼다.) 지금은 fade + zoom 만 쓴다.
+  <AlertDialogPortal>
+    <AlertDialogOverlay />
+    <AlertDialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        'fixed left-[50%] top-[50%] z-popup grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg',
+        className,
+      )}
+      {...props}
+    />
+  </AlertDialogPortal>
+);
+AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
+
+const AlertDialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('flex flex-col space-y-2 text-center sm:text-left', className)} {...props} />
+);
+AlertDialogHeader.displayName = 'AlertDialogHeader';
+
+const AlertDialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+    {...props}
+  />
+);
+AlertDialogFooter.displayName = 'AlertDialogFooter';
+
+const AlertDialogTitle = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Title> & {
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Title>>;
+}) => (
+  <AlertDialogPrimitive.Title
+    ref={ref}
+    className={cn('text-lg font-semibold', className)}
+    {...props}
+  />
+);
+AlertDialogTitle.displayName = AlertDialogPrimitive.Title.displayName;
+
+const AlertDialogDescription = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Description> & {
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Description>>;
+}) => (
+  <AlertDialogPrimitive.Description
+    ref={ref}
+    className={cn('text-sm text-muted-foreground', className)}
+    {...props}
+  />
+);
+AlertDialogDescription.displayName = AlertDialogPrimitive.Description.displayName;
+
+const AlertDialogAction = ({
+  className,
+  buttonVariant,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action> & {
+  buttonVariant?: Parameters<typeof buttonVariants>[0];
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Action>>;
+}) => (
+  <AlertDialogPrimitive.Action
+    ref={ref}
+    className={cn(buttonVariants(buttonVariant), className)}
+    {...props}
+  />
+);
+AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName;
+
+const AlertDialogCancel = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel> & {
+  ref?: React.Ref<React.ElementRef<typeof AlertDialogPrimitive.Cancel>>;
+}) => (
+  <AlertDialogPrimitive.Cancel
+    ref={ref}
+    className={cn(buttonVariants({ variant: 'outline' }), 'mt-2 sm:mt-0', className)}
+    {...props}
+  />
+);
+AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName;
+
+export {
+  AlertDialog,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+};

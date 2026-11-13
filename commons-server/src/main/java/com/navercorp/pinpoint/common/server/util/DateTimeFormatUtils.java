@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAccessor;
 import java.util.Objects;
 
 /**
@@ -39,6 +40,10 @@ public class DateTimeFormatUtils {
     public static final String SIMPLE_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     private static final DateTimeFormatter SIMPLE_DATE_FORMATTER = DateTimeFormatter.ofPattern(SIMPLE_DATE_FORMAT).withZone(DEFAULT_ZONE_ID);
 
+    public static final String DATE_FORMAT_YYYYMMDD = "yyyyMMdd";
+    private static final DateTimeFormatter YYYYMMDD_DATE_FORMATTER = DateTimeFormatter.ofPattern(DATE_FORMAT_YYYYMMDD).withZone(DEFAULT_ZONE_ID);
+
+
     public static final String ABSOLUTE_DATE_FORMAT = "HH:mm:ss SSS";
     private static final DateTimeFormatter ABSOLUTE_DATE_FORMATTER = DateTimeFormatter.ofPattern(ABSOLUTE_DATE_FORMAT).withZone(DEFAULT_ZONE_ID);
 
@@ -46,7 +51,7 @@ public class DateTimeFormatUtils {
      * Date pattern : {@value DEFAULT_DATE_FORMAT}
      */
     public static String format(long epochMillis) {
-        return format0(DEFAULT_DATE_FORMATTER, epochMillis);
+        return format0(DEFAULT_DATE_FORMATTER, toInstant(epochMillis));
     }
 
 
@@ -60,7 +65,16 @@ public class DateTimeFormatUtils {
      * Date pattern : {@value SIMPLE_DATE_FORMAT}
      */
     public static String formatSimple(long epochMillis) {
-        return format0(SIMPLE_DATE_FORMATTER, epochMillis);
+        return format0(SIMPLE_DATE_FORMATTER, toInstant(epochMillis));
+    }
+
+    public static String formatSimple(TemporalAccessor temporalAccessor) {
+        Objects.requireNonNull(temporalAccessor, "temporalAccessor");
+        return format0(SIMPLE_DATE_FORMATTER, temporalAccessor);
+    }
+
+    public static String formatSimpleYYYYMMDD(long epochMillis) {
+        return format0(YYYYMMDD_DATE_FORMATTER, toInstant(epochMillis));
     }
 
     public static long parseSimple(String dateSource) throws DateTimeParseException {
@@ -72,12 +86,15 @@ public class DateTimeFormatUtils {
      * Date pattern : {@value ABSOLUTE_DATE_FORMAT}
      */
     public static String formatAbsolute(long epochMillis) {
-        return format0(ABSOLUTE_DATE_FORMATTER, epochMillis);
+        return format0(ABSOLUTE_DATE_FORMATTER, toInstant(epochMillis));
     }
 
-    private static String format0(DateTimeFormatter formatter, long epochMillis) {
-        final Instant instant = Instant.ofEpochMilli(epochMillis);
-        return formatter.format(instant);
+    private static Instant toInstant(long epochMillis) {
+        return Instant.ofEpochMilli(epochMillis);
+    }
+
+    private static String format0(DateTimeFormatter formatter, TemporalAccessor temporalAccessor) {
+        return formatter.format(temporalAccessor);
     }
 
     private static long parse0(DateTimeFormatter formatter, String dateSource) {

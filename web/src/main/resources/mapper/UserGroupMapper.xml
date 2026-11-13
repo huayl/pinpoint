@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 
-<mapper namespace="com.navercorp.pinpoint.web.dao.UserGroupDao">
+<mapper namespace="com.navercorp.pinpoint.user.dao.UserGroupDao">
 
 	<insert id="insertUserGroup" parameterType="UserGroup" useGeneratedKeys="true" keyProperty="number">
         INSERT INTO user_group (id)
@@ -37,6 +37,14 @@
         )
     </select>
 
+    <select id="isExistUserGroupMember" resultType="java.lang.Boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM user_group_member
+            WHERE member_id = #{memberId} AND user_group_id = #{userGroupId}
+        )
+    </select>
+
     <delete id="deleteUserGroup" parameterType="UserGroup">
         DELETE
         FROM user_group
@@ -64,6 +72,12 @@
         DELETE
         FROM user_group_member
         WHERE user_group_id = #{userGroupId}
+    </delete>
+
+    <delete id="deleteMemberByMemberId">
+        DELETE
+        FROM user_group_member
+        WHERE member_id = #{memberId}
     </delete>
     
     <select id="selectMemberList" resultType="UserGroupMember">
@@ -117,4 +131,9 @@
         )
     </select>
 
+    <delete id="deleteRuleByUserGroupId" parameterType="string">
+        DELETE
+        FROM alarm_rule
+        WHERE user_group_id = #{userGroupId}
+    </delete>
 </mapper>
